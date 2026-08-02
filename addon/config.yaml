@@ -2,7 +2,7 @@ name: Energy Hub
 version: "1.0.2"
 slug: energy_hub
 description: Local home energy management for PowMr PI30MAX and Home Assistant
-url: https://github.com/SKrav69/EnergyHub
+url: https://github.com/serhiykravchenko-sys/EnergyHub
 
 arch:
   - aarch64
