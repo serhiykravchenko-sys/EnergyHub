@@ -58,4 +58,4 @@ Do not delete the app's `/data` directory during a normal upgrade.
 - Grid Import is estimated and not billing-grade;
 - the 07:00 Solar restoration depends on Home Assistant scheduling.
 
-Full documentation: <https://github.com/SKrav69/EnergyHub/blob/main/docs/INSTALLATION.md>
+Full documentation: <https://github.com/serhiykravchenko-sys/EnergyHub/blob/main/docs/INSTALLATION.md>
