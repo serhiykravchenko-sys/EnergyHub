@@ -467,11 +467,42 @@ Release result:
 
 ```text
 EnergyHub 1.0.2
-→ release-ready
+→ tagged and released
 → validated on the real installation
-→ ready for v1.0.2 tag and GitHub release
+→ stable compatibility baseline for EnergyHub 1.x
 ```
 
 Architectural result:
 
 > EnergyHub 1.0 became not only functionally complete, but reproducibly buildable, test-gated, restart-safe, and installable from documented public defaults.
+
+---
+
+# August 2026 — EnergyHub 1.x Development Start
+
+EnergyHub 1.0.2 was tagged, released, and tested. Development then moved to the `SKrav69/EnergyHub` repository while the stable public distribution repository remained unchanged.
+
+The initial 1.1 sequence was agreed as:
+
+1. align the 1.x development documentation;
+2. configure Zigbee2MQTT with the SONOFF ZBDongle-E;
+3. pair and validate two Zigbee smart plugs;
+4. build a bounded Smart Thermal Load Controller prototype.
+
+During implementation, issue 4 was deliberately narrowed to dashboards, timers, consumption history, and reserve-only OFF guards. Automatic starts and Smart Thermal ownership moved to 1.5. The final 1.1 scope preserves the proven inverter strategies and never turns a protected thermal load on.
+
+The first two Zigbee smart plugs were paired for the first- and second-floor heat pumps, with their validation records kept in the 1.x development plan. Mission Control initially gained consistent six-card controls and matching manual auto-off behavior across all three floors while the existing third-floor Xiaomi plug remained unchanged. After dedicated Heat Pumps and Water Systems views were added, the floor controls moved into Heat Pumps with electrical and consumption data, leaving Mission Control focused on whole-house operation.
+
+At 21:30 on 2026-08-02, an Ember `ASH_ERROR_TIMEOUTS` transaction failure stopped Zigbee2MQTT while the Home Assistant app Watchdog was disabled. At 17:29 on 2026-08-03, an attended manual Start recovered the coordinator, the same Zigbee network, both paired devices and states, MQTT, availability, and Home Assistant discovery without re-pairing or an observed relay command. Watchdog was enabled only after that recovery.
+
+Second-floor Offline-to-Online availability and safe OFF power recovery passed. A later Home Assistant restart retained both devices Online; the first-floor plug remained ON and its heat pump continued cooling. First-floor compressor ramp-up telemetry arrived asynchronously, with a stabilized example of 804 W, 3.37 A, and 226 V. These readings and the observed second-floor measurements are trend data, not reference-meter calibration, electrical-protection inputs, or proof of heat-pump suitability.
+
+The incident established a stricter recovery rule for future automation because last-known electrical telemetry may remain stale across an outage. Automatic Smart Thermal control must wait for fresh post-recovery inputs and safe ownership reconstruction, not merely an online availability state. Ember failure diagnosis, bounded recovery, and heat-pump nameplate verification remain pending.
+
+On 2026-08-05, a second Ember incident reset ASH but failed to start the EZSP layer with `HOST_FATAL_ERROR`. Zigbee2MQTT exited while its Home Assistant app Watchdog was enabled, and no autonomous recovery was observed. This moved bridge/app monitoring and bounded recovery from an untested resilience question to active high-priority work.
+
+On 2026-08-06 at 07:30, a third incident was captured from a healthy bridge through recovery. A `SEND_UNICAST` transaction failed with `ASH_ERROR_TIMEOUTS`; the bridge published offline and stopped cleanly. Supervisor Watchdog launched ten app restarts through 07:35. Each restart opened the serial port and attempted five ASH resets, but the NCP never completed startup and every run ended with `HOST_FATAL_ERROR`. The crash loop then stopped. An attended manual Start at 11:51 connected on its second ASH reset and resumed the same coordinator network, both devices and ON relay states, MQTT, availability, and fresh reports without re-pairing or an observed relay toggle. This proved that Watchdog restart attempts occurred but were insufficient while the Ember NCP remained unresponsive.
+
+On 2026-08-06, an apparently stale EnergyHub beacon color was traced to expired authentication for the Tuya Wi-Fi integration. Home Assistant Repairs exposed the reauthentication requirement, and attended confirmation through the Tuya app restored lamp control. The EnergyHub automation had calculated the correct color, demonstrating that policy correctness, integration health, and physical command delivery are separate observability layers.
+
+The first colder-season policy follow-up was also defined as Adaptive Night Hybrid: project SOC through the expected start of useful solar, enter Grid Hold before protected reserve is crossed, and return to Solar only after useful generation is confirmed. The design remains pending and will preserve the released 1.0.2 behavior until implemented behind tests and staged validation.

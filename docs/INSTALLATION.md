@@ -1,10 +1,10 @@
 # EnergyHub Installation and Upgrade
 
-This document covers EnergyHub 1.0.2.
+This document covers EnergyHub 1.1.0.
 
 ## Supported environment
 
-EnergyHub 1.0.2 requires:
+EnergyHub 1.1.0 requires:
 
 - Home Assistant OS with Supervisor/Apps;
 - `aarch64` hardware;
@@ -99,7 +99,7 @@ A healthy startup includes lines similar to:
 
 ```text
 [Energy Hub] Starting...
-[Energy Hub] Version 1.0.2
+[Energy Hub] Version 1.1.0
 Serial: /dev/serial/by-id/usb-FTDI_...
 MQTT connected
 OK | SOC=... | PV1=... | Load=... | Grid=online | Published=17
@@ -125,10 +125,10 @@ Review the files before copying them to another Home Assistant installation. The
 
 ## Local development deployment
 
-The reference development workflow uses:
+The reference add-on development workflow uses:
 
 ```powershell
-.\deploy-to-ha.ps1
+.\tools\dev\deploy-to-ha.ps1 -Scope Addon
 ```
 
 The deployment script mirrors the local repository's `addon/` directory into the Home Assistant local app directory. After deployment:
@@ -139,6 +139,8 @@ The deployment script mirrors the local repository's `addon/` directory into the
 4. inspect the app log.
 
 The Docker build runs all release tests. A failed test stops the rebuild.
+
+Home Assistant YAML and selected `.storage` deployment is a separate scope. See [Home Assistant Configuration](12-HomeAssistant-Configuration.md#development-deployment) for guarded commands and post-deploy actions. Never copy `.storage` while HA Core is running.
 
 ## Watching the build log
 
@@ -151,7 +153,7 @@ Settings → System → Logs
 Select **Supervisor** as the source. A successful rebuild ends with:
 
 ```text
-Build local/aarch64-addon-energy_hub:1.0.2 done
+Build local/aarch64-addon-energy_hub:1.1.0 done
 App 'local_energy_hub' successfully rebuilt
 ```
 
@@ -180,7 +182,7 @@ The app's `/data` directory is managed by Home Assistant and is not part of the 
 
 EnergyHub does not configure or control a Zigbee coordinator.
 
-A SONOFF ZBDongle-E may remain connected during EnergyHub operation. Use its own persistent `by-id` path later in ZHA or Zigbee2MQTT. Do not allow ZHA and Zigbee2MQTT to claim the same coordinator simultaneously.
+A SONOFF ZBDongle-E may remain connected during EnergyHub operation. The reference 1.1 installation assigns its own persistent `by-id` path exclusively to Zigbee2MQTT; ZHA must not claim the same coordinator. See [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
 
 For radio reliability, a USB 2.0 port or USB extension cable is generally preferable for a 2.4 GHz Zigbee coordinator. This placement does not affect EnergyHub's FTDI serial selection.
 

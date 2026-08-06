@@ -4,7 +4,7 @@
 
 This document maps the current implementation to runtime responsibilities. It is intended for developers who need to modify, test, or reconstruct EnergyHub.
 
-![Technical architecture](Images/Infographic%232_details.png)
+![Technical architecture](Images/Infographic%E2%84%962_details.png)
 
 ## Runtime entry point
 

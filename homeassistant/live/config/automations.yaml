@@ -85,17 +85,17 @@
               - 128
               - 0
               - 32
-          - delay: 00:00:02
+          - delay: 00:00:01
           - action: light.turn_on
             target:
               entity_id: light.colorful_pir_night_light
             data:
-              brightness_pct: 50
+              brightness_pct: 80
               rgb_color:
               - 128
               - 0
               - 32
-          - delay: 00:00:02
+          - delay: 00:00:01
     - conditions:
       - condition: template
         value_template: '{{ telemetry_ok and soc >= 30 and not grid_available }}
@@ -171,6 +171,158 @@
       }}'
     surplus: '{{ [0, forecast - consumption] | max | round(1) }}'
   mode: single
+- id: '1784300000101'
+  alias: EnergyHub - Floor 1 Heat Pump Auto Off
+  description: Auto-off timer for the 1st floor heat pump plug
+  triggers:
+  - entity_id: switch.first_floor_heat_pump_plug
+    to: 'on'
+    id: pump_on
+    trigger: state
+  - entity_id: switch.first_floor_heat_pump_plug
+    to: 'off'
+    id: pump_off
+    trigger: state
+  - entity_id: input_number.input_number_floor1_heat_pump_timer_hours
+    id: timer_changed
+    trigger: state
+  - event_type: timer.finished
+    event_data:
+      entity_id: timer.floor_1_heat_pump_auto_off
+    id: timer_finished
+    trigger: event
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.id in [''pump_on'', ''timer_changed''] }}
+
+          '
+      - condition: state
+        entity_id: switch.first_floor_heat_pump_plug
+        state: 'on'
+      - condition: template
+        value_template: "{{\n  states(\n    'input_number.input_number_floor1_heat_pump_timer_hours'\n
+          \ ) | int(0) > 0\n}}\n"
+      sequence:
+      - target:
+          entity_id: timer.floor_1_heat_pump_auto_off
+        data:
+          duration: "{{\n  '%02d:00:00' %\n  (\n    states(\n      'input_number.input_number_floor1_heat_pump_timer_hours'\n
+            \   ) | int(0)\n  )\n}}\n"
+        action: timer.start
+    - conditions:
+      - condition: trigger
+        id: timer_changed
+      - condition: template
+        value_template: "{{\n  states(\n    'input_number.input_number_floor1_heat_pump_timer_hours'\n
+          \ ) | int(0) == 0\n}}\n"
+      sequence:
+      - target:
+          entity_id: timer.floor_1_heat_pump_auto_off
+        action: timer.cancel
+    - conditions:
+      - condition: trigger
+        id: pump_off
+      sequence:
+      - target:
+          entity_id: timer.floor_1_heat_pump_auto_off
+        action: timer.cancel
+      - target:
+          entity_id: input_number.input_number_floor1_heat_pump_timer_hours
+        data:
+          value: 0
+        action: input_number.set_value
+    - conditions:
+      - condition: trigger
+        id: timer_finished
+      sequence:
+      - target:
+          entity_id: switch.first_floor_heat_pump_plug
+        action: switch.turn_off
+      - target:
+          entity_id: input_number.input_number_floor1_heat_pump_timer_hours
+        data:
+          value: 0
+        action: input_number.set_value
+  mode: restart
+- id: '1784300000102'
+  alias: EnergyHub - Floor 2 Heat Pump Auto Off
+  description: Auto-off timer for the 2nd floor heat pump plug
+  triggers:
+  - entity_id: switch.second_floor_heat_pump_plug
+    to: 'on'
+    id: pump_on
+    trigger: state
+  - entity_id: switch.second_floor_heat_pump_plug
+    to: 'off'
+    id: pump_off
+    trigger: state
+  - entity_id: input_number.input_number_floor2_heat_pump_timer_hours
+    id: timer_changed
+    trigger: state
+  - event_type: timer.finished
+    event_data:
+      entity_id: timer.floor_2_heat_pump_auto_off
+    id: timer_finished
+    trigger: event
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.id in [''pump_on'', ''timer_changed''] }}
+
+          '
+      - condition: state
+        entity_id: switch.second_floor_heat_pump_plug
+        state: 'on'
+      - condition: template
+        value_template: "{{\n  states(\n    'input_number.input_number_floor2_heat_pump_timer_hours'\n
+          \ ) | int(0) > 0\n}}\n"
+      sequence:
+      - target:
+          entity_id: timer.floor_2_heat_pump_auto_off
+        data:
+          duration: "{{\n  '%02d:00:00' %\n  (\n    states(\n      'input_number.input_number_floor2_heat_pump_timer_hours'\n
+            \   ) | int(0)\n  )\n}}\n"
+        action: timer.start
+    - conditions:
+      - condition: trigger
+        id: timer_changed
+      - condition: template
+        value_template: "{{\n  states(\n    'input_number.input_number_floor2_heat_pump_timer_hours'\n
+          \ ) | int(0) == 0\n}}\n"
+      sequence:
+      - target:
+          entity_id: timer.floor_2_heat_pump_auto_off
+        action: timer.cancel
+    - conditions:
+      - condition: trigger
+        id: pump_off
+      sequence:
+      - target:
+          entity_id: timer.floor_2_heat_pump_auto_off
+        action: timer.cancel
+      - target:
+          entity_id: input_number.input_number_floor2_heat_pump_timer_hours
+        data:
+          value: 0
+        action: input_number.set_value
+    - conditions:
+      - condition: trigger
+        id: timer_finished
+      sequence:
+      - target:
+          entity_id: switch.second_floor_heat_pump_plug
+        action: switch.turn_off
+      - target:
+          entity_id: input_number.input_number_floor2_heat_pump_timer_hours
+        data:
+          value: 0
+        action: input_number.set_value
+  mode: restart
 - id: '1783103977336'
   alias: EnergyHub - Floor 3 Heat Pump Auto Off
   description: Auto-off timer for the 3rd floor heat pump plug
@@ -477,3 +629,560 @@
             Decision reason: {{ reason }}'
   mode: queued
   max: 10
+- id: '1786023000001'
+  alias: EnergyHub - Water Boiler Reserve Shed
+  description: Turns the water boiler off once when fresh battery SOC reaches 50%.
+    A later ON request remains allowed until the emergency lockout activates.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 51
+  conditions:
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: state
+    entity_id: switch.chuangmi_212a01_c91f_switch
+    state: 'on'
+  actions:
+  - action: switch.turn_off
+    continue_on_error: true
+    target:
+      entity_id: switch.chuangmi_212a01_c91f_switch
+  - delay:
+      seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Water boiler reserve shed
+      notification_id: energyhub_water_boiler_reserve_shed
+      message: >-
+        Battery SOC reached {{ states('sensor.powmr_10_2m_battery_soc') }}%.
+        EnergyHub requested boiler OFF. Current plug state:
+        {{ states('switch.chuangmi_212a01_c91f_switch') }}. An ON request is allowed
+        above 40%; at 40% a lockout remains active until SOC reaches 60%.
+  mode: single
+- id: '1786023000002'
+  alias: EnergyHub - Water Boiler Critical SOC Lockout
+  description: Latches the boiler lockout at 40% SOC and requests OFF only while
+    EnergyHub telemetry is fresh.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 41
+    id: critical_soc
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
+  - trigger: homeassistant
+    event: start
+    id: startup
+  actions:
+  - if:
+    - condition: trigger
+      id: startup
+    then:
+    - delay:
+        seconds: 10
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 41
+  - action: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.energyhub_water_boiler_soc_lockout
+  - if:
+    - condition: state
+      entity_id: switch.chuangmi_212a01_c91f_switch
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.chuangmi_212a01_c91f_switch
+    - delay:
+        seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Water boiler locked
+      notification_id: energyhub_water_boiler_soc_lockout
+      message: >-
+        Battery SOC is {{ states('sensor.powmr_10_2m_battery_soc') }}%.
+        The boiler is locked OFF until fresh SOC reaches 60%. Current plug state:
+        {{ states('switch.chuangmi_212a01_c91f_switch') }}.
+  mode: restart
+- id: '1786023000003'
+  alias: EnergyHub - Enforce Water Boiler SOC Lockout
+  description: Rejects boiler ON requests while the 40% SOC lockout is latched.
+  triggers:
+  - trigger: state
+    entity_id: switch.chuangmi_212a01_c91f_switch
+    to: 'on'
+  conditions:
+  - condition: state
+    entity_id: input_boolean.energyhub_water_boiler_soc_lockout
+    state: 'on'
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  actions:
+  - action: switch.turn_off
+    continue_on_error: true
+    target:
+      entity_id: switch.chuangmi_212a01_c91f_switch
+  - delay:
+      seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Water boiler ON rejected
+      notification_id: energyhub_water_boiler_soc_lockout
+      message: >-
+        The boiler SOC lockout is active. Battery SOC is
+        {{ states('sensor.powmr_10_2m_battery_soc') }}%; unlock requires fresh SOC
+        of at least 60%. Current plug state:
+        {{ states('switch.chuangmi_212a01_c91f_switch') }}.
+  mode: restart
+- id: '1786023000004'
+  alias: EnergyHub - Clear Water Boiler SOC Lockout
+  description: Clears the latched boiler lockout at 60% fresh SOC without turning
+    the boiler on.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    above: 59
+    id: recovered_soc
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
+  - trigger: homeassistant
+    event: start
+    id: startup
+  actions:
+  - if:
+    - condition: trigger
+      id: startup
+    then:
+    - delay:
+        seconds: 10
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    above: 59
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.energyhub_water_boiler_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_water_boiler_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_water_boiler_reserve_shed
+  mode: restart
+- id: '1786023000011'
+  alias: EnergyHub - Heat Pump Reserve Shed
+  description: In the conservative grid policy, requests all running heat-pump
+    plugs OFF once when fresh battery SOC reaches 80% or the grid becomes untrusted.
+    Fully trusted grid operation skips this action.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 81
+    id: soc_at_80
+  - trigger: state
+    entity_id: sensor.energyhub_grid_confidence
+    id: confidence_changed
+  - trigger: numeric_state
+    entity_id: sensor.energyhub_grid_availability_24h
+    below: 100
+    id: availability_24h_degraded
+  - trigger: numeric_state
+    entity_id: sensor.energyhub_grid_available_48h
+    below: 48
+    id: availability_48h_degraded
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_grid_voltage
+    below: 50
+    id: current_grid_lost
+  conditions:
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 81
+  - condition: template
+    value_template: >-
+      {% if trigger.id == 'soc_at_80' %}
+        {{ trigger.from_state is not none
+           and trigger.from_state.state | float(-1) > 80 }}
+      {% else %}
+        {{ trigger.from_state is not none
+           and trigger.from_state.state not in ['unknown', 'unavailable'] }}
+      {% endif %}
+  - condition: template
+    value_template: >-
+      {{ not (
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
+        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
+        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      ) }}
+  actions:
+  - if:
+    - condition: state
+      entity_id: switch.first_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.first_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.second_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.second_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.chuangmi_212a01_ea40_switch
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.chuangmi_212a01_ea40_switch
+  - delay:
+      seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Heat-pump reserve shed
+      notification_id: energyhub_heat_pump_reserve_shed
+      message: >-
+        Battery SOC reached {{ states('sensor.powmr_10_2m_battery_soc') }}%.
+        Grid Confidence is {{ states('sensor.energyhub_grid_confidence') }} with
+        {{ states('sensor.energyhub_grid_availability_24h') }}% availability over
+        24 hours and {{ states('sensor.energyhub_grid_available_48h') }} available
+        hours over 48 hours. EnergyHub requested all running heat pumps OFF.
+        Observed states: floor 1
+        {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
+        {{ states('switch.second_floor_heat_pump_plug') }}, floor 3
+        {{ states('switch.chuangmi_212a01_ea40_switch') }}. Manual overrides remain
+        possible above the staged thresholds and the 50% global lockout.
+  mode: single
+- id: '1786023000012'
+  alias: EnergyHub - Heat Pump Manual Override Sheds
+  description: Sheds the floor-2 manual override at 70% and floor-1 manual override
+    at 60%. Floor 3 is protected until the 50% global lockout.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 71
+    id: floor_2_at_70
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 61
+    id: floor_1_at_60
+  conditions:
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: template
+    value_template: >-
+      {{ not (
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
+        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
+        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      ) }}
+  - condition: template
+    value_template: >-
+      {% if trigger.id == 'floor_2_at_70' %}
+        {{ trigger.from_state is not none
+           and trigger.from_state.state | float(-1) > 70 }}
+      {% else %}
+        {{ trigger.from_state is not none
+           and trigger.from_state.state | float(-1) > 60 }}
+      {% endif %}
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: floor_2_at_70
+      - condition: state
+        entity_id: switch.second_floor_heat_pump_plug
+        state: 'on'
+      sequence:
+      - action: switch.turn_off
+        continue_on_error: true
+        target:
+          entity_id: switch.second_floor_heat_pump_plug
+      - delay:
+          seconds: 3
+      - action: persistent_notification.create
+        data:
+          title: EnergyHub - Floor 2 heat pump shed
+          notification_id: energyhub_heat_pump_floor_2_shed
+          message: >-
+            Battery SOC reached
+            {{ states('sensor.powmr_10_2m_battery_soc') }}%. EnergyHub requested
+            the floor 2 heat pump OFF. Observed state:
+            {{ states('switch.second_floor_heat_pump_plug') }}. Another manual ON
+            request remains possible above the 50% global lockout.
+    - conditions:
+      - condition: trigger
+        id: floor_1_at_60
+      - condition: state
+        entity_id: switch.first_floor_heat_pump_plug
+        state: 'on'
+      sequence:
+      - action: switch.turn_off
+        continue_on_error: true
+        target:
+          entity_id: switch.first_floor_heat_pump_plug
+      - delay:
+          seconds: 3
+      - action: persistent_notification.create
+        data:
+          title: EnergyHub - Floor 1 heat pump shed
+          notification_id: energyhub_heat_pump_floor_1_shed
+          message: >-
+            Battery SOC reached
+            {{ states('sensor.powmr_10_2m_battery_soc') }}%. EnergyHub requested
+            the floor 1 heat pump OFF. Observed state:
+            {{ states('switch.first_floor_heat_pump_plug') }}. Another manual ON
+            request remains possible above the 50% global lockout.
+  mode: queued
+  max: 2
+- id: '1786023000013'
+  alias: EnergyHub - Heat Pump Critical SOC Lockout
+  description: At 50% fresh SOC, latches the global heat-pump lockout and requests
+    every running heat-pump plug OFF.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 51
+    id: critical_soc
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
+  - trigger: homeassistant
+    event: start
+    id: startup
+  actions:
+  - if:
+    - condition: trigger
+      id: startup
+    then:
+    - delay:
+        seconds: 10
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    below: 51
+  - action: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+  - if:
+    - condition: state
+      entity_id: switch.first_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.first_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.second_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.second_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.chuangmi_212a01_ea40_switch
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.chuangmi_212a01_ea40_switch
+  - delay:
+      seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Heat pumps locked
+      notification_id: energyhub_heat_pump_soc_lockout
+      message: >-
+        {% set trusted_grid =
+          states('sensor.energyhub_grid_confidence') | lower == 'normal'
+          and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
+          and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
+          and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+        %}
+        {% set recovery_soc = 60 if trusted_grid else 90 %}
+        Battery SOC is {{ states('sensor.powmr_10_2m_battery_soc') }}%.
+        All heat pumps are locked OFF until fresh SOC reaches
+        {{ recovery_soc }}% under the current
+        {{ 'fully trusted' if trusted_grid else 'conservative' }} grid policy.
+        Observed states: floor 1
+        {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
+        {{ states('switch.second_floor_heat_pump_plug') }}, floor 3
+        {{ states('switch.chuangmi_212a01_ea40_switch') }}.
+  mode: restart
+- id: '1786023000014'
+  alias: EnergyHub - Enforce Heat Pump SOC Lockout
+  description: Rejects any heat-pump ON request while the 50% global lockout is
+    latched and EnergyHub telemetry is fresh.
+  triggers:
+  - trigger: state
+    entity_id: switch.first_floor_heat_pump_plug
+    to: 'on'
+    id: floor_1
+  - trigger: state
+    entity_id: switch.second_floor_heat_pump_plug
+    to: 'on'
+    id: floor_2
+  - trigger: state
+    entity_id: switch.chuangmi_212a01_ea40_switch
+    to: 'on'
+    id: floor_3
+  conditions:
+  - condition: state
+    entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+    state: 'on'
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: floor_1
+      sequence:
+      - action: switch.turn_off
+        continue_on_error: true
+        target:
+          entity_id: switch.first_floor_heat_pump_plug
+    - conditions:
+      - condition: trigger
+        id: floor_2
+      sequence:
+      - action: switch.turn_off
+        continue_on_error: true
+        target:
+          entity_id: switch.second_floor_heat_pump_plug
+    - conditions:
+      - condition: trigger
+        id: floor_3
+      sequence:
+      - action: switch.turn_off
+        continue_on_error: true
+        target:
+          entity_id: switch.chuangmi_212a01_ea40_switch
+  - delay:
+      seconds: 3
+  - action: persistent_notification.create
+    data:
+      title: EnergyHub - Heat-pump ON rejected
+      notification_id: energyhub_heat_pump_soc_lockout
+      message: >-
+        {% set trusted_grid =
+          states('sensor.energyhub_grid_confidence') | lower == 'normal'
+          and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
+          and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
+          and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+        %}
+        {% set recovery_soc = 60 if trusted_grid else 90 %}
+        The heat-pump SOC lockout is active. Battery SOC is
+        {{ states('sensor.powmr_10_2m_battery_soc') }}%; unlock currently requires
+        fresh SOC of at least {{ recovery_soc }}%. Current observed states: floor 1
+        {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
+        {{ states('switch.second_floor_heat_pump_plug') }}, floor 3
+        {{ states('switch.chuangmi_212a01_ea40_switch') }}.
+  mode: restart
+- id: '1786023000015'
+  alias: EnergyHub - Clear Heat Pump SOC Lockout
+  description: Clears the heat-pump lockout at 60% SOC with a fully trusted grid,
+    or at 90% under the conservative policy, without turning any heat pump on.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    above: 59
+    id: recovered_soc_60
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    above: 89
+    id: recovered_soc_90
+  - trigger: state
+    entity_id: sensor.energyhub_grid_confidence
+    id: confidence_changed
+  - trigger: numeric_state
+    entity_id: sensor.energyhub_grid_availability_24h
+    above: 99.9
+    id: availability_24h_recovered
+  - trigger: numeric_state
+    entity_id: sensor.energyhub_grid_available_48h
+    above: 47.99
+    id: availability_48h_recovered
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_grid_voltage
+    above: 50
+    id: current_grid_recovered
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
+  - trigger: homeassistant
+    event: start
+    id: startup
+  actions:
+  - if:
+    - condition: trigger
+      id: startup
+    then:
+    - delay:
+        seconds: 10
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: template
+    value_template: >-
+      {% set trusted_grid =
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
+        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
+        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      %}
+      {% set recovery_soc = 60 if trusted_grid else 90 %}
+      {{ states('sensor.powmr_10_2m_battery_soc') | float(-1) >= recovery_soc }}
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_reserve_shed
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_floor_2_shed
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_floor_1_shed
+  mode: restart

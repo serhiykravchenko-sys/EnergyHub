@@ -1,12 +1,12 @@
-# EnergyHub 1.0 — Autonomous Home
+# EnergyHub 1.1 — Smart Plug Reserve Guard
 
 EnergyHub is a local-first Home Assistant app that turns a PowMr 10.2M inverter, a 16 kWh battery, solar forecasts, grid history, and Home Assistant inputs into an explainable household energy strategy.
 
-**EnergyHub 1.0.2 is the first release-ready build of EnergyHub 1.0.**
+**EnergyHub 1.1.0 adds monitored smart loads and reserve-only OFF protection while preserving the released and tested EnergyHub 1.0.2 inverter runtime.**
 
 Feature development, the functional audit, dependency pinning, credential hardening, executable release tests, persistent USB serial access, packaging validation, and live restart testing have been completed.
 
-The remaining release step is creation and publication of the `v1.0.2` tag and GitHub release.
+EnergyHub never turns the boiler or heat pumps on in 1.1.0. Automatic Smart Thermal control remains deferred.
 
 See [Installation and Upgrade](docs/INSTALLATION.md), [System Architecture](docs/05-System-Architecture.md), and [Developer Architecture](docs/10-Developer-Architecture.md).
 
@@ -29,7 +29,7 @@ EnergyHub:
 
 ## Supported release platform
 
-EnergyHub 1.0.2 currently targets:
+EnergyHub 1.1.0 currently targets:
 
 - Home Assistant OS with Supervisor/Apps;
 - `aarch64` hardware, validated on Raspberry Pi 4;
@@ -38,7 +38,7 @@ EnergyHub 1.0.2 currently targets:
 - Mosquitto MQTT broker;
 - Home Assistant as the UI, scheduling, integration, and notification layer.
 
-The architecture is designed to become more configurable and vendor-independent in later releases, but 1.0.2 is intentionally hardware-specific.
+The architecture is designed to become more configurable and vendor-independent in later releases, but 1.1.0 remains intentionally installation-specific.
 
 ## Operating strategies
 
@@ -189,7 +189,8 @@ Home Assistant owns:
 - the manual Panic script;
 - persistent notifications;
 - the EnergyHub beacon;
-- household comfort controls and the third-floor auto-off timer;
+- household comfort controls and matching first-, second-, and third-floor auto-off timers;
+- reserve-only water-boiler and heat-pump OFF protection based on fresh SOC and Grid Confidence;
 - dashboards and charts.
 
 EnergyHub owns:
@@ -212,7 +213,7 @@ The Docker image build runs executable standard-library unit tests:
 python3 -m unittest discover -s tests -v
 ```
 
-The 1.0.2 release build validates:
+The inherited 1.0.2 add-on release gate validates:
 
 - Hybrid decision branches;
 - Panic thresholds and evaluation window;
@@ -223,6 +224,8 @@ The 1.0.2 release build validates:
 - safe Solar recovery after a partial transition failure.
 
 Live validation completed on 2026-08-01 included a full Home Assistant host restart with both the inverter FTDI adapter and a SONOFF Zigbee coordinator connected. EnergyHub resumed through the persistent FTDI `by-id` path and reconstructed Solar without unnecessary inverter writes.
+
+EnergyHub 1.1.0 additionally requires Home Assistant `ha core check`, dashboard/entity inspection, and supervised reserve-guard validation because the new smart-plug logic is Home Assistant configuration rather than inverter-runtime Python.
 
 ## Project structure
 
@@ -248,33 +251,29 @@ tools/dev/
   deployment and synchronization scripts
 ```
 
-The Git repository is the project source of truth. The live Home Assistant installation remains the runtime source of truth for synchronized Home Assistant configuration.
+The Git repository is the development source of truth, including the selected Home Assistant configuration under `homeassistant/live/`. The live Home Assistant installation is the runtime instance; intentional UI changes are synchronized back to Git and reviewed before becoming the next baseline.
 
 ## Release status
 
-Completed for EnergyHub 1.0.2:
+The tested EnergyHub 1.0.2 baseline remains unchanged. EnergyHub 1.1.0 adds:
 
-- functional High-priority audit;
-- selected Medium-priority corrections;
-- pinned Python dependencies;
-- public-safe MQTT credential defaults;
-- persistent FTDI serial access through `/dev/serial/by-id`;
-- executable release tests during the Docker image build;
-- Home Assistant rebuild validation;
-- restart validation with the inverter adapter and Zigbee coordinator connected;
-- startup strategy reconstruction without unnecessary inverter writes;
-- installation, upgrade, project-state, roadmap, and release documentation.
+- Zigbee2MQTT/ZBDongle-E setup and two paired heat-pump plugs;
+- matching three-floor manual controls and auto-off timers;
+- dedicated Heat Pumps and Water Systems dashboards with local consumption history;
+- reserve-only water-boiler and grid-confidence-aware heat-pump OFF guards;
+- guarded repository-to-Home-Assistant deployment with backups and dry runs;
+- incident and recovery documentation for the observed Ember failures and Tuya reauthentication.
 
-The codebase is ready for the `v1.0.2` tag and public GitHub release.
+The stable 1.0.2 public baseline remains untouched until the 1.1.0 working tree passes final supervised Home Assistant validation and is explicitly committed.
 
 ## Roadmap
 
-- **1.0 — Autonomous Home:** release-ready milestone, packaged as 1.0.2.
-- **1.1 — Test-drive and Telemetry Robustness:** real-world corrections, Grid Import refinement, anomaly handling, flexible-load groundwork.
+- **1.0 — Autonomous Home:** released and tested as 1.0.2.
+- **1.1 — Smart Plug Reserve Guard:** Zigbee2MQTT groundwork, validated smart plugs, focused dashboards, consumption history, and reserve-only OFF protection; no automatic starts.
 - **1.2 — Configurable EnergyHub:** strategy parameters, profiles, and safe hardware-aware bounds.
 - **1.3 — Recovery & Resilience:** bounded recovery for MQTT, network, serial, `mpp-solar`, and Home Assistant outages.
 - **1.4 — Remote Access & Telegram:** secure remote access, status, alerts, and commands.
-- **1.5 — Smart Thermal Energy:** use surplus solar or cheap-tariff electricity for heating and cooling, independent of occupancy.
+- **1.5 — Smart Thermal Energy:** introduce tested automatic heating and cooling using surplus solar or cheap-tariff electricity, independent of occupancy.
 - **2.x — Energy Optimization:** broader economic and multi-vendor optimization.
 - **3.x — Full HEMS:** whole-home energy management.
 
@@ -288,7 +287,7 @@ See [Roadmap](docs/06-Roadmap.md) and [Backlog](docs/07-Backlog.md).
 - Automatic recovery must remain bounded and observable.
 - Menu 16 is described as ACK-confirmed, not read-back verified.
 - Grid Import is informational and not billing-grade.
-- Future flexible-load logic must stop only loads that EnergyHub started.
+- Automatic Smart Thermal control must stop only loads it started; explicit reserve guards may shed manually started loads only at documented safety thresholds.
 
 ## Documentation index
 
@@ -302,8 +301,10 @@ See [Roadmap](docs/06-Roadmap.md) and [Backlog](docs/07-Backlog.md).
 - [House Model](docs/11-House-Model.md)
 - [Home Assistant Configuration](docs/12-HomeAssistant-Configuration.md)
 - [Recovery Strategy](docs/13-Recovery-Strategy.md)
+- [EnergyHub 1.x Development Plan](docs/14-EnergyHub-1.x-Development.md)
 - [Decision Engine](docs/DECISION_ENGINE.md)
 - [Current Project State](docs/PROJECT_STATE.md)
 - [Project History](docs/PROJECT_HISTORY.md)
-- [PowMr Verified Commands](docs/hardware/POWMR_VERIFIED_COMMANDS.md)
+- [PowMr Verified Commands](docs/hardware/powmr-10-2m-verified-commands.md)
 - [Release Notes 1.0.2](RELEASE_NOTES_1.0.2.md)
+- [Release Notes 1.1.0](RELEASE_NOTES_1.1.0.md)

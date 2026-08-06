@@ -62,20 +62,21 @@ EnergyHub 1.0 controls one PowMr inverter and integrates one Home Assistant inst
 - Hybrid Grid Hold;
 - Panic.
 
-The former Away Mode prototype has been removed. Its useful idea is preserved as the future **Smart Thermal Energy** feature, which is not tied to occupancy.
+The former Away Mode prototype has been removed. EnergyHub 1.1 adds reserve-only smart-plug OFF protection but never starts a thermal load. Automatic **Smart Thermal Energy** remains deferred to 1.5 and will not be tied only to occupancy.
 
 ## Current status
 
-Status as of 2026-07-19:
+Status as of 2026-08-06:
 
-- 1.0 feature work complete;
-- functional High-priority audit complete;
-- selected Medium corrections complete;
-- real 23:50 and midnight validation complete;
-- charts and dashboard redesigned;
-- project infographics created;
-- documentation audited;
-- release preparation still open.
+- EnergyHub 1.0.2 tagged, released, and tested;
+- 1.0 functional audit and selected Medium corrections complete;
+- real 23:50, midnight, rebuild, and host-restart validation complete;
+- 1.0.2 is the compatibility baseline for 1.x;
+- Zigbee2MQTT and two paired heat-pump plugs validated for manual monitoring/control;
+- dedicated Heat Pumps and Water Systems dashboards deployed and observed;
+- matching three-floor auto-off controls and local consumption history added;
+- reserve-only boiler and heat-pump OFF guards prepared for final supervised 1.1.0 validation;
+- automatic Smart Thermal starts remain deferred to 1.5.
 
 ## Product pillars
 

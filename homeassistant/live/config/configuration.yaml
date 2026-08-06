@@ -6,3 +6,97 @@ frontend:
 automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
+
+input_boolean:
+  energyhub_water_boiler_soc_lockout:
+    name: Water Boiler SOC Lockout
+    icon: mdi:water-boiler-off
+  energyhub_heat_pump_soc_lockout:
+    name: Heat Pump SOC Lockout
+    icon: mdi:heat-pump-outline
+
+sensor:
+  - platform: integration
+    source: sensor.chuangmi_212a01_ea40_electric_power
+    name: Third Floor Heat Pump Energy Calculated
+    unique_id: energyhub_third_floor_heat_pump_energy_calculated
+    unit_prefix: k
+    unit_time: h
+    method: left
+    round: 3
+    max_sub_interval:
+      minutes: 5
+  - platform: integration
+    source: sensor.chuangmi_212a01_c91f_electric_power
+    name: Water Boiler Energy Calculated
+    unique_id: energyhub_water_boiler_energy_calculated
+    unit_prefix: k
+    unit_time: h
+    method: left
+    round: 3
+    max_sub_interval:
+      minutes: 5
+  - platform: integration
+    source: sensor.chuangmi_212a01_ac48_electric_power
+    name: Basement Water Pump Energy Calculated
+    unique_id: energyhub_basement_water_pump_energy_calculated
+    unit_prefix: k
+    unit_time: h
+    method: left
+    round: 3
+    max_sub_interval:
+      minutes: 5
+
+template:
+  - sensor:
+      - name: Floor 1 Heat Pump Turns Off At
+        unique_id: energyhub_floor_1_heat_pump_turns_off_at
+        icon: mdi:clock-end
+        state: >-
+          {% set finish = state_attr('timer.floor_1_heat_pump_auto_off', 'finishes_at') %}
+          {% if finish %}
+            {% set end = as_local(as_datetime(finish)) %}
+            {% if end.date() == now().date() %}
+              Today {{ end.strftime('%H:%M') }}
+            {% elif end.date() == (now() + timedelta(days=1)).date() %}
+              Tomorrow {{ end.strftime('%H:%M') }}
+            {% else %}
+              {{ end.strftime('%d %b %H:%M') }}
+            {% endif %}
+          {% else %}
+            Manual
+          {% endif %}
+      - name: Floor 2 Heat Pump Turns Off At
+        unique_id: energyhub_floor_2_heat_pump_turns_off_at
+        icon: mdi:clock-end
+        state: >-
+          {% set finish = state_attr('timer.floor_2_heat_pump_auto_off', 'finishes_at') %}
+          {% if finish %}
+            {% set end = as_local(as_datetime(finish)) %}
+            {% if end.date() == now().date() %}
+              Today {{ end.strftime('%H:%M') }}
+            {% elif end.date() == (now() + timedelta(days=1)).date() %}
+              Tomorrow {{ end.strftime('%H:%M') }}
+            {% else %}
+              {{ end.strftime('%d %b %H:%M') }}
+            {% endif %}
+          {% else %}
+            Manual
+          {% endif %}
+      - name: Floor 3 Heat Pump Turns Off At
+        unique_id: energyhub_floor_3_heat_pump_turns_off_at
+        icon: mdi:clock-end
+        state: >-
+          {% set finish = state_attr('timer.floor_3_heat_pump_auto_off', 'finishes_at') %}
+          {% if finish %}
+            {% set end = as_local(as_datetime(finish)) %}
+            {% if end.date() == now().date() %}
+              Today {{ end.strftime('%H:%M') }}
+            {% elif end.date() == (now() + timedelta(days=1)).date() %}
+              Tomorrow {{ end.strftime('%H:%M') }}
+            {% else %}
+              {{ end.strftime('%d %b %H:%M') }}
+            {% endif %}
+          {% else %}
+            Manual
+          {% endif %}

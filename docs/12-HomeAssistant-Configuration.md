@@ -71,8 +71,14 @@ Current EnergyHub-specific Home Assistant helpers include:
 
 ```text
 input_boolean.energyhub_autopilot
+input_boolean.energyhub_water_boiler_soc_lockout
+input_boolean.energyhub_heat_pump_soc_lockout
 input_number.energyhub_daily_solar_surplus_estimated
+input_number.input_number_floor1_heat_pump_timer_hours
+input_number.input_number_floor2_heat_pump_timer_hours
 input_number.input_number_floor3_heat_pump_timer_hours
+timer.floor_1_heat_pump_auto_off
+timer.floor_2_heat_pump_auto_off
 timer.floor_3_heat_pump_auto_off
 ```
 
@@ -107,11 +113,11 @@ Disabling Autopilot does not disable monitoring, telemetry, history, or health e
 
 ---
 
-# Deferred Smart Load Helpers
+# Smart Load Boundary
 
 The original EnergyHub 1.0 Away Mode helpers and automation were removed from the active 1.0 architecture.
 
-Away / Smart Heating is deferred to EnergyHub 1.1 for redesign as part of a broader flexible-load architecture.
+EnergyHub 1.1 adds manual smart-plug controls, per-floor auto-off timers, and reserve-only OFF guards as Home Assistant household automation. It never turns the boiler or a heat pump on. Automatic Smart Thermal ownership and starts remain deferred to 1.5.
 
 The ownership principle remains valid:
 
@@ -162,11 +168,13 @@ Daily Solar Surplus Estimated
 
 ---
 
-# Floor 3 Heat Pump Helpers
+# Floor Heat Pump Helpers
 
-Auto-Off duration:
+Auto-Off duration helpers:
 
 ```text
+input_number.input_number_floor1_heat_pump_timer_hours
+input_number.input_number_floor2_heat_pump_timer_hours
 input_number.input_number_floor3_heat_pump_timer_hours
 ```
 
@@ -177,15 +185,17 @@ Values:
 1..9 = Auto-Off after N hours
 ```
 
-Countdown timer:
+Countdown timers:
 
 ```text
+timer.floor_1_heat_pump_auto_off
+timer.floor_2_heat_pump_auto_off
 timer.floor_3_heat_pump_auto_off
 ```
 
 Purpose:
 
-Displays the remaining time until automatic switch-off.
+Each helper controls only its matching floor timer. A non-zero duration starts or restarts the countdown while that floor's plug is on. Duration `0` cancels the countdown without switching the plug, so it is manual mode. Switching the plug off cancels its timer and resets the duration to `0`; timer expiry switches the matching plug off and also resets the duration.
 
 ---
 
@@ -205,7 +215,7 @@ Current EnergyHub integration responsibilities include:
 - restoring Solar at 07:00 when Autopilot is enabled;
 - restoring / requesting mode handling after restart;
 - delivering EnergyHub notification events;
-- selected household automations such as Floor 3 Heat Pump Auto-Off.
+- selected household automations such as the floor 1, 2, and 3 heat-pump auto-off controls.
 
 This document describes architecture and responsibilities.
 
@@ -442,16 +452,17 @@ Away Mode is not part of the final EnergyHub 1.0 architecture.
 
 The original implementation was deferred after design review showed that occupancy, comfort, solar surplus, cheap-tariff use, and battery reserve should be handled through a broader Smart Heating / flexible-load architecture.
 
-This work is planned for EnergyHub 1.1.
+EnergyHub 1.1 provides the monitored-device, dashboard, timer, and reserve-guard foundation. Automatic Smart Thermal control remains deferred to 1.5.
 
 ---
 
-# Floor 3 Heat Pump Auto-Off
+# Floor Heat Pump Auto-Off
 
-The Floor 3 Auto-Off automation currently:
+Each floor's Auto-Off automation currently:
 
 - starts the countdown timer;
 - restarts the timer when duration changes;
+- cancels the timer without toggling the plug when duration is set to `0` manual mode;
 - cancels the timer when the heat pump is switched off;
 - switches the heat pump off when the timer finishes;
 - resets the Auto-Off helper to 0.
@@ -558,6 +569,14 @@ This keeps decision context in EnergyHub while leaving delivery channels in Home
 
 Routine telemetry and expected no-action evaluations should normally remain in logs.
 
+## External integration health and the beacon
+
+The EnergyHub beacon is `light.colorful_pir_night_light`, a Tuya Wi-Fi device. It is not a Zigbee2MQTT device. Its color logic can calculate and execute successfully in Home Assistant while a Tuya authentication or availability failure prevents the physical lamp from receiving the command.
+
+On 2026-08-06, Home Assistant Repairs reported that Tuya authentication had expired. Re-confirming the Tuya login through the app restored lamp control. A trace at 66% SOC had already shown fresh EnergyHub telemetry and the correct yellow `[255, 220, 0]` result, and both a direct light action and a later manual beacon run produced yellow after authentication was restored. This strongly identifies Tuya authentication as the cause of the stale blue lamp state; it was not a Zigbee2MQTT failure or an SOC threshold error.
+
+Current EnergyHub System Health covers the EnergyHub process and inverter-facing communication, battery, telemetry freshness, and inverter warning inputs. It does not yet aggregate Home Assistant Repairs, Tuya authentication, Zigbee2MQTT app/bridge availability, or command-to-observed-device confirmation. Those dependencies must be represented separately so a retained or stale entity value cannot be mistaken for healthy end-to-end telemetry. Reauthentication remains an attended action; EnergyHub must alert but must not attempt to automate cloud-account login.
+
 ---
 
 # Dashboard Architecture
@@ -590,6 +609,42 @@ Current information includes:
 - manual developer controls.
 
 Operating Mode is displayed prominently with strategy-specific icons.
+
+## Heat Pumps View
+
+The dedicated Heat Pumps view uses the same compact four-card operating layout for each floor:
+
+1. heat-pump switch state and manual toggle;
+2. live plug power in watts;
+3. auto-off duration from `0` to `9` hours;
+4. absolute local turn-off time, or `Manual` when no timer is active.
+
+Floor 1 uses `switch.first_floor_heat_pump_plug` and `sensor.first_floor_heat_pump_plug_power`. Floor 2 uses `switch.second_floor_heat_pump_plug` and `sensor.second_floor_heat_pump_plug_power`. Floor 3 retains `switch.chuangmi_212a01_ea40_switch` and `sensor.chuangmi_212a01_ea40_electric_power`. Template sensors `sensor.floor_1_heat_pump_turns_off_at`, `sensor.floor_2_heat_pump_turns_off_at`, and `sensor.floor_3_heat_pump_turns_off_at` render `Today HH:MM`, `Tomorrow HH:MM`, another local date/time, or `Manual` from each timer's `finishes_at` attribute. Daily, weekly, and monthly consumption graphs remain below the compact controls.
+
+These cards expose Home Assistant household controls only. They do not indicate that EnergyHub owns the run or that Smart Thermal automatic starts are enabled. A displayed electrical value can be stale after a Zigbee availability interruption; later automatic policy must verify bridge/device availability, a fresh post-recovery report, and safe ownership reconstruction as documented in [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
+
+Mission Control intentionally omits these floor sections after the dedicated view was introduced. Its first screen remains focused on whole-house energy, EnergyHub status, decision logic, and operating controls.
+
+## Smart-Plug Views
+
+![Smart-plug reserve protection logic](Images/Infographic%233_smart_plug_reserve_logic.png)
+
+The working-tree dashboard has three explicit tabs: **Mission Control**, **Heat Pumps**, and **Water Systems**. The two focused manual/observational views are:
+
+- **Heat Pumps** — separate first-, second-, and third-floor sections with switch, live power, auto-off duration, absolute turn-off time, plus daily consumption for 7 days, weekly consumption for 6 weeks, and monthly consumption for 12 months;
+- **Water Systems** — separate 2nd-floor boiler and basement-pump sections with switch and live power, plus the same daily/weekly/monthly history periods.
+
+The first two heat pumps use their verified native cumulative entities `sensor.first_floor_heat_pump_plug_energy` and `sensor.second_floor_heat_pump_plug_energy`. The third-floor heat pump, boiler, and pump use local Integral sensors derived from live watts: `sensor.third_floor_heat_pump_energy_calculated`, `sensor.water_boiler_energy_calculated`, and `sensor.basement_water_pump_energy_calculated`. They use the left Riemann-sum method, kWh units, three-decimal precision, and a five-minute maximum sub-interval. This replaced Xiaomi daily/monthly cloud counters after those counters produced implausible 100–250 kWh daily changes.
+
+The local Integral sensors persist across Home Assistant restarts but begin accumulating only after deployment. Home Assistant cannot retroactively import the Xiaomi app's cloud-only history. The charts therefore show accurate local history from that point forward; empty older third-floor/water periods are expected.
+
+The water-boiler plug now has a deliberately narrow reserve policy. With fresh EnergyHub telemetry, reaching 50% SOC requests boiler OFF once. An ON request between 41% and 50% remains allowed; Home Assistant cannot reliably distinguish a physical/app action from the existing Xiaomi motion automation. At 40%, `input_boolean.energyhub_water_boiler_soc_lockout` latches, the boiler is requested OFF, and later ON requests are rejected. Fresh SOC of at least 60% clears the latch but never turns the boiler on automatically. The homeowner or Xiaomi demand automation remains responsible for restoration.
+
+Heat pumps use a separate grid-confidence-aware reserve-only policy. EnergyHub exposes four categorical Grid Confidence states (`normal`, `unstable`, `risk`, and `panic`), so the relaxed case is intentionally stricter than `normal`: Grid Confidence must be `normal`, 24-hour availability must equal 100%, 48-hour available time must equal 48 hours, the grid must currently be present, and EnergyHub telemetry must be fresh. In that fully trusted state, only fresh SOC reaching 50% latches the all-floor lockout and requests every running heat pump OFF. Fresh SOC of at least 60% clears it.
+
+Every missing, stale, unavailable, or degraded grid-confidence input selects the conservative policy. With fresh telemetry, reaching 80% SOC requests every running heat-pump plug OFF once. Manual overrides remain possible: floor 2 is shed again at 70%, floor 1 at 60%, and floor 3 is protected until 50%. At 50%, `input_boolean.energyhub_heat_pump_soc_lockout` latches, every running heat pump is requested OFF, and any later ON request is rejected. Fresh SOC of at least 90% clears the conservative lockout. Neither policy turns a heat pump on. Smart Thermal automatic starts remain deferred.
+
+No command is issued from stale EnergyHub telemetry. The lockouts are best effort: Home Assistant cannot physically prevent a local, Zigbee, or cloud command while Core, Zigbee2MQTT, the Xiaomi integration, the network, or a plug is unavailable. Persistent notifications show requested actions and observed plug states so failed commands are visible. Intermediate 80%/70%/60% shedding is not reconstructed blindly after restart or availability recovery; the 50% safety lockout is re-evaluated when trustworthy telemetry returns. A transition from the fully trusted grid state to a degraded state while SOC is already at or below 80% applies the conservative all-floor shed. The basement pump remains outside both policies. Local integration and long-term-statistics rendering require supervised validation after deployment. Power and calculated energy remain operational trend data rather than electrical-protection inputs.
 
 ## EnergyHub Decision Logic
 
@@ -788,7 +843,7 @@ docs/INSTALLATION.md
 
 ---
 
-# EnergyHub Add-on Deployment
+# Development Deployment
 
 Current deployment tool:
 
@@ -796,13 +851,13 @@ Current deployment tool:
 tools/dev/deploy-to-ha.ps1
 ```
 
-Deployment uses:
+The add-on scope uses the existing lower-level synchronization tool:
 
 ```text
 tools/dev/sync-to-ha.ps1
 ```
 
-Workflow:
+The default scope preserves the historical add-on workflow:
 
 ```text
 Git Repository
@@ -820,6 +875,36 @@ Inspect Logs
 Test
 ```
 
+Explicit scopes keep post-deploy actions separate:
+
+```powershell
+# Add-on only; this is also the default.
+.\tools\dev\deploy-to-ha.ps1 -Scope Addon
+
+# Selected HA YAML while Core is running.
+.\tools\dev\deploy-to-ha.ps1 `
+    -Scope HomeAssistant `
+    -ConfigFiles automations.yaml
+
+# Selected HA YAML and storage while Core is stopped.
+.\tools\dev\deploy-to-ha.ps1 `
+    -Scope HomeAssistant `
+    -ConfigFiles automations.yaml `
+    -StorageFiles input_number,timer,lovelace.dashboard_powmr1 `
+    -HomeAssistantStopped
+```
+
+Add-on and Home Assistant configuration are deliberately separate deployment runs. `-DryRun` validates sources and prints targets without contacting or modifying Home Assistant.
+
+Before replacing a Home Assistant file, the synchronization tool copies the current target to `\\homeassistant\config\energyhub-deploy-backups\<timestamp>`. Storage deployment is refused unless `-HomeAssistantStopped` is present. That switch is an operator assertion: the script does not remotely stop or verify HA Core.
+
+Post-deploy behavior is scoped:
+
+- add-on files changed: rebuild and restart the Energy Hub add-on, then inspect its logs;
+- `automations.yaml`, `scripts.yaml`, or `scenes.yaml` changed while Core stayed running: reload only the matching component;
+- `configuration.yaml` changed: check configuration and restart HA Core;
+- `.storage` changed: keep Core stopped during the copy, run `ha core check`, start Core, and do not perform a separate YAML reload.
+
 ---
 
 # Deployment and Synchronization Boundary
@@ -836,9 +921,10 @@ Git
 ## Selected Home Assistant Configuration
 
 ```text
-Home Assistant
-→ Git
+Git ↔ Home Assistant
 ```
+
+Intentional UI changes are synchronized from Home Assistant to Git for review. Reviewed repository configuration is deployed from Git to Home Assistant through the guarded workflow above.
 
 Architecture:
 
@@ -850,9 +936,9 @@ Deploy
 Home Assistant Add-on
 
 Home Assistant Configuration
-        ↓
-Synchronize
-        ↓
+        ↕
+Guarded Deploy / Synchronize
+        ↕
 Git Repository
 ```
 
@@ -862,9 +948,9 @@ These workflows should remain separate and explicit.
 
 # Configuration Authority
 
-The authoritative current Home Assistant configuration is the real Home Assistant installation.
+The Git repository is the development source of truth for the selected Home Assistant configuration listed below. The real Home Assistant installation is the runtime instance; intentional UI changes must be synchronized back to Git and reviewed before they become the next repository baseline.
 
-The Git repository stores selected synchronized configuration for:
+The repository stores selected configuration for:
 
 - review;
 - history;

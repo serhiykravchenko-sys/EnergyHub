@@ -6,6 +6,9 @@
     "config": {
       "views": [
         {
+          "title": "Mission Control",
+          "path": "mission-control",
+          "icon": "mdi:view-dashboard",
           "type": "sections",
           "sections": [
             {
@@ -424,10 +427,6 @@
               "type": "grid",
               "cards": [
                 {
-                  "type": "heading",
-                  "heading": "New section"
-                },
-                {
                   "type": "vertical-stack",
                   "cards": [
                     {
@@ -496,10 +495,6 @@
             {
               "type": "grid",
               "cards": [
-                {
-                  "type": "heading",
-                  "heading": "New section"
-                },
                 {
                   "type": "vertical-stack",
                   "cards": [
@@ -618,10 +613,6 @@
               "type": "grid",
               "cards": [
                 {
-                  "type": "heading",
-                  "heading": "New section"
-                },
-                {
                   "type": "vertical-stack",
                   "cards": [
                     {
@@ -701,67 +692,70 @@
                   ]
                 }
               ]
-            },
+            }
+          ]
+        },
+        {
+          "title": "Heat Pumps",
+          "path": "heat-pumps",
+          "icon": "mdi:heat-pump",
+          "type": "sections",
+          "max_columns": 3,
+          "sections": [
             {
               "type": "grid",
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "New section"
+                  "heading": "1st Floor Heat Pump",
+                  "heading_style": "title",
+                  "icon": "mdi:home-floor-1"
                 },
                 {
-                  "type": "vertical-stack",
+                  "type": "grid",
+                  "columns": 2,
+                  "square": false,
                   "cards": [
                     {
-                      "type": "heading",
-                      "heading": "1st Floor",
-                      "heading_style": "title",
-                      "icon": "mdi:home-floor-1"
+                      "type": "tile",
+                      "entity": "switch.first_floor_heat_pump_plug",
+                      "name": "Switch",
+                      "icon": "mdi:heat-pump",
+                      "color": "green",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "more-info"
+                      }
                     },
                     {
-                      "type": "grid",
-                      "columns": 2,
-                      "square": false,
-                      "cards": [
-                        {
-                          "type": "tile",
-                          "entity": "sensor.miaomiaoce_t2_e515_temperature",
-                          "name": "Temperature",
-                          "icon": "mdi:thermometer",
-                          "color": "orange",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "sensor.miaomiaoce_t2_e515_relative_humidity",
-                          "name": "Humidity",
-                          "icon": "mdi:water-percent",
-                          "color": "blue",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "switch.lumi_v1_64d7_switch",
-                          "name": "Heat Pump",
-                          "icon": "mdi:heat-pump",
-                          "color": "green",
-                          "vertical": true,
-                          "tap_action": {
-                            "action": "toggle"
-                          },
-                          "hold_action": {
-                            "action": "more-info"
-                          }
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "sensor.lumi_v1_64d7_electric_power",
-                          "name": "Heat Pump Power",
-                          "icon": "mdi:flash",
-                          "color": "purple",
-                          "vertical": true
-                        }
-                      ]
+                      "type": "tile",
+                      "entity": "sensor.first_floor_heat_pump_plug_power",
+                      "name": "Live Power",
+                      "icon": "mdi:flash",
+                      "color": "purple",
+                      "vertical": true
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "input_number.input_number_floor1_heat_pump_timer_hours",
+                      "name": "Auto-Off Duration",
+                      "icon": "mdi:timer-cog-outline",
+                      "color": "blue",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "sensor.floor_1_heat_pump_turns_off_at",
+                      "name": "Turns Off At",
+                      "icon": "mdi:clock-end",
+                      "color": "blue",
+                      "vertical": true
                     }
                   ]
                 }
@@ -772,39 +766,55 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "New section"
+                  "heading": "2nd Floor Heat Pump",
+                  "heading_style": "title",
+                  "icon": "mdi:home-floor-2"
                 },
                 {
-                  "type": "vertical-stack",
+                  "type": "grid",
+                  "columns": 2,
+                  "square": false,
                   "cards": [
                     {
-                      "type": "heading",
-                      "heading": "2nd Floor · Kids Room",
-                      "heading_style": "title",
-                      "icon": "mdi:home-floor-2"
+                      "type": "tile",
+                      "entity": "switch.second_floor_heat_pump_plug",
+                      "name": "Switch",
+                      "icon": "mdi:heat-pump",
+                      "color": "green",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "more-info"
+                      }
                     },
                     {
-                      "type": "grid",
-                      "columns": 2,
-                      "square": false,
-                      "cards": [
-                        {
-                          "type": "tile",
-                          "entity": "sensor.miaomiaoce_t2_1bf2_temperature",
-                          "name": "Temperature",
-                          "icon": "mdi:thermometer",
-                          "color": "orange",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "sensor.miaomiaoce_t2_1bf2_relative_humidity",
-                          "name": "Humidity",
-                          "icon": "mdi:water-percent",
-                          "color": "blue",
-                          "vertical": true
-                        }
-                      ]
+                      "type": "tile",
+                      "entity": "sensor.second_floor_heat_pump_plug_power",
+                      "name": "Live Power",
+                      "icon": "mdi:flash",
+                      "color": "purple",
+                      "vertical": true
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "input_number.input_number_floor2_heat_pump_timer_hours",
+                      "name": "Auto-Off Duration",
+                      "icon": "mdi:timer-cog-outline",
+                      "color": "blue",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "sensor.floor_2_heat_pump_turns_off_at",
+                      "name": "Turns Off At",
+                      "icon": "mdi:clock-end",
+                      "color": "blue",
+                      "vertical": true
                     }
                   ]
                 }
@@ -815,83 +825,312 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "New section"
+                  "heading": "3rd Floor Heat Pump",
+                  "heading_style": "title",
+                  "icon": "mdi:home-floor-3"
                 },
                 {
-                  "type": "vertical-stack",
+                  "type": "grid",
+                  "columns": 2,
+                  "square": false,
                   "cards": [
                     {
-                      "type": "heading",
-                      "heading": "3rd Floor",
-                      "heading_style": "title",
-                      "icon": "mdi:home-floor-3"
+                      "type": "tile",
+                      "entity": "switch.chuangmi_212a01_ea40_switch",
+                      "name": "Switch",
+                      "icon": "mdi:heat-pump",
+                      "color": "green",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "more-info"
+                      }
                     },
                     {
-                      "type": "grid",
-                      "columns": 2,
-                      "square": false,
-                      "cards": [
-                        {
-                          "type": "tile",
-                          "entity": "sensor.lumi_weather_v1_b318_temperature",
-                          "name": "Temperature",
-                          "icon": "mdi:thermometer",
-                          "color": "orange",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "sensor.lumi_weather_v1_b318_relative_humidity",
-                          "name": "Humidity",
-                          "icon": "mdi:water-percent",
-                          "color": "blue",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "switch.chuangmi_212a01_ea40_switch",
-                          "name": "Heat Pump",
-                          "icon": "mdi:heat-pump",
-                          "color": "green",
-                          "vertical": true,
-                          "tap_action": {
-                            "action": "toggle"
-                          },
-                          "hold_action": {
-                            "action": "more-info"
-                          }
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "sensor.chuangmi_212a01_ea40_electric_power",
-                          "name": "Heat Pump Power",
-                          "icon": "mdi:flash",
-                          "color": "purple",
-                          "vertical": true
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "input_number.input_number_floor3_heat_pump_timer_hours",
-                          "name": "Auto-Off Duration",
-                          "icon": "mdi:timer-cog-outline",
-                          "color": "blue",
-                          "vertical": true,
-                          "tap_action": {
-                            "action": "more-info"
-                          }
-                        },
-                        {
-                          "type": "tile",
-                          "entity": "timer.floor_3_heat_pump_auto_off",
-                          "name": "Time Remaining",
-                          "icon": "mdi:timer-outline",
-                          "color": "blue",
-                          "vertical": true,
-                          "tap_action": {
-                            "action": "more-info"
-                          }
-                        }
-                      ]
+                      "type": "tile",
+                      "entity": "sensor.chuangmi_212a01_ea40_electric_power",
+                      "name": "Live Power",
+                      "icon": "mdi:flash",
+                      "color": "purple",
+                      "vertical": true
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "input_number.input_number_floor3_heat_pump_timer_hours",
+                      "name": "Auto-Off Duration",
+                      "icon": "mdi:timer-cog-outline",
+                      "color": "blue",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "sensor.floor_3_heat_pump_turns_off_at",
+                      "name": "Turns Off At",
+                      "icon": "mdi:clock-end",
+                      "color": "blue",
+                      "vertical": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Heat-Pump Daily Consumption — 7 days",
+                  "chart_type": "bar",
+                  "period": "day",
+                  "days_to_show": 7,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.first_floor_heat_pump_plug_energy",
+                      "name": "1st Floor"
+                    },
+                    {
+                      "entity": "sensor.second_floor_heat_pump_plug_energy",
+                      "name": "2nd Floor"
+                    },
+                    {
+                      "entity": "sensor.third_floor_heat_pump_energy_calculated",
+                      "name": "3rd Floor"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Heat-Pump Weekly Consumption — 6 weeks",
+                  "chart_type": "bar",
+                  "period": "week",
+                  "days_to_show": 42,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.first_floor_heat_pump_plug_energy",
+                      "name": "1st Floor"
+                    },
+                    {
+                      "entity": "sensor.second_floor_heat_pump_plug_energy",
+                      "name": "2nd Floor"
+                    },
+                    {
+                      "entity": "sensor.third_floor_heat_pump_energy_calculated",
+                      "name": "3rd Floor"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Heat-Pump Monthly Consumption — 12 months",
+                  "chart_type": "bar",
+                  "period": "month",
+                  "days_to_show": 365,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.first_floor_heat_pump_plug_energy",
+                      "name": "1st Floor"
+                    },
+                    {
+                      "entity": "sensor.second_floor_heat_pump_plug_energy",
+                      "name": "2nd Floor"
+                    },
+                    {
+                      "entity": "sensor.third_floor_heat_pump_energy_calculated",
+                      "name": "3rd Floor"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Water Systems",
+          "path": "water-systems",
+          "icon": "mdi:water-pump",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "2nd Floor Water Boiler",
+                  "heading_style": "title",
+                  "icon": "mdi:water-boiler"
+                },
+                {
+                  "type": "grid",
+                  "columns": 2,
+                  "square": false,
+                  "cards": [
+                    {
+                      "type": "tile",
+                      "entity": "switch.chuangmi_212a01_c91f_switch",
+                      "name": "Boiler",
+                      "icon": "mdi:water-boiler",
+                      "color": "orange",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "sensor.chuangmi_212a01_c91f_electric_power",
+                      "name": "Live Power",
+                      "icon": "mdi:flash",
+                      "color": "purple",
+                      "vertical": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Basement Water Pump",
+                  "heading_style": "title",
+                  "icon": "mdi:pump"
+                },
+                {
+                  "type": "grid",
+                  "columns": 2,
+                  "square": false,
+                  "cards": [
+                    {
+                      "type": "tile",
+                      "entity": "switch.chuangmi_212a01_ac48_switch",
+                      "name": "Water Pump",
+                      "icon": "mdi:pump",
+                      "color": "blue",
+                      "vertical": true,
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "tile",
+                      "entity": "sensor.chuangmi_212a01_ac48_electric_power",
+                      "name": "Live Power",
+                      "icon": "mdi:flash",
+                      "color": "purple",
+                      "vertical": true
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Water-System Daily Consumption — 7 days",
+                  "chart_type": "bar",
+                  "period": "day",
+                  "days_to_show": 7,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.water_boiler_energy_calculated",
+                      "name": "Water Boiler"
+                    },
+                    {
+                      "entity": "sensor.basement_water_pump_energy_calculated",
+                      "name": "Water Pump"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Water-System Weekly Consumption — 6 weeks",
+                  "chart_type": "bar",
+                  "period": "week",
+                  "days_to_show": 42,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.water_boiler_energy_calculated",
+                      "name": "Water Boiler"
+                    },
+                    {
+                      "entity": "sensor.basement_water_pump_energy_calculated",
+                      "name": "Water Pump"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "statistics-graph",
+                  "title": "Water-System Monthly Consumption — 12 months",
+                  "chart_type": "bar",
+                  "period": "month",
+                  "days_to_show": 365,
+                  "stat_types": [
+                    "change"
+                  ],
+                  "entities": [
+                    {
+                      "entity": "sensor.water_boiler_energy_calculated",
+                      "name": "Water Boiler"
+                    },
+                    {
+                      "entity": "sensor.basement_water_pump_energy_calculated",
+                      "name": "Water Pump"
                     }
                   ]
                 }

@@ -5,9 +5,27 @@
   "data": {
     "items": [
       {
+        "id": "input_number_floor1_heat_pump_timer_hours",
+        "min": 0.0,
+        "max": 12.0,
+        "name": "input_number.floor1_heat_pump_timer_hours",
+        "unit_of_measurement": "h",
+        "mode": "slider",
+        "step": 1.0
+      },
+      {
+        "id": "input_number_floor2_heat_pump_timer_hours",
+        "min": 0.0,
+        "max": 12.0,
+        "name": "input_number.floor2_heat_pump_timer_hours",
+        "unit_of_measurement": "h",
+        "mode": "slider",
+        "step": 1.0
+      },
+      {
         "id": "input_number_floor3_heat_pump_timer_hours",
         "min": 0.0,
-        "max": 9.0,
+        "max": 12.0,
         "name": "input_number.floor3_heat_pump_timer_hours",
         "unit_of_measurement": "h",
         "mode": "slider",

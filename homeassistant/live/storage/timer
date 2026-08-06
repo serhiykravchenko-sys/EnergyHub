@@ -5,6 +5,18 @@
   "data": {
     "items": [
       {
+        "id": "floor_1_heat_pump_auto_off",
+        "name": "Floor 1 Heat Pump Auto-Off",
+        "restore": false,
+        "duration": "0:00:00"
+      },
+      {
+        "id": "floor_2_heat_pump_auto_off",
+        "name": "Floor 2 Heat Pump Auto-Off",
+        "restore": false,
+        "duration": "0:00:00"
+      },
+      {
         "id": "floor_3_heat_pump_auto_off",
         "name": "Floor 3 Heat Pump Auto-Off",
         "restore": false,

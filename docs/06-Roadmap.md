@@ -10,7 +10,7 @@ Create a reliable local-first energy system that monitors the house, understands
 
 Status:
 
-**Release-ready as EnergyHub 1.0.2.**
+**Released and tested as EnergyHub 1.0.2.**
 
 Delivered:
 
@@ -36,27 +36,38 @@ Success criterion:
 
 ---
 
-## EnergyHub 1.1 — Test-drive and Telemetry Robustness
+## EnergyHub 1.1 — Smart Plug Reserve Guard
 
 Goal:
 
-Use sustained real-world operation to improve correctness, observability, and confidence without broad architectural expansion.
+Add observable household smart plugs and conservative reserve protection without changing the tested 1.0.2 inverter runtime or introducing automatic load starts.
 
-Planned work:
+Delivered in the 1.1.0 working tree:
 
-- fix defects found during real Autopilot operation;
-- refine daytime SUB and Grid Import behavior;
-- improve logs and diagnostic context;
-- capture meaningful pre-event and post-event telemetry around anomalies;
-- detect suspicious SOC changes using both simple thresholds and current-integrated plausibility;
-- distinguish raw SOC from trusted SOC where justified;
-- preserve anomaly history and recurrence information;
-- continue entity, chart, dashboard, and usability cleanup;
-- establish flexible-load groundwork without introducing unsafe automatic control.
+- configure Zigbee2MQTT with the SONOFF ZBDongle-E through its persistent serial identity;
+- pair and validate two Zigbee smart plugs, including manual control, availability, link quality, restart recovery, and power reporting where supported;
+- inventory the existing Xiaomi boiler and basement water-pump devices and add a manual Water Systems dashboard with live power and validated daily/weekly/monthly consumption history;
+- add matching first-, second-, and third-floor auto-off controls with duration `0` as manual mode;
+- add focused Heat Pumps and Water Systems views with local consumption history;
+- add water-boiler reserve-only OFF/lockout protection;
+- add grid-confidence-aware heat-pump reserve-only OFF/lockout protection;
+- preserve manual restoration above documented emergency thresholds;
+- issue no smart-plug command from stale EnergyHub telemetry;
+- document the observed Ember failures, manual recovery, stale telemetry boundary, and Tuya reauthentication;
+- add guarded repository-to-Home-Assistant deployment with backups and dry runs.
+
+Non-goals:
+
+- no broad refactor of the 1.0.2 inverter runtime;
+- no automatic smart-plug ON command;
+- no Smart Thermal comfort or surplus controller;
+- no assumption that every smart plug reports trustworthy power;
+- no automatic Zigbee2MQTT/Ember recovery;
+- no production multi-room thermal optimization.
 
 Status:
 
-Planned after the 1.0.2 release.
+1.1.0 release candidate. Final `ha core check`, restart, and supervised reserve-guard validation are required before tagging.
 
 ---
 
@@ -69,14 +80,19 @@ Make trusted household strategy variables adjustable without editing Python or H
 Planned parameters:
 
 - cheap-tariff start and end times;
+- latest acceptable cheap-tariff charging start and completion margin;
 - Hybrid evaluation time;
 - Hybrid target SOC;
 - morning Solar restoration time;
 - nominal battery capacity;
 - grid charging current within hardware-safe bounds;
+- conservative effective grid-charge rate used for deadline planning;
+- Adaptive Night Hybrid enable, protected reserve, resilience horizon, target cap, useful-solar confirmation, and after-tariff safety policy;
+- automatic Panic evaluation enable without removing manual Panic or health monitoring;
 - Panic evaluation window;
 - Panic SOC thresholds and targets;
 - selectable Panic profiles;
+- per-load normal shed/restore thresholds, emergency manual-override thresholds, recovery lockouts, priority tiers, minimum runtime/off-time, cooldown, and early-solar eligibility;
 - technical monitoring thresholds where appropriate.
 
 Requirements:
@@ -87,6 +103,10 @@ Requirements:
 - persistent configuration;
 - understandable defaults;
 - no need to edit source code.
+- a dedicated Home Assistant Settings view with grouped controls and a read-only preview of effective settings, calculated target, required charge time, start-by deadline, and decision reason;
+- EnergyHub-side validation, acknowledgement, reconciliation, and audit for accepted changes;
+- editing a setting does not itself execute an inverter command;
+- migration defaults reproduce EnergyHub 1.0.2 behavior exactly.
 
 Status:
 
@@ -152,7 +172,7 @@ Goal:
 
 Use flexible heating and cooling as an energy asset while preserving comfort and battery resilience.
 
-The design replaces the old narrow Away Mode concept.
+This milestone introduces tested automatic thermal-load starts, ownership, comfort decisions, minimum runtime, cooldown, and coordinated operation. The design replaces the old narrow Away Mode concept.
 
 Planned inputs:
 

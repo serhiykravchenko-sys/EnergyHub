@@ -49,8 +49,22 @@ Decision Policy = rules for using those capabilities
 
 - inverter and energy equipment;
 - water system;
+- basement water pump connected through the Xiaomi device named `Basement Water Smart Power`;
 - 40 L electric boiler;
 - boiler heating from approximately 10°C to 70°C requires roughly 3 kWh and is a future flexible-load candidate.
+
+The boiler is connected through an existing Xiaomi device named `2nd floor water Boiler Smart Power`; confirm whether that name reflects its physical location before changing the house model. The verified dashboard entities are:
+
+| Capability | Boiler | Basement pump |
+|---|---|---|
+| Switch | `switch.chuangmi_212a01_c91f_switch` | `switch.chuangmi_212a01_ac48_switch` |
+| Live power | `sensor.chuangmi_212a01_c91f_electric_power` | `sensor.chuangmi_212a01_ac48_electric_power` |
+| Energy today | `sensor.chuangmi_212a01_c91f_power_cost_today` | `sensor.chuangmi_212a01_ac48_power_cost_today` |
+| Energy month | `sensor.chuangmi_212a01_c91f_power_cost_month` | `sensor.chuangmi_212a01_ac48_power_cost_month` |
+| Current | `sensor.chuangmi_212a01_c91f_electric_current` | `sensor.chuangmi_212a01_ac48_electric_current` |
+| Plug temperature | `sensor.chuangmi_212a01_c91f_temperature` | `sensor.chuangmi_212a01_ac48_temperature` |
+
+Availability is represented by these entities becoming `unavailable`; there is no separate verified availability sensor. Boiler/plug ratings, pump/motor ratings and starting surge, power-outage behavior, and load suitability must be recorded before unattended switching. The pump remains a critical non-sheddable load unless a later explicit safety review changes that classification.
 
 ### 1st Floor
 
@@ -58,8 +72,10 @@ Decision Policy = rules for using those capabilities
 |---|---|
 | Temperature | `sensor.miaomiaoce_t2_e515_temperature` |
 | Humidity | `sensor.miaomiaoce_t2_e515_relative_humidity` |
-| Heat-pump plug | `switch.lumi_v1_64d7_switch` |
-| Heat-pump power | `sensor.lumi_v1_64d7_electric_power` |
+| Heat-pump plug | `switch.first_floor_heat_pump_plug` |
+| Heat-pump power | `sensor.first_floor_heat_pump_plug_power` |
+| Auto-off duration | `input_number.input_number_floor1_heat_pump_timer_hours` |
+| Remaining time | `timer.floor_1_heat_pump_auto_off` |
 
 ### 2nd Floor · Kids Room
 
@@ -67,9 +83,10 @@ Decision Policy = rules for using those capabilities
 |---|---|
 | Temperature | `sensor.miaomiaoce_t2_1bf2_temperature` |
 | Humidity | `sensor.miaomiaoce_t2_1bf2_relative_humidity` |
-| Heat-pump plug | planned hardware |
-
-The dashboard will add manual control after a compatible smart plug is installed.
+| Heat-pump plug | `switch.second_floor_heat_pump_plug` |
+| Heat-pump power | `sensor.second_floor_heat_pump_plug_power` |
+| Auto-off duration | `input_number.input_number_floor2_heat_pump_timer_hours` |
+| Remaining time | `timer.floor_2_heat_pump_auto_off` |
 
 ### 3rd Floor
 
@@ -82,11 +99,13 @@ The dashboard will add manual control after a compatible smart plug is installed
 | Auto-off duration | `input_number.input_number_floor3_heat_pump_timer_hours` |
 | Remaining time | `timer.floor_3_heat_pump_auto_off` |
 
-Duration `0 h` means manual mode: cancel the countdown but leave the heat pump in its current state. When a non-zero duration expires, HA switches the plug off and resets the duration to zero.
+All three floors use the same Home Assistant auto-off behavior. Duration `0 h` means manual mode: cancel the countdown but leave the heat pump in its current state. When a non-zero duration expires, HA switches the corresponding plug off and resets the duration to zero. Switching a plug off also cancels its timer and resets its duration.
 
 ## Current EnergyHub-controlled capability
 
 In 1.0 EnergyHub directly controls only inverter strategy. Heat-pump controls shown on the dashboard are Home Assistant household controls, not EnergyHub automatic strategy outputs.
+
+EnergyHub 1.1 implements reserve-only OFF protection in Home Assistant. The boiler is requested OFF once at 50%, may be manually or motion-restored from 41–50%, locks OFF at 40%, and unlocks at 60%. Heat pumps use a fully trusted-grid policy of all-floor OFF/lock at 50% and unlock at 60%. Every degraded or unknown grid state uses the conservative policy: all floors OFF once at 80%, floor 2 again at 70%, floor 1 at 60%, and floor 3 plus every floor OFF/locked at 50%, with unlock at 90%. No recovery threshold turns a load on. The basement pump is never shed.
 
 ## Current strategies
 
@@ -123,9 +142,11 @@ Target SOC = 80% or 95%
 
 ## Removed experimental capability
 
-The old Away Mode first-floor heat-pump automation and helpers are not part of 1.0. They were removed because energy-to-comfort optimization should not depend on occupancy.
+The old Away Mode first-floor heat-pump automation and helpers are not part of 1.0. They were removed because energy-to-comfort optimization should not depend on occupancy. The current per-floor auto-off timers are manual Home Assistant household controls, not a revival of Away Mode or automatic EnergyHub load policy.
 
 ## Future Smart Thermal Energy
+
+EnergyHub 1.5 introduces the first automatic Smart Thermal controller. EnergyHub 1.1 provides device, dashboard, measurement, and reserve-protection groundwork only.
 
 Smart Thermal will model thermal loads as capabilities:
 

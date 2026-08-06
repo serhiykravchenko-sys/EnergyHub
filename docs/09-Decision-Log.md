@@ -249,3 +249,15 @@ The dashboard may show the planned capability, but no active helper exists until
 **Status:** accepted.
 
 Current-state documentation is audited once after coherent functional and dashboard changes, reducing transient contradictions.
+
+## D040 — EnergyHub 1.1 limits Smart Loads to monitoring and reserve-only OFF guards
+
+**Status:** accepted.
+
+EnergyHub 1.1 combines real-world 1.0.2 corrections with the first Smart Loads work. Zigbee2MQTT owns the SONOFF coordinator and device transport. Home Assistant owns pairing, manual controls, dashboards, timers, local energy integration, and the narrow reserve-only OFF automations. The EnergyHub inverter runtime remains unchanged.
+
+EnergyHub 1.1 never turns the boiler or a heat pump on. The water-boiler guard and grid-confidence-aware heat-pump guard may request OFF at documented reserve thresholds and reject ON while an emergency lockout is latched. Missing or stale EnergyHub telemetry produces no command. Automatic Smart Thermal ownership, starts, comfort decisions, surplus use, minimum runtime, and compressor cooldown remain deferred to 1.5.
+
+The 2026-08-02 Ember `ASH_ERROR_TIMEOUTS` failure stopped Zigbee2MQTT while the Home Assistant app Watchdog was disabled. An attended manual Start on 2026-08-03 recovered the same network, both devices and states, MQTT, availability, and Home Assistant discovery without re-pairing or an observed relay command. On 2026-08-05, ASH reset but EZSP startup failed with `HOST_FATAL_ERROR`; Zigbee2MQTT exited while Watchdog was enabled and no autonomous recovery was observed. On 2026-08-06, Supervisor Watchdog made ten restart attempts after another `ASH_ERROR_TIMEOUTS`, but every attempt failed to establish ASH/EZSP and the crash loop stopped. App Watchdog alone is therefore not an accepted recovery mechanism for this failure mode.
+
+Bridge/device availability recovery does not make retained electrical values intrinsically fresh. Automatic control may resume only after bridge and device availability, fresh post-recovery inputs, and ownership state are all confirmed; an online flag alone is insufficient. Smart-plug electrical telemetry is operational trend data unless separately calibrated and must not replace load-rating, nameplate, or protection checks.

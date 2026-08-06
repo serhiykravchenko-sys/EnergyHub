@@ -48,8 +48,10 @@ homeassistant/
 - manual Panic script;
 - transition notifications;
 - beacon;
-- third-floor heat-pump auto-off;
-- dashboard and floor controls.
+- first-, second-, and third-floor heat-pump auto-off controls;
+- a compact Heat Pumps view with switch, live power, 0–12 h auto-off, absolute turn-off time, and consumption history for all three floors;
+- a compact Mission Control view without duplicated floor cards;
+- separate Heat Pumps and Water Systems views for compact manual control and daily/weekly/monthly locally recorded consumption history.
 
 ## Current EnergyHub-owned functions
 
@@ -59,7 +61,8 @@ homeassistant/
 - inverter transitions and verification;
 - Grid Import and Daily Summary persistence;
 - restart reconstruction;
-- MQTT state.
+- MQTT state;
+- reserve-only OFF guards for the boiler and heat pumps, with no automatic starts.
 
 ## Synchronize live HA to Git
 
@@ -69,26 +72,47 @@ homeassistant/
 
 Review all changes before committing. Do not commit `core.entity_registry` or CSV exports created for audits.
 
-## Synchronize Git to HA
+## Deploy Git to HA
 
-```powershell
-.\tools\dev\sync-to-ha.ps1
-```
-
-Reload the affected HA component or restart HA as directed.
-
-## Deploy add-on code
+The deployment entry point supports separate scopes. Its default remains the historical add-on-only workflow:
 
 ```powershell
 .\tools\dev\deploy-to-ha.ps1
 ```
 
-Rebuild and restart the local EnergyHub add-on.
+This mirrors `addon/` only. Rebuild and restart the local Energy Hub add-on, then inspect its logs.
+
+Deploy selected Home Assistant YAML while HA Core is running:
+
+```powershell
+.\tools\dev\deploy-to-ha.ps1 `
+    -Scope HomeAssistant `
+    -ConfigFiles automations.yaml
+```
+
+Reload only Automations afterward. Use the matching YAML reload for scripts or scenes; a `configuration.yaml` change requires a configuration check and HA Core restart.
+
+Deploy YAML plus selected `.storage` objects:
+
+```powershell
+.\tools\dev\deploy-to-ha.ps1 `
+    -Scope HomeAssistant `
+    -ConfigFiles automations.yaml `
+    -StorageFiles input_number,timer,lovelace.dashboard_powmr1 `
+    -HomeAssistantStopped
+```
+
+HA Core must already be stopped. The script backs up every replaced target under `\\homeassistant\config\energyhub-deploy-backups\<timestamp>`. After the copy, run `ha core check`, start HA Core, and inspect the logs. Startup loads both YAML and `.storage`, so no separate YAML reload is needed.
+
+Preview either workflow without contacting or changing Home Assistant by adding `-DryRun`.
+
+`sync-to-ha.ps1` remains the proven lower-level add-on mirror used by the add-on deployment scope. Prefer `deploy-to-ha.ps1` as the normal entry point because it selects the correct workflow and prints the required rebuild, restart, or reload actions.
 
 ## Editing safety
 
 - Edit dashboards/helpers through HA UI where possible.
 - Do not overwrite live `.storage` files while HA is running.
+- `-HomeAssistantStopped` is an explicit operator assertion; the script cannot stop or verify HA Core remotely.
 - Replace YAML files as complete files, then reload automations/scripts.
 - A conditional dashboard card displays all branches in edit mode; test the final view outside edit mode.
 

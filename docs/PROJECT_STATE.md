@@ -1,14 +1,14 @@
 # EnergyHub Project State
 
-Last updated: 2026-08-01.
+Last updated: 2026-08-06.
 
 ## Current milestone
 
-**EnergyHub 1.0 — Autonomous Home, release-ready as version 1.0.2.**
+**EnergyHub 1.1.0 — Smart Plug Reserve Guard, release candidate built from the released EnergyHub 1.0.2 baseline.**
 
-Feature development and the functional release audit are complete. Selected Medium-priority corrections, dependency pinning, credential hardening, packaging fixes, persistent serial access, executable build tests, Home Assistant rebuild validation, and full host-restart validation are complete.
+EnergyHub 1.0.2 is tagged, released, and tested. Feature development and the functional release audit for that baseline are complete. Selected Medium-priority corrections, dependency pinning, credential hardening, packaging fixes, persistent serial access, executable build tests, Home Assistant rebuild validation, and full host-restart validation are complete.
 
-The codebase is ready for the `v1.0.2` release tag.
+The 1.0.2 behavior is the compatibility baseline for all 1.x work.
 
 ## Current architecture
 
@@ -48,7 +48,7 @@ Responsibilities:
 | Hybrid Grid Hold | SUB + OSO | 07:00 |
 | Panic | SUB + SNU | SOC 80% or 95% |
 
-Away Mode is not part of EnergyHub 1.0. Its energy-to-comfort concept is deferred to 1.5 Smart Thermal Energy.
+Away Mode is not part of EnergyHub 1.0 or 1.1. EnergyHub 1.1 supplies monitored smart plugs and reserve-only OFF protection; the first automatic Smart Thermal controller remains the 1.5 milestone.
 
 ## Confirmed inverter behavior
 
@@ -104,6 +104,8 @@ Availability topics remain separated:
 - `powmr/status` — valid inverter telemetry.
 
 Diagnostics remain visible during serial or telemetry failure.
+
+Current System Health does not yet cover Home Assistant Repairs, cloud-integration authentication, Zigbee2MQTT app/bridge health, individual smart-load availability, or command-to-observed-device confirmation. These are now high-priority operational dependency gaps before unattended Smart Thermal control.
 
 ## Daily Summary
 
@@ -176,8 +178,8 @@ Current helpers:
 
 - `input_boolean.energyhub_autopilot`;
 - `input_number.energyhub_daily_solar_surplus_estimated`;
-- third-floor auto-off duration;
-- third-floor timer.
+- first-, second-, and third-floor auto-off durations;
+- first-, second-, and third-floor timers.
 
 Away Mode helpers and automation are removed.
 
@@ -234,8 +236,67 @@ Covered areas:
 
 ## Next product milestones
 
-- 1.1 — Test-drive and Telemetry Robustness;
+- 1.1 — Smart Plug Reserve Guard: Zigbee2MQTT, validated smart plugs, focused dashboards, auto-off timers, and reserve-only OFF protection;
 - 1.2 — Configurable EnergyHub;
 - 1.3 — Recovery & Resilience;
 - 1.4 — Remote Access & Telegram;
-- 1.5 — Smart Thermal Energy.
+- 1.5 — first automatic Smart Thermal Energy controller.
+
+The 1.1 work preserves the tested 1.0.2 inverter behavior. Zigbee2MQTT owns the SONOFF coordinator and paired-device transport; EnergyHub does not access the coordinator directly. Reserve guards may request OFF at documented thresholds, but no 1.1 automation starts a boiler or heat pump.
+
+## EnergyHub 1.1 release-candidate status — 2026-08-06
+
+Issue 1, the 1.x development documentation baseline, is complete in the working tree.
+
+Issue 2, Zigbee2MQTT with the SONOFF ZBDongle-E, completed on 2026-08-02:
+
+- official stable Zigbee2MQTT Home Assistant app `2.13.0-1` is installed and running;
+- ZHA does not own the discovered coordinator;
+- the coordinator uses its persistent `/dev/serial/by-id/...` identity, `adapter: ember`, and `rtscts: false`;
+- the existing PowMr FTDI device remains separate;
+- Zigbee channel 25 was selected against the detected Wi-Fi channel 1 environment;
+- Mosquitto, Home Assistant discovery, and the Zigbee2MQTT frontend are enabled;
+- EmberZNet firmware `7.4.4 [GA]`, coordinator startup, MQTT connection, Zigbee2MQTT app-restart recovery, and full Home Assistant host-restart recovery passed;
+- after the host restart, the existing Zigbee network resumed, the bridge remained online, and MQTT health reporting continued for at least 30 minutes;
+- the coordinator is positioned on a 1 m USB extension away from the Raspberry Pi and inverter;
+- a private encrypted Home Assistant backup was verified to contain the Zigbee2MQTT app and its data.
+
+Issue 3, pairing and validating two Zigbee smart plugs, is in progress:
+
+- `first_floor_heat_pump_plug` paired as `TS011F_plug_1_1` (`Zbeacon`) with direct power monitoring and observed LQI about 164–168;
+- `second_floor_heat_pump_plug` paired as `TS011F_plug_3` (`Tuya`) with polled power monitoring and observed LQI about 152–172;
+- both pairing interviews and manual Zigbee2MQTT/physical-button state-synchronization tests passed;
+- both plugs use power-outage memory `off`; manual ON remains homeowner-owned while the 1.1 reserve guard may request OFF;
+- at 21:30 on 2026-08-02, one Ember `ASH_ERROR_TIMEOUTS` transaction failure disconnected the adapter and stopped Zigbee2MQTT while the Home Assistant app Watchdog was disabled;
+- at 17:29 on 2026-08-03, an attended manual Start recovered the same network, both devices and states, MQTT, availability, and Home Assistant discovery without re-pairing or an observed relay command;
+- Watchdog was enabled after manual recovery;
+- on 2026-08-05, ASH reset and restarted but EZSP startup failed with `HOST_FATAL_ERROR`; Zigbee2MQTT exited while Watchdog was enabled and no autonomous recovery was observed;
+- on 2026-08-06 at 07:30, a third incident started from a healthy bridge and MQTT connection with `ASH_ERROR_TIMEOUTS`; Supervisor Watchdog made ten restart attempts, but all failed ASH/EZSP startup with `HOST_FATAL_ERROR` before the crash loop stopped;
+- an attended manual Start at 11:51 resumed the existing network, MQTT, both devices, their ON relay states, availability, and fresh reports without re-pairing or an observed relay toggle;
+- second-floor Offline-to-Online availability and safe OFF power recovery passed;
+- a later Home Assistant restart retained both devices Online, while the first-floor plug remained ON and its heat pump continued running;
+- first-floor compressor ramp-up reports were asynchronous; the stabilized 804 W, 3.37 A, 226 V example and second-floor live energy data are trend observations rather than calibrated protection data;
+- retained or last-known electrical readings can remain stale across an availability interruption, so later automation must require fresh post-recovery telemetry and safe ownership reconstruction before resuming commands;
+- Ember failure diagnosis and bounded recovery, optional reference-meter comparison, and both heat-pump nameplate/load-suitability checks remain.
+
+The dedicated Heat Pumps view presents matching compact first-, second-, and third-floor operating sections: switch state, live power, 0–12 h auto-off duration, and an absolute local turn-off time, with shared consumption history below. Floor 1 and floor 2 use the paired Zigbee plug entities; floor 3 retains the existing Xiaomi plug. Each floor has the same Home Assistant auto-off behavior, with duration `0` meaning manual mode. The duplicate floor sections and empty `New section` headings were removed from Mission Control, which remains focused on whole-house energy, status, decisions, and operating controls. These controls do not enable Smart Thermal automatic starts.
+
+The focused dashboards were deployed and visually verified. The final grid-confidence-aware reserve guard still requires `ha core check`, Core restart, and supervised Home Assistant verification after deployment.
+
+On 2026-08-06, Home Assistant Repairs reported expired Tuya authentication for the Wi-Fi integration used by the EnergyHub beacon. Re-confirming the login restored lamp control. A trace had shown correct fresh SOC/color calculation, so the stale blue lamp was probably an external integration-authentication failure, not Zigbee2MQTT or EnergyHub color logic. External integration health and end-to-end command confirmation are not yet part of EnergyHub System Health.
+
+Adaptive Night Hybrid is the next high-priority inverter-policy design. It will protect a morning resilience horizon rather than sunrise alone: a hard SOC floor prevents immediate reserve erosion, while a dynamic target includes conservative morning net load, cloudy-weather/forecast uncertainty, and a possible grid outage. For the current 23:00–07:00 cheap tariff and 30 A grid-charge setting, the controller will work backward from 07:00 using a conservative observed charge rate; 06:00 is the initial latest-start backstop, but a larger required SOC gain must start earlier. Grid Hold may continue beyond 07:00 until sustained actual PV surplus, non-declining SOC, and adequate remaining forecast confirm that Solar is safe. The unresolved case where charging cannot finish cheaply requires an explicit safety-versus-cost policy. Overnight SOC slope is only one input because morning household demand can rise abruptly. The design requires tested fallbacks, hysteresis, fresh inputs, ownership, restart reconstruction, and shadow-mode validation. Scheduled Hybrid and Panic remain distinct intents, and no 1.0.2 runtime policy has changed yet.
+
+EnergyHub 1.2 will add a validated Home Assistant Settings view for the currently hard-coded tariff, Hybrid, battery, Panic, and feature-enable parameters. EnergyHub remains the owner of effective persisted configuration and must validate, acknowledge, reconcile, and audit changes. The dashboard will also show calculated targets, charge duration, start-by time, and decision reasons. Migration defaults must preserve 1.0.2 exactly; disabling automatic Panic checks will not disable manual Panic or health monitoring.
+
+The working-tree dashboard now has separate Heat Pumps and Water Systems views. Heat Pumps presents three compact switch/live-power/auto-off sections. Water Systems presents compact switch/live-power sections for `2nd floor water Boiler Smart Power` (`chuangmi_212a01_c91f`) and `Basement Water Smart Power` (`chuangmi_212a01_ac48`). Both views show daily consumption for 7 days, weekly consumption for 6 weeks, and monthly consumption for 12 months. Floor 1/2 use native cumulative energy. Third-floor, boiler, and pump use new local Integral sensors derived from live watts after Xiaomi cloud counters produced impossible 100–250 kWh daily values. The local sensors persist but start at deployment; older Xiaomi-app history is not imported. Supervised deployment must validate reasonable accumulation and chart rendering.
+
+The working tree now includes the first constrained reserve automation for the water boiler. Fresh SOC reaching 50% requests OFF once; an ON request remains allowed from 41% through 50%; fresh SOC reaching 40% latches an OFF lockout; and fresh SOC reaching 60% clears the lockout without automatically restoring the boiler. The existing Xiaomi motion automation can therefore act as an allowed 41–50% override, but it is rejected while the lockout is latched. Commands are suppressed when EnergyHub telemetry is stale, notifications expose requested and observed state, and the behavior remains best effort if Home Assistant, Xiaomi authentication, the network, or the device is unavailable.
+
+The working tree also contains grid-confidence-aware reserve-only heat-pump protection with the agreed household priority. Fully trusted means Grid Confidence `normal`, exactly 100% 24-hour availability, 48 available hours over 48 hours, present grid voltage, and fresh telemetry. That state uses only the 50% all-floor lockout and clears it at fresh 60% SOC. Every degraded or unknown state uses the conservative policy: fresh SOC reaching 80% requests every running heat pump OFF once, floor 2 is shed again at 70%, floor 1 at 60%, and floor 3 remains protected until the 50% all-floor lockout. The conservative lockout clears at fresh 90% SOC. Neither policy starts a heat pump. Intermediate actions are not reconstructed blindly after restart or availability recovery; the 50% lockout is re-evaluated after trustworthy telemetry returns. Grid degradation applies the conservative all-floor shed when SOC is already at or below 80%. There are no automatic Smart Thermal starts in this version.
+
+The floor-1/floor-2 entities were unavailable during inventory because Zigbee2MQTT was unavailable; the dashboard intentionally exposes that state. The pump remains a critical manual/observational load until motor surge, plug rating, outage behavior, and water-system consequences are validated. Future early-solar permission requires dependable net surplus after house load and battery recovery, not a raw PV threshold such as 1 kW, and should begin in observer mode. Smart Thermal ownership and automatic starts remain later work.
+
+See [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
+
+See [EnergyHub 1.x Development Plan](14-EnergyHub-1.x-Development.md).

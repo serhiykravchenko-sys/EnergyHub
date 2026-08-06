@@ -1,3 +1,4 @@
+# Add-on-only mirror. Use deploy-to-ha.ps1 -Scope HomeAssistant for HA configuration.
 $Source = "$PSScriptRoot\..\..\addon"
 $Target = "\\homeassistant\addons\local\energy_hub"
 

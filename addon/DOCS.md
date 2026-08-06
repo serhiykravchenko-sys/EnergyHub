@@ -1,4 +1,4 @@
-# Energy Hub 1.0.2
+# Energy Hub 1.1.0
 
 Energy Hub is a local-first Home Assistant app for a PowMr 10.2M inverter using PI30MAX.
 
@@ -36,7 +36,7 @@ device_name: PowMr 10.2M
 ## Healthy startup
 
 ```text
-[Energy Hub] Version 1.0.2
+[Energy Hub] Version 1.1.0
 Serial: /dev/serial/by-id/usb-FTDI_...
 MQTT connected
 OK | SOC=... | PV1=... | Load=... | Grid=online

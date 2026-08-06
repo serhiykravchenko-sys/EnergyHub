@@ -4,7 +4,7 @@
 
 EnergyHub connects the physical energy system, Home Assistant, MQTT, decision services, and persistent state.
 
-![EnergyHub technical overview](Images/Infographic%232_details.png)
+![EnergyHub technical overview](Images/Infographic%E2%84%962_details.png)
 
 The infographic is an implementation-level map of the current 1.0 release candidate. It should be read together with [Developer Architecture](10-Developer-Architecture.md) for file-by-file responsibilities and extension guidance.
 
@@ -282,8 +282,9 @@ Known limitations:
 
 ## Future architecture
 
+- **1.1:** add Zigbee2MQTT-backed smart-plug monitoring, focused dashboards, manual auto-off controls, and Home Assistant reserve-only OFF guards. Zigbee2MQTT owns coordinator/device communication; Home Assistant owns user controls and the narrow reserve automations; the EnergyHub inverter runtime remains unchanged.
 - **1.2:** move strategy values into validated configuration.
 - **1.3:** formalize recovery ownership and external watchdog behavior.
 - **1.4:** add secure remote operations and Telegram.
-- **1.5:** add a capability-based Smart Thermal controller.
+- **1.5:** introduce a capability-based Smart Thermal controller for tested automatic multi-load operation.
 - **2.x:** separate policy from vendor adapters more completely.
