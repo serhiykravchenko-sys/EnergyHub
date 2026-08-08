@@ -82,7 +82,7 @@ Implementation status on 2026-08-02:
 - confirmed EmberZNet firmware `7.4.4 [GA]`, coordinator startup, MQTT connection, Home Assistant discovery publication, and successful recovery after both a Zigbee2MQTT app restart and a full Home Assistant host restart;
 - confirmed the coordinator is installed on a 1 m USB extension away from the Raspberry Pi and inverter;
 - verified a private encrypted Home Assistant backup containing the Zigbee2MQTT app and its data;
-- documented configuration, backup, recovery, and pairing gates in [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
+- documented configuration, backup, recovery, and pairing gates in [Zigbee2MQTT with SONOFF ZBDongle-E](../hardware/zigbee2mqtt-zbdongle-e.md).
 
 Issue 2 completed on 2026-08-02. The coordinator remains owned exclusively by Zigbee2MQTT; the Home Assistant ZHA discovery prompt must not be submitted.
 

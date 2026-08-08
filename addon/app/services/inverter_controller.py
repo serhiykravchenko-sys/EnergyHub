@@ -30,7 +30,7 @@ MENU_01_VERIFY_DELAY_SECONDS = 1
 
 MODE_SETTLE_DELAY_SECONDS = 2
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 DEFAULT_STATE_PATH = "/data/inverter_controller_state.json"
 
 VALID_CONFIRMED_MODES = {
@@ -39,6 +39,7 @@ VALID_CONFIRMED_MODES = {
     "hybrid_charging",
     "hybrid_grid_hold",
     "panic",
+    "panic_grid_hold",
 }
 
 VALID_MENU_16_PRIORITIES = {
@@ -60,6 +61,9 @@ class InverterController:
         self.confirmed_mode = "unknown"
         self.known_charger_priority = "unknown"
         self.panic_target_soc = None
+        self.hybrid_target_soc = None
+        self.ahm_debt_date = None
+        self.ahm_debt_target_soc = None
         self.last_error = None
 
         self._load_state()
@@ -97,6 +101,10 @@ class InverterController:
                 "Emergency grid charging: "
                 "Menu 01=SUB, Menu 16=SNU"
             ),
+            "panic_grid_hold": (
+                "Emergency reserve is held on available grid: "
+                "Menu 01=SUB, Menu 16=OSO"
+            ),
             "transition_failed": (
                 self.last_error
                 or "Inverter transition failed"
@@ -125,7 +133,8 @@ class InverterController:
             )
             return
 
-        if data.get("schema_version") != STATE_SCHEMA_VERSION:
+        stored_schema_version = data.get("schema_version", 1)
+        if stored_schema_version not in {1, STATE_SCHEMA_VERSION}:
             log(
                 "Ignore unsupported inverter controller state schema: "
                 f"{data.get('schema_version')}"
@@ -146,22 +155,52 @@ class InverterController:
         panic_target_soc = data.get("panic_target_soc")
         if panic_target_soc is not None:
             try:
-                panic_target_soc = int(panic_target_soc)
+                panic_target_soc = round(float(panic_target_soc), 2)
             except (TypeError, ValueError):
                 panic_target_soc = None
 
             if not 1 <= panic_target_soc <= 100:
                 panic_target_soc = None
 
+        hybrid_target_soc = data.get("hybrid_target_soc")
+        if hybrid_target_soc is not None:
+            try:
+                hybrid_target_soc = float(hybrid_target_soc)
+            except (TypeError, ValueError):
+                hybrid_target_soc = None
+
+            if not 1 <= hybrid_target_soc <= 100:
+                hybrid_target_soc = None
+
+        ahm_debt_date = data.get("ahm_debt_date")
+        if not isinstance(ahm_debt_date, str):
+            ahm_debt_date = None
+
+        ahm_debt_target_soc = data.get("ahm_debt_target_soc")
+        if ahm_debt_target_soc is not None:
+            try:
+                ahm_debt_target_soc = float(ahm_debt_target_soc)
+            except (TypeError, ValueError):
+                ahm_debt_target_soc = None
+
+            if not 1 <= ahm_debt_target_soc <= 100:
+                ahm_debt_target_soc = None
+
         self.confirmed_mode = confirmed_mode
         self.known_charger_priority = charger_priority
         self.panic_target_soc = panic_target_soc
+        self.hybrid_target_soc = hybrid_target_soc
+        self.ahm_debt_date = ahm_debt_date
+        self.ahm_debt_target_soc = ahm_debt_target_soc
 
         log(
             "Inverter controller state loaded: "
             f"mode={self.confirmed_mode}, "
             f"Menu 16={self.known_charger_priority}, "
-            f"panic_target={self.panic_target_soc}"
+            f"panic_target={self.panic_target_soc}, "
+            f"hybrid_target={self.hybrid_target_soc}, "
+            f"ahm_debt={self.ahm_debt_target_soc} "
+            f"for {self.ahm_debt_date}"
         )
 
     def _persist_state(self):
@@ -173,6 +212,9 @@ class InverterController:
             "confirmed_mode": self.confirmed_mode,
             "known_charger_priority": self.known_charger_priority,
             "panic_target_soc": self.panic_target_soc,
+            "hybrid_target_soc": self.hybrid_target_soc,
+            "ahm_debt_date": self.ahm_debt_date,
+            "ahm_debt_target_soc": self.ahm_debt_target_soc,
             "updated_at": datetime.now().astimezone().isoformat(),
         }
 
@@ -197,14 +239,14 @@ class InverterController:
         self.confirmed_mode = mode
         self.last_error = None
 
-        if mode != "panic":
+        if mode not in {"panic", "panic_grid_hold"}:
             self.panic_target_soc = None
 
         self._persist_state()
 
     def set_panic_target_soc(self, target_soc):
         try:
-            target_soc = int(target_soc)
+            target_soc = round(float(target_soc), 2)
         except (TypeError, ValueError):
             log(f"Ignore invalid Panic target SOC: {target_soc}")
             return False
@@ -214,6 +256,42 @@ class InverterController:
             return False
 
         self.panic_target_soc = target_soc
+        self._persist_state()
+        return True
+
+    def set_hybrid_target_soc(self, target_soc):
+        try:
+            target_soc = float(target_soc)
+        except (TypeError, ValueError):
+            log(f"Ignore invalid Hybrid target SOC: {target_soc}")
+            return False
+
+        if not 1 <= target_soc <= 100:
+            log(f"Ignore invalid Hybrid target SOC: {target_soc}")
+            return False
+
+        self.hybrid_target_soc = round(target_soc, 2)
+        self._persist_state()
+        return True
+
+    def clear_panic_target_soc(self):
+        self.panic_target_soc = None
+        self._persist_state()
+
+    def set_ahm_debt(self, debt_date, target_soc=None):
+        if target_soc is not None:
+            try:
+                target_soc = float(target_soc)
+            except (TypeError, ValueError):
+                return False
+
+            if not 1 <= target_soc <= 100:
+                return False
+
+            target_soc = round(target_soc, 2)
+
+        self.ahm_debt_date = str(debt_date)
+        self.ahm_debt_target_soc = target_soc
         self._persist_state()
         return True
 
@@ -245,6 +323,12 @@ class InverterController:
                 "hybrid_grid_hold",
             }:
                 reconstructed_mode = "hybrid_grid_hold"
+
+            elif (
+                previous_context in {"panic", "panic_grid_hold"}
+                and self.panic_target_soc is not None
+            ):
+                reconstructed_mode = "panic_grid_hold"
 
         elif actual_menu_01 == "SUB" and remembered_menu_16 == "SNU":
             # A persisted Panic target is written before entering Panic, so it
@@ -519,11 +603,15 @@ class InverterController:
         self._settle()
         return True
 
-    def enter_hybrid_grid_hold(self):
+    def enter_hybrid_grid_hold(
+        self,
+        confirmed_mode="hybrid_grid_hold",
+        strategy_name="Hybrid Grid Hold",
+    ):
         self.mode = "transitioning"
 
         log(
-            "Starting Hybrid Grid Hold: "
+            f"Starting {strategy_name}: "
             "Menu 01=SUB, Menu 16=OSO"
         )
 
@@ -534,7 +622,7 @@ class InverterController:
             )
 
             log(
-                "Hybrid Grid Hold transition failed: "
+                f"{strategy_name} transition failed: "
                 f"{hold_error}. Attempting Solar recovery."
             )
 
@@ -542,7 +630,7 @@ class InverterController:
 
             if recovered:
                 log(
-                    "Hybrid Grid Hold was not activated. "
+                    f"{strategy_name} was not activated. "
                     "Solar recovery succeeded."
                 )
             else:
@@ -553,7 +641,7 @@ class InverterController:
 
                 self.mode = "transition_failed"
                 self.last_error = (
-                    "Hybrid Grid Hold failed: "
+                    f"{strategy_name} failed: "
                     f"{hold_error}; Solar recovery failed: "
                     f"{recovery_error}"
                 )
@@ -568,7 +656,7 @@ class InverterController:
             )
 
             log(
-                "Hybrid Grid Hold transition partially failed: "
+                f"{strategy_name} transition partially failed: "
                 f"{hold_error}. Attempting Solar recovery."
             )
 
@@ -576,7 +664,7 @@ class InverterController:
 
             if recovered:
                 log(
-                    "Hybrid Grid Hold was not activated. "
+                    f"{strategy_name} was not activated. "
                     "Solar recovery succeeded."
                 )
             else:
@@ -587,7 +675,7 @@ class InverterController:
 
                 self.mode = "transition_failed"
                 self.last_error = (
-                    "Hybrid Grid Hold failed: "
+                    f"{strategy_name} failed: "
                     f"{hold_error}; Solar recovery failed: "
                     f"{recovery_error}"
                 )
@@ -595,15 +683,24 @@ class InverterController:
 
             return False
 
-        self._confirm_mode("hybrid_grid_hold")
+        self._confirm_mode(confirmed_mode)
 
         log(
-            "Hybrid Grid Hold active: "
+            f"{strategy_name} active: "
             "Menu 01=SUB, Menu 16=OSO"
         )
 
         self._settle()
         return True
+
+    def enter_panic_grid_hold(self):
+        if self.panic_target_soc is None:
+            self.set_panic_target_soc(95)
+
+        return self.enter_hybrid_grid_hold(
+            confirmed_mode="panic_grid_hold",
+            strategy_name="Panic Grid Hold",
+        )
 
     def enter_panic(self):
         self.mode = "transitioning"

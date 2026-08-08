@@ -4,7 +4,7 @@
 
 This document maps the current implementation to runtime responsibilities. It is intended for developers who need to modify, test, or reconstruct EnergyHub.
 
-![Technical architecture](Images/Infographic%E2%84%962_details.png)
+![Technical architecture](../Images/Infographic%E2%84%962_details.png)
 
 ## Runtime entry point
 
@@ -116,7 +116,7 @@ Current inputs:
 |---|---:|---|
 | `autopilot` | yes | master permission state |
 | `inverter_mode` | no | `evaluate_hybrid`, `solar`, `panic` and supported requests |
-| `solar_forecast_today_live` | yes | live Panic forecast |
+| `solar_forecast_today_live` | yes | live contextual forecast |
 | `solar_forecast_tomorrow_live` | yes | live Hybrid forecast |
 | `daily_house_consumption` | yes | scheduled consumption input |
 | `solar_forecast_today` | yes | scheduled Daily Summary input |
@@ -131,7 +131,7 @@ Current inputs:
 | QPIGS telemetry | configured, default 10 seconds |
 | QPIWS warnings | 60 seconds |
 | QPIRI settings | 60 seconds |
-| automatic Panic evaluation | 15 minutes, plus explicit reevaluation events |
+| automatic Panic evaluation | 5 minutes, plus grid/mode reevaluation events |
 | raw telemetry disk snapshot | at most 60 seconds |
 | incremental Grid Import save | at most 60 seconds |
 | Hybrid evaluation | HA trigger at 23:50 |
@@ -262,6 +262,10 @@ Keep/verify SUB, then ACK-confirm OSO. On either failure, attempt one Solar reco
 
 Persist target, write/verify SUB, ACK-confirm SNU. On partial failure, attempt Solar recovery.
 
+#### Panic Grid Hold
+
+Preserve the Panic target/context, keep/verify SUB, and ACK-confirm OSO. Resume Panic Charging if SOC falls below target.
+
 ## Decision engines
 
 ### Hybrid
@@ -270,15 +274,16 @@ Pure input/output service. See [Decision Engine](DECISION_ENGINE.md).
 
 ### Panic
 
-Pure input/output service with time-window checks. The current service does not receive live PV power.
+Pure input/output service with 07:00–23:50 time-window checks. It maps Grid Confidence to 20/60/80/95% and optionally inherits a persisted AHM morning debt. It does not gate recovery on live PV or forecast sufficiency.
 
 ## Target monitoring
 
 The main loop monitors confirmed modes:
 
-- Hybrid Charging + SOC ≥ 80 → enter Grid Hold;
-- Panic + SOC ≥ target → restore Solar;
-- successful Panic exit requests an immediate reevaluation.
+- Hybrid Charging + SOC ≥ adaptive target → enter Hybrid Grid Hold;
+- Panic Charging + SOC ≥ target → enter Panic Grid Hold;
+- Panic Grid Hold + SOC < target → resume Panic Charging;
+- AHM at 23:50 overtakes either Panic mode.
 
 ## Notifications
 

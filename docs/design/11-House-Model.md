@@ -107,6 +107,8 @@ In 1.0 EnergyHub directly controls only inverter strategy. Heat-pump controls sh
 
 EnergyHub 1.1 implements reserve-only OFF protection in Home Assistant. The boiler is requested OFF once at 50%, may be manually or motion-restored from 41–50%, locks OFF at 40%, and unlocks at 60%. Heat pumps use a fully trusted-grid policy of all-floor OFF/lock at 50% and unlock at 60%. Every degraded or unknown grid state uses the conservative policy: all floors OFF once at 80%, floor 2 again at 70%, floor 1 at 60%, and floor 3 plus every floor OFF/locked at 50%, with unlock at 90%. No recovery threshold turns a load on. The basement pump is never shed.
 
+Confirmed Hybrid Charging or Hybrid Grid Hold with fresh telemetry and currently present grid power temporarily permits manual heat-pump requests. The SOC latch remains remembered underneath and is re-enforced when that permission ends. This permission never starts a heat pump and does not introduce Smart Thermal ownership.
+
 ## Current strategies
 
 ### Solar
@@ -121,8 +123,19 @@ Menu 16 = OSO
 ```text
 Menu 01 = SUB
 Menu 16 = SNU
-Target SOC = 80%
+Target SOC = adaptive 30-95%
 ```
+
+At 23:50, Adaptive Night Hybrid projects SOC at 07:00 using a conservative
+15-point overnight allowance. It finds the first tomorrow Solcast hourly
+estimate at or above 300 W and adds 10 SOC points for each hour from 07:00
+to that useful-solar time. The target is a 20% protected reserve plus that
+morning gap plus a 10% forecast/ramp margin, capped at 95%.
+
+If projected SOC already covers the target, EnergyHub remains in Solar. If
+current SOC covers the target but the projection does not, it enters Hybrid
+Grid Hold immediately. Otherwise it enters Hybrid Charging immediately and
+changes to Grid Hold when the adaptive target is reached.
 
 ### Hybrid Grid Hold
 

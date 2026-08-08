@@ -4,7 +4,7 @@
 
 EnergyHub connects the physical energy system, Home Assistant, MQTT, decision services, and persistent state.
 
-![EnergyHub technical overview](Images/Infographic%E2%84%962_details.png)
+![EnergyHub technical overview](../Images/Infographic%E2%84%962_details.png)
 
 The infographic is an implementation-level map of the current 1.0 release candidate. It should be read together with [Developer Architecture](10-Developer-Architecture.md) for file-by-file responsibilities and extension guidance.
 
@@ -79,7 +79,8 @@ System Health aggregates communication, battery, freshness, and inverter-warning
 
 ### 5. Decision layer
 
-- `HybridDecisionEngine` decides whether nightly charging is required.
+- `HybridDecisionEngine` calculates the adaptive night target and chooses
+  Solar, Hybrid Charging, or Hybrid Grid Hold.
 - `PanicDecisionEngine` decides whether daytime reserve protection is required.
 - `AutopilotState` is the master permission gate.
 
@@ -163,9 +164,10 @@ Decision result or manual request
 | Mode | Menu 01 | Menu 16 | Exit |
 |---|---|---|---|
 | Solar | SBU | OSO | default |
-| Hybrid Charging | SUB | SNU | SOC ≥ 80% |
+| Hybrid Charging | SUB | SNU | adaptive SOC target, currently 30-95% |
 | Hybrid Grid Hold | SUB | OSO | 07:00 Solar request |
-| Panic | SUB | SNU | SOC reaches 80% or 95% |
+| Panic Charging | SUB | SNU | SOC reaches the 20/60/80/95% effective target |
+| Panic Grid Hold | SUB | OSO | AHM takeover at 23:50 |
 
 ## Autopilot behavior
 
@@ -186,7 +188,9 @@ Two forecast paths are intentionally separate:
 - `solar_forecast_today_live`;
 - `solar_forecast_tomorrow_live`.
 
-They update whenever Solcast changes and are used by Panic and Hybrid decisions.
+They update whenever Solcast changes and provide Panic inputs plus contextual
+forecast totals. Adaptive Hybrid receives a separate retained plan derived by
+Home Assistant from tomorrow's detailed hourly Solcast forecast.
 
 ### Daily Summary inputs
 
@@ -211,7 +215,8 @@ Accounting is active only for confirmed SUB-based modes:
 
 - Hybrid Charging;
 - Hybrid Grid Hold;
-- Panic.
+- Panic Charging;
+- Panic Grid Hold.
 
 The service stores separate house and battery contributions. At midnight it:
 
@@ -258,12 +263,14 @@ actual Menu 01
 + persisted ACK-confirmed Menu 16
 + persisted confirmed mode
 + persisted Panic target
++ persisted AHM target and dated morning debt
 ```
 
 Recognized combinations:
 
 - SBU + OSO → Solar;
 - SUB + OSO + valid Hybrid context → Hybrid Grid Hold;
+- SUB + OSO + valid Panic context → Panic Grid Hold;
 - SUB + SNU + persisted Panic target/context → Panic;
 - SUB + SNU + Hybrid context → Hybrid Charging.
 

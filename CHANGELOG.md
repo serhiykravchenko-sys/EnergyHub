@@ -2,6 +2,24 @@
 
 All notable EnergyHub changes are recorded here.
 
+## [1.3.0] - 2026-08-08
+
+### Added
+
+- Extended Adaptive Hybrid Mode with an aligned post-07:00 energy balance using today's consumption, tomorrow's hourly solar forecast, the 16 kWh battery model, and a conservative 90% efficiency.
+- Added explainable daytime-deficit kWh/SOC diagnostics and persisted adaptive targets.
+- Added conservative Panic targets for every Grid Confidence level: normal 20%, unstable 60%, risk 80%, and panic 95%.
+- Added explicit Panic phases, restart-safe AHM morning debt, and a persistent `panic_grid_hold` operating mode.
+
+### Changed
+
+- Panic now evaluates from 07:00 to 23:50 every five minutes and on grid transitions, without a solar-forecast gate.
+- Panic arms while grid is offline, charges when grid becomes available, and holds the recovered reserve instead of returning to Solar.
+- AHM takes ownership from Panic at 23:50 and selects Solar, Hybrid Charging, or Hybrid Grid Hold.
+- Grid-backed Panic now receives the same temporary manual heat-pump permission as grid-backed Hybrid; reserve locks return when grid is lost.
+- Standardized daily dashboard charts to `dd.MM`, corrected live Grid Import, and restored the native pastel chart styling.
+- Corrected snapshot-style MQTT energy metadata so Home Assistant no longer receives the invalid `device_class: energy` plus `state_class: measurement` combination.
+
 ## [1.1.0] - 2026-08-06
 
 ### Documentation

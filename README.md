@@ -1,14 +1,14 @@
-# EnergyHub 1.1 — Smart Plug Reserve Guard
+# EnergyHub 1.3 — Coordinated Adaptive Hybrid and Panic
 
 EnergyHub is a local-first Home Assistant app that turns a PowMr 10.2M inverter, a 16 kWh battery, solar forecasts, grid history, and Home Assistant inputs into an explainable household energy strategy.
 
-**EnergyHub 1.1.0 adds monitored smart loads and reserve-only OFF protection while preserving the released and tested EnergyHub 1.0.2 inverter runtime.**
+**EnergyHub 1.3.0 coordinates mathematical cheap-night planning with conservative daytime reserve recovery while preserving manual control and reserve-only smart-plug protection.**
 
 Feature development, the functional audit, dependency pinning, credential hardening, executable release tests, persistent USB serial access, packaging validation, and live restart testing have been completed.
 
-EnergyHub never turns the boiler or heat pumps on in 1.1.0. Automatic Smart Thermal control remains deferred.
+EnergyHub never turns the boiler or heat pumps on in 1.3.0. Automatic Smart Thermal control remains deferred.
 
-See [Installation and Upgrade](docs/INSTALLATION.md), [System Architecture](docs/05-System-Architecture.md), and [Developer Architecture](docs/10-Developer-Architecture.md).
+See [Installation and Upgrade](docs/operations/INSTALLATION.md), [System Architecture](docs/design/05-System-Architecture.md), and [Developer Architecture](docs/design/10-Developer-Architecture.md).
 
 ## What EnergyHub does
 
@@ -18,8 +18,8 @@ EnergyHub:
 - publishes stable Home Assistant entities through MQTT Discovery;
 - tracks grid availability over rolling 24-hour and 48-hour windows;
 - derives a weighted Grid Confidence state;
-- evaluates a nightly Hybrid strategy from battery SOC, current consumption, and tomorrow's solar forecast;
-- evaluates daytime Panic reserve protection from Grid Confidence, battery SOC, and forecast sufficiency;
+- evaluates Adaptive Hybrid Mode at 23:50 from battery SOC, aligned post-07 consumption, and tomorrow's hourly solar forecast;
+- evaluates conservative daytime Panic reserve protection from Grid Confidence, battery SOC, and any AHM target missed at 07:00;
 - executes verified inverter setting changes through one Inverter Controller;
 - explains decisions and transition failures in Home Assistant;
 - estimates Grid Import during intentionally grid-prioritized SUB strategies;
@@ -29,7 +29,7 @@ EnergyHub:
 
 ## Supported release platform
 
-EnergyHub 1.1.0 currently targets:
+EnergyHub 1.3.0 currently targets:
 
 - Home Assistant OS with Supervisor/Apps;
 - `aarch64` hardware, validated on Raspberry Pi 4;
@@ -45,9 +45,10 @@ The architecture is designed to become more configurable and vendor-independent 
 | Strategy | Menu 01 | Menu 16 | Purpose |
 |---|---|---|---|
 | Solar | SBU | OSO | Default: use solar and battery first. |
-| Hybrid Charging | SUB | SNU | Charge from the cheap night tariff to 80% SOC. |
-| Hybrid Grid Hold | SUB | OSO | Preserve the charged battery and keep the house on night grid power until 07:00. |
-| Panic | SUB | SNU | Build daytime emergency reserve to 80% or 95%, depending on Grid Confidence. |
+| Hybrid Charging | SUB | SNU | Charge from the cheap night tariff to the adaptive 30–95% target. |
+| Hybrid Grid Hold | SUB | OSO | Preserve the adaptive target and keep the house on night grid power until 07:00. |
+| Panic Charging | SUB | SNU | Build daytime reserve toward the conservative 20/60/80/95% target. |
+| Panic Grid Hold | SUB | OSO | Preserve recovered reserve until AHM takes ownership at 23:50. |
 
 Menu 01 is written and independently read back through QPIRI. Menu 16 has no supported read-back command on this inverter; EnergyHub stores the last ACK-confirmed value and never describes it as independently verified.
 
@@ -62,27 +63,33 @@ Menu 01 = SBU
 Menu 16 = OSO
 ```
 
-### Hybrid
+### Adaptive Hybrid Mode (AHM)
 
-At 23:50, Home Assistant requests a Hybrid evaluation. EnergyHub compares tomorrow's live solar forecast with:
+At 23:50, Home Assistant requests an AHM evaluation. EnergyHub calculates:
 
 ```text
-required energy
-= today's house consumption
-+ energy required to fill the 16 kWh battery from current SOC to 100%
+expected post-07 consumption = today's consumption × 17 / 24
+daytime deficit = max(0, expected post-07 consumption − post-07 solar)
+daytime deficit SOC = deficit / (16 kWh × 90%) × 100
+
+target SOC = min(95,
+    20% protected reserve
+    + 10% uncertainty margin
+    + max(morning-gap SOC, daytime-deficit SOC))
 ```
 
-If the forecast is insufficient, EnergyHub enters Hybrid Charging. At 80% SOC it enters Hybrid Grid Hold. Home Assistant requests Solar again at 07:00 when Autopilot is enabled.
+AHM selects Solar, Hybrid Charging, or Hybrid Grid Hold. It is authoritative at 23:50 and overtakes an active Panic strategy. At 07:00, Home Assistant requests Solar and daytime Panic inherits only an AHM target that was genuinely missed.
 
 ### Panic
 
-Between 12:00 and 23:50, EnergyHub reevaluates automatic Panic every 15 minutes while Solar is active.
+Between 07:00 and 23:50, EnergyHub reevaluates automatic Panic every five minutes and after grid transitions.
 
-- Unstable grid: SOC below 50% and forecast below yesterday's consumption plus 20% → charge to 80%.
-- Risk or panic grid: SOC below 80% and forecast below yesterday's consumption plus 20% → charge to 95%.
-- Normal grid: no automatic Panic.
+- Normal Grid Confidence → protect 20% SOC.
+- Unstable Grid Confidence → protect 60% SOC.
+- Risk Grid Confidence → protect 80% SOC.
+- Panic Grid Confidence → protect 95% SOC.
 
-A separate live-PV threshold is not part of the current Panic implementation.
+Panic does not use a solar-forecast gate. If grid is offline, it remains armed and waits. When grid returns, it charges immediately. At target it enters Panic Grid Hold rather than returning to Solar. AHM takes ownership at 23:50.
 
 Manual Panic uses a 95% target and requires Autopilot to be enabled. When Autopilot is off, Home Assistant shows a clear notification rather than silently ignoring the request.
 
@@ -203,7 +210,7 @@ EnergyHub owns:
 - persistence and restart reconstruction;
 - EnergyHub MQTT state.
 
-See [Home Assistant Configuration](docs/12-HomeAssistant-Configuration.md).
+See [Home Assistant Configuration](docs/operations/12-HomeAssistant-Configuration.md).
 
 ## Development and release validation
 
@@ -245,7 +252,7 @@ homeassistant/
   live/storage/    selected synchronized Home Assistant objects
 
 docs/
-  product, architecture, installation, decision, recovery, and hardware docs
+  project, roadmap, design, feature, operations, incident, validation, and hardware docs
 
 tools/dev/
   deployment and synchronization scripts
@@ -255,29 +262,30 @@ The Git repository is the development source of truth, including the selected Ho
 
 ## Release status
 
-The tested EnergyHub 1.0.2 baseline remains unchanged. EnergyHub 1.1.0 adds:
+EnergyHub 1.3.0 builds on the tested 1.0.2 baseline and the 1.1 smart-plug work with:
 
 - Zigbee2MQTT/ZBDongle-E setup and two paired heat-pump plugs;
 - matching three-floor manual controls and auto-off timers;
 - dedicated Heat Pumps and Water Systems dashboards with local consumption history;
 - reserve-only water-boiler and grid-confidence-aware heat-pump OFF guards;
 - guarded repository-to-Home-Assistant deployment with backups and dry runs;
-- incident and recovery documentation for the observed Ember failures and Tuya reauthentication.
+- incident and recovery documentation for the observed Ember failures and Tuya reauthentication;
+- coordinated AHM/Panic ownership, persisted targets, morning-debt recovery, and expanded diagnostics.
 
-The stable 1.0.2 public baseline remains untouched until the 1.1.0 working tree passes final supervised Home Assistant validation and is explicitly committed.
+The public repository remains unchanged until the 1.3.0 working tree passes supervised add-on and Home Assistant validation and is explicitly committed and pushed.
 
 ## Roadmap
 
 - **1.0 — Autonomous Home:** released and tested as 1.0.2.
 - **1.1 — Smart Plug Reserve Guard:** Zigbee2MQTT groundwork, validated smart plugs, focused dashboards, consumption history, and reserve-only OFF protection; no automatic starts.
-- **1.2 — Configurable EnergyHub:** strategy parameters, profiles, and safe hardware-aware bounds.
-- **1.3 — Recovery & Resilience:** bounded recovery for MQTT, network, serial, `mpp-solar`, and Home Assistant outages.
-- **1.4 — Remote Access & Telegram:** secure remote access, status, alerts, and commands.
+- **1.2 — Adaptive Hybrid prototype:** developed and night-tested in the working tree; folded into the coordinated 1.3 release.
+- **1.3 — Coordinated AHM & Panic:** post-07 energy planning, conservative daytime reserve targets, offline waiting, Grid Hold, and explicit 23:50 ownership transfer.
+- **1.4 — Recovery & Remote Operations:** bounded service recovery, secure remote access, alerts, and commands.
 - **1.5 — Smart Thermal Energy:** introduce tested automatic heating and cooling using surplus solar or cheap-tariff electricity, independent of occupancy.
 - **2.x — Energy Optimization:** broader economic and multi-vendor optimization.
 - **3.x — Full HEMS:** whole-home energy management.
 
-See [Roadmap](docs/06-Roadmap.md) and [Backlog](docs/07-Backlog.md).
+See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.md).
 
 ## Safety principles
 
@@ -291,20 +299,22 @@ See [Roadmap](docs/06-Roadmap.md) and [Backlog](docs/07-Backlog.md).
 
 ## Documentation index
 
-- [Installation and Upgrade](docs/INSTALLATION.md)
-- [Project](docs/01-Project.md)
-- [System Architecture](docs/05-System-Architecture.md)
-- [Roadmap](docs/06-Roadmap.md)
-- [Backlog](docs/07-Backlog.md)
-- [Decision Log](docs/09-Decision-Log.md)
-- [Developer Architecture](docs/10-Developer-Architecture.md)
-- [House Model](docs/11-House-Model.md)
-- [Home Assistant Configuration](docs/12-HomeAssistant-Configuration.md)
-- [Recovery Strategy](docs/13-Recovery-Strategy.md)
-- [EnergyHub 1.x Development Plan](docs/14-EnergyHub-1.x-Development.md)
-- [Decision Engine](docs/DECISION_ENGINE.md)
-- [Current Project State](docs/PROJECT_STATE.md)
-- [Project History](docs/PROJECT_HISTORY.md)
+- [Documentation Map](docs/README.md)
+- [Installation and Upgrade](docs/operations/INSTALLATION.md)
+- [Project](docs/project/01-Project.md)
+- [System Architecture](docs/design/05-System-Architecture.md)
+- [Roadmap](docs/roadmap/06-Roadmap.md)
+- [Backlog](docs/roadmap/07-Backlog.md)
+- [Decision Log](docs/design/09-Decision-Log.md)
+- [Developer Architecture](docs/design/10-Developer-Architecture.md)
+- [House Model](docs/design/11-House-Model.md)
+- [Home Assistant Configuration](docs/operations/12-HomeAssistant-Configuration.md)
+- [Recovery Strategy](docs/operations/13-Recovery-Strategy.md)
+- [EnergyHub 1.x Development Plan](docs/roadmap/14-EnergyHub-1.x-Development.md)
+- [Decision Engine](docs/design/DECISION_ENGINE.md)
+- [Current Project State](docs/project/PROJECT_STATE.md)
+- [Project History](docs/project/PROJECT_HISTORY.md)
 - [PowMr Verified Commands](docs/hardware/powmr-10-2m-verified-commands.md)
 - [Release Notes 1.0.2](RELEASE_NOTES_1.0.2.md)
 - [Release Notes 1.1.0](RELEASE_NOTES_1.1.0.md)
+- [Release Notes 1.3.0](RELEASE_NOTES_1.3.0.md)

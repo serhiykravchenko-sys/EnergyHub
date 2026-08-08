@@ -1,8 +1,10 @@
-# Energy Hub 1.1.0
+# Energy Hub 1.3.0
 
 Energy Hub is a local-first Home Assistant app for a PowMr 10.2M inverter using PI30MAX.
 
-It publishes inverter telemetry through MQTT Discovery and implements explainable Solar, Hybrid Charging, Hybrid Grid Hold, and Panic strategies.
+It publishes inverter telemetry through MQTT Discovery and implements explainable Solar, Adaptive Hybrid Charging/Grid Hold, and conservative daytime Panic Charging/Grid Hold strategies.
+
+At 23:50, AHM calculates a 30–95% target from the morning bridge and aligned post-07:00 energy deficit. From 07:00 to 23:50, Panic protects 20/60/80/95% according to Grid Confidence and any AHM target genuinely missed at the morning handover.
 
 ## Required configuration
 
@@ -36,7 +38,7 @@ device_name: PowMr 10.2M
 ## Healthy startup
 
 ```text
-[Energy Hub] Version 1.1.0
+[Energy Hub] Version 1.3.0
 Serial: /dev/serial/by-id/usb-FTDI_...
 MQTT connected
 OK | SOC=... | PV1=... | Load=... | Grid=online
@@ -56,6 +58,6 @@ Do not delete the app's `/data` directory during a normal upgrade.
 - PowMr 10.2M / PI30MAX only;
 - Menu 16 cannot be read back and is stored as ACK-confirmed context;
 - Grid Import is estimated and not billing-grade;
-- the 07:00 Solar restoration depends on Home Assistant scheduling.
+- the 07:00 handover and 23:50 AHM ownership transition depend on Home Assistant scheduling.
 
-Full documentation: <https://github.com/serhiykravchenko-sys/EnergyHub/blob/main/docs/INSTALLATION.md>
+Full documentation: <https://github.com/serhiykravchenko-sys/EnergyHub/blob/main/docs/operations/INSTALLATION.md>

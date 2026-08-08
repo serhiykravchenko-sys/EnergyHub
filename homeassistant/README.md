@@ -2,7 +2,7 @@
 
 This directory contains the versioned Home Assistant part of EnergyHub.
 
-For full behavior, see [`docs/12-HomeAssistant-Configuration.md`](../docs/12-HomeAssistant-Configuration.md).
+For full behavior, see [`docs/operations/12-HomeAssistant-Configuration.md`](../docs/operations/12-HomeAssistant-Configuration.md).
 
 ## Directory structure
 
@@ -42,8 +42,9 @@ homeassistant/
 ## Current HA-owned functions
 
 - Autopilot helper;
-- Hybrid schedule at 23:50 and Solar restoration at 07:00;
-- live Solcast publication;
+- Adaptive Night Hybrid schedule at 23:50 and Solar restoration at 07:00;
+- live Solcast publication, including the first tomorrow hourly forecast at
+  or above 300 W for the adaptive morning-gap target;
 - atomic Daily Summary publication;
 - manual Panic script;
 - transition notifications;
@@ -52,6 +53,7 @@ homeassistant/
 - a compact Heat Pumps view with switch, live power, 0–12 h auto-off, absolute turn-off time, and consumption history for all three floors;
 - a compact Mission Control view without duplicated floor cards;
 - separate Heat Pumps and Water Systems views for compact manual control and daily/weekly/monthly locally recorded consumption history.
+- temporary manual heat-pump permission during confirmed grid-backed Hybrid; it never starts a heat pump and preserves the remembered SOC lockout underneath.
 
 ## Current EnergyHub-owned functions
 

@@ -110,13 +110,13 @@ The inverter provides no supported read-back query. EnergyHub persists the last 
 
 ## D017 — Hybrid uses a two-stage strategy
 
-**Status:** accepted.
+**Status:** superseded by D041 for 1.3.0.
 
 Hybrid Charging reaches 80% SOC, then Hybrid Grid Hold preserves the battery while the house remains on the cheap grid until 07:00.
 
 ## D018 — Panic is reevaluated during the day
 
-**Status:** accepted.
+**Status:** superseded by D042 for 1.3.0.
 
 Evaluation occurs every 15 minutes from 12:00 until 23:50 while Solar is active.
 
@@ -261,3 +261,21 @@ EnergyHub 1.1 never turns the boiler or a heat pump on. The water-boiler guard a
 The 2026-08-02 Ember `ASH_ERROR_TIMEOUTS` failure stopped Zigbee2MQTT while the Home Assistant app Watchdog was disabled. An attended manual Start on 2026-08-03 recovered the same network, both devices and states, MQTT, availability, and Home Assistant discovery without re-pairing or an observed relay command. On 2026-08-05, ASH reset but EZSP startup failed with `HOST_FATAL_ERROR`; Zigbee2MQTT exited while Watchdog was enabled and no autonomous recovery was observed. On 2026-08-06, Supervisor Watchdog made ten restart attempts after another `ASH_ERROR_TIMEOUTS`, but every attempt failed to establish ASH/EZSP and the crash loop stopped. App Watchdog alone is therefore not an accepted recovery mechanism for this failure mode.
 
 Bridge/device availability recovery does not make retained electrical values intrinsically fresh. Automatic control may resume only after bridge and device availability, fresh post-recovery inputs, and ownership state are all confirmed; an online flag alone is insufficient. Smart-plug electrical telemetry is operational trend data unless separately calibrated and must not replace load-rating, nameplate, or protection checks.
+
+## D041 — AHM uses aligned post-07 energy and owns 23:50
+
+**Status:** accepted and implemented for 1.3.0.
+
+AHM excludes the cheap-grid night interval from expected battery demand, projects today's consumption onto 07:00–24:00, compares it with tomorrow's hourly solar over the same interval, and uses the larger of morning-gap or daytime-deficit SOC. AHM is authoritative at 23:50 and may overtake Panic Charging or Panic Grid Hold.
+
+## D042 — Panic is simple, conservative, and grid-opportunity aware
+
+**Status:** accepted and implemented for 1.3.0.
+
+Automatic Panic uses fixed Grid Confidence targets of 20/60/80/95% for normal/unstable/risk/panic. It does not require a solar shortage. It can be armed while grid is absent, charges when grid returns, and preserves recovered reserve in Panic Grid Hold until AHM takes ownership.
+
+## D043 — Only a missed morning AHM target becomes Panic debt
+
+**Status:** accepted and implemented for 1.3.0.
+
+The persisted AHM target is compared with actual SOC at the first daytime evaluation after 07:00. Only a real shortfall is stored as dated debt. The debt survives restart, clears after recovery, and is not recreated later from normal daytime battery discharge.

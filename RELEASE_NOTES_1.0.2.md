@@ -20,7 +20,7 @@ The 1.0.2 image was rebuilt successfully on Home Assistant OS for `linux/arm64`.
 
 ## Installation
 
-Read [docs/INSTALLATION.md](docs/INSTALLATION.md) before starting the app. New installations must configure:
+Read [docs/operations/INSTALLATION.md](docs/operations/INSTALLATION.md) before starting the app. New installations must configure:
 
 - MQTT username and password;
 - the FTDI adapter's persistent `/dev/serial/by-id/...` path.

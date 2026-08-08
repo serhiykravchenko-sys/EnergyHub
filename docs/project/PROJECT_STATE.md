@@ -4,7 +4,16 @@ Last updated: 2026-08-06.
 
 ## Current milestone
 
-**EnergyHub 1.1.0 — Smart Plug Reserve Guard, release candidate built from the released EnergyHub 1.0.2 baseline.**
+**EnergyHub 1.3.0 — Coordinated Adaptive Hybrid and Panic, under supervised validation.**
+
+## 1.3 coordinated decision state
+
+- AHM owns 23:50–07:00 and calculates a 30–95% target from the morning bridge plus aligned post-07:00 consumption/solar deficit.
+- Panic owns 07:00–23:50 and uses simple Grid Confidence targets: normal 20%, unstable 60%, risk 80%, panic 95%.
+- Only an AHM target actually missed at the 07:00 handover becomes persisted daytime charging debt.
+- Panic can remain armed while grid is offline, charge when it returns, and preserve reserve in the distinct `panic_grid_hold` mode.
+- AHM always takes ownership from Panic at 23:50.
+- Grid-backed Hybrid and Panic temporarily permit manual heat-pump use; grid loss restores the remembered reserve locks. EnergyHub never starts a heat pump automatically.
 
 EnergyHub 1.0.2 is tagged, released, and tested. Feature development and the functional release audit for that baseline are complete. Selected Medium-priority corrections, dependency pinning, credential hardening, packaging fixes, persistent serial access, executable build tests, Home Assistant rebuild validation, and full host-restart validation are complete.
 
@@ -44,11 +53,12 @@ Responsibilities:
 | Strategy | State | Target/exit |
 |---|---|---|
 | Solar | SBU + OSO | default |
-| Hybrid Charging | SUB + SNU | SOC 80% |
-| Hybrid Grid Hold | SUB + OSO | 07:00 |
-| Panic | SUB + SNU | SOC 80% or 95% |
+| Hybrid Charging | SUB + SNU | adaptive SOC 30–95% |
+| Hybrid Grid Hold | SUB + OSO | 07:00 handover |
+| Panic Charging | SUB + SNU | effective SOC 20/60/80/95% |
+| Panic Grid Hold | SUB + OSO | AHM takeover at 23:50 |
 
-Away Mode is not part of EnergyHub 1.0 or 1.1. EnergyHub 1.1 supplies monitored smart plugs and reserve-only OFF protection; the first automatic Smart Thermal controller remains the 1.5 milestone.
+Away Mode is not part of EnergyHub 1.3. EnergyHub supplies monitored smart plugs and reserve-only OFF protection; the first automatic Smart Thermal controller remains the 1.5 milestone.
 
 ## Confirmed inverter behavior
 
@@ -72,20 +82,22 @@ Away Mode is not part of EnergyHub 1.0 or 1.1. EnergyHub 1.1 supplies monitored 
 
 - Home Assistant publishes fresh decision inputs at 23:49;
 - Home Assistant requests evaluation at 23:50;
-- EnergyHub compares tomorrow's forecast with today's consumption plus battery refill to 100%;
-- insufficient forecast selects Hybrid Charging;
-- battery reaching 80% selects Hybrid Grid Hold;
+- EnergyHub aligns today's projected 07:00–24:00 consumption with tomorrow's hourly solar over the same interval;
+- the target is 20% reserve + 10% margin + the larger of morning-gap or daytime-deficit SOC, capped at 95%;
+- AHM selects Solar, Hybrid Charging, or Hybrid Grid Hold and can overtake active Panic;
+- battery reaching the adaptive target selects Hybrid Grid Hold;
 - Home Assistant requests Solar at 07:00 when Autopilot is enabled.
 
 ### Panic
 
-- evaluation window: 12:00–23:50;
-- reevaluation every 15 minutes while Solar is active;
-- normal grid → no action;
-- unstable + SOC below 50% + insufficient forecast → target 80%;
-- risk/panic + SOC below 80% + insufficient forecast → target 95%;
-- forecast sufficiency uses previous completed daily consumption ×1.20;
-- no live-PV threshold is used by the current implementation.
+- evaluation window: 07:00–23:50;
+- reevaluation every five minutes and after grid transitions;
+- normal/unstable/risk/panic Grid Confidence → 20/60/80/95% target;
+- an AHM target genuinely missed at 07:00 is inherited until recovered;
+- Panic remains armed while grid is offline and charges when grid returns;
+- reaching target selects Panic Grid Hold rather than Solar;
+- AHM takes ownership at 23:50;
+- forecast and live PV are not Panic gates.
 
 ## Health and availability
 
@@ -279,13 +291,17 @@ Issue 3, pairing and validating two Zigbee smart plugs, is in progress:
 - retained or last-known electrical readings can remain stale across an availability interruption, so later automation must require fresh post-recovery telemetry and safe ownership reconstruction before resuming commands;
 - Ember failure diagnosis and bounded recovery, optional reference-meter comparison, and both heat-pump nameplate/load-suitability checks remain.
 
+The working tree now includes the first Zigbee transport-health increment: Home Assistant derives a dedicated connectivity entity from the retained Zigbee2MQTT bridge-state topic, alerts only after two continuous offline minutes, and reports recovery with an explicit fresh-device-telemetry gate. It is alert-only and never restarts Zigbee2MQTT or issues a relay command. Supervised `ha core check`, restart, offline-delay, recovery, duplicate-notification, and no-relay-action validation remain required.
+
 The dedicated Heat Pumps view presents matching compact first-, second-, and third-floor operating sections: switch state, live power, 0–12 h auto-off duration, and an absolute local turn-off time, with shared consumption history below. Floor 1 and floor 2 use the paired Zigbee plug entities; floor 3 retains the existing Xiaomi plug. Each floor has the same Home Assistant auto-off behavior, with duration `0` meaning manual mode. The duplicate floor sections and empty `New section` headings were removed from Mission Control, which remains focused on whole-house energy, status, decisions, and operating controls. These controls do not enable Smart Thermal automatic starts.
 
 The focused dashboards were deployed and visually verified. The final grid-confidence-aware reserve guard still requires `ha core check`, Core restart, and supervised Home Assistant verification after deployment.
 
+The 2026-08-07 dashboard deployment and Core startup exposed non-fatal MQTT discovery warnings for EnergyHub energy entities published with `device_class: energy` and the invalid `state_class: measurement` combination. Confirmed examples include Hybrid Evaluated Consumption, Daily Solar Forecast, Daily Summary Grid Import, and Daily House Consumption. Current values and dashboards remain operational, but long-term statistics may be incomplete or unsuitable. Before the next release tag, audit every EnergyHub MQTT energy entity, assign `total`, `total_increasing`, or no state class according to its actual reset and accumulation behavior, add metadata tests, rebuild/restart the add-on to replace retained discovery, and confirm a clean supervised startup plus usable dependent statistics and charts.
+
 On 2026-08-06, Home Assistant Repairs reported expired Tuya authentication for the Wi-Fi integration used by the EnergyHub beacon. Re-confirming the login restored lamp control. A trace had shown correct fresh SOC/color calculation, so the stale blue lamp was probably an external integration-authentication failure, not Zigbee2MQTT or EnergyHub color logic. External integration health and end-to-end command confirmation are not yet part of EnergyHub System Health.
 
-Adaptive Night Hybrid is the next high-priority inverter-policy design. It will protect a morning resilience horizon rather than sunrise alone: a hard SOC floor prevents immediate reserve erosion, while a dynamic target includes conservative morning net load, cloudy-weather/forecast uncertainty, and a possible grid outage. For the current 23:00–07:00 cheap tariff and 30 A grid-charge setting, the controller will work backward from 07:00 using a conservative observed charge rate; 06:00 is the initial latest-start backstop, but a larger required SOC gain must start earlier. Grid Hold may continue beyond 07:00 until sustained actual PV surplus, non-declining SOC, and adequate remaining forecast confirm that Solar is safe. The unresolved case where charging cannot finish cheaply requires an explicit safety-versus-cost policy. Overnight SOC slope is only one input because morning household demand can rise abruptly. The design requires tested fallbacks, hysteresis, fresh inputs, ownership, restart reconstruction, and shadow-mode validation. Scheduled Hybrid and Panic remain distinct intents, and no 1.0.2 runtime policy has changed yet.
+Adaptive Hybrid and conservative Panic are implemented together in the 1.3.0 working tree. Future refinements include measured time-of-day load profiles, charge-deadline estimation, and sustained real-PV confirmation before leaving the morning resilience horizon.
 
 EnergyHub 1.2 will add a validated Home Assistant Settings view for the currently hard-coded tariff, Hybrid, battery, Panic, and feature-enable parameters. EnergyHub remains the owner of effective persisted configuration and must validate, acknowledge, reconcile, and audit changes. The dashboard will also show calculated targets, charge duration, start-by time, and decision reasons. Migration defaults must preserve 1.0.2 exactly; disabling automatic Panic checks will not disable manual Panic or health monitoring.
 
@@ -297,6 +313,6 @@ The working tree also contains grid-confidence-aware reserve-only heat-pump prot
 
 The floor-1/floor-2 entities were unavailable during inventory because Zigbee2MQTT was unavailable; the dashboard intentionally exposes that state. The pump remains a critical manual/observational load until motor surge, plug rating, outage behavior, and water-system consequences are validated. Future early-solar permission requires dependable net surplus after house load and battery recovery, not a raw PV threshold such as 1 kW, and should begin in observer mode. Smart Thermal ownership and automatic starts remain later work.
 
-See [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
+See [Zigbee2MQTT with SONOFF ZBDongle-E](../hardware/zigbee2mqtt-zbdongle-e.md).
 
-See [EnergyHub 1.x Development Plan](14-EnergyHub-1.x-Development.md).
+See [EnergyHub 1.x Development Plan](../roadmap/14-EnergyHub-1.x-Development.md).

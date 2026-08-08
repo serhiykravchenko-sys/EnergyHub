@@ -16,6 +16,7 @@ SUB_OPERATING_MODES = {
     "hybrid_charging",
     "hybrid_grid_hold",
     "panic",
+    "panic_grid_hold",
 }
 
 

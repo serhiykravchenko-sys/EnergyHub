@@ -16,6 +16,7 @@ The EnergyHub Python inverter runtime is intentionally unchanged. Solar, Hybrid 
 - grid-confidence-aware heat-pump reserve protection;
 - guarded Home Assistant deployment with backups, dry runs, and stopped-Core protection for `.storage` files;
 - operational records for the observed Ember ASH/EZSP failures and Tuya reauthentication incident.
+- alert-only Zigbee2MQTT bridge connectivity monitoring with delayed offline and conservative recovery notifications.
 
 ## Reserve-only behavior
 
@@ -47,7 +48,7 @@ Stale EnergyHub telemetry produces no new smart-plug command. Lockouts remain be
 
 ## Deployment
 
-The add-on and Home Assistant configuration are deployed separately. Review [Installation and Upgrade](docs/INSTALLATION.md) and [Home Assistant Configuration](docs/12-HomeAssistant-Configuration.md) before copying files.
+The add-on and Home Assistant configuration are deployed separately. Review [Installation and Upgrade](docs/operations/INSTALLATION.md) and [Home Assistant Configuration](docs/operations/12-HomeAssistant-Configuration.md) before copying files.
 
 The Home Assistant changes require:
 
@@ -64,6 +65,7 @@ The Home Assistant changes require:
 - deployment dry runs pass;
 - the dashboard, auto-off timers, local energy sensors, and water-boiler helper were observed on the reference installation;
 - final `ha core check`, restart, and supervised validation of the grid-confidence-aware heat-pump guard remain required before tagging `v1.1.0`.
+- Zigbee2MQTT bridge alerting still requires supervised offline-delay, recovery, duplicate-notification, and no-relay-action validation.
 
 ## Known limitations
 

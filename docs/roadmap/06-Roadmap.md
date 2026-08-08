@@ -71,9 +71,13 @@ Status:
 
 ---
 
-## EnergyHub 1.2 — Configurable EnergyHub
+## EnergyHub 1.2 — Adaptive Hybrid Prototype
 
-Goal:
+Historical outcome:
+
+The Adaptive Hybrid morning-bridge prototype was implemented and night-tested in the working tree. It was not published as a separate release; the work was folded into 1.3.0 together with the coordinated Panic redesign.
+
+Deferred configuration goal:
 
 Make trusted household strategy variables adjustable without editing Python or Home Assistant YAML.
 
@@ -110,45 +114,42 @@ Requirements:
 
 Status:
 
-Planned.
+Prototype completed; full configuration control plane deferred.
 
 ---
 
-## EnergyHub 1.3 — Recovery & Resilience
+## EnergyHub 1.3 — Coordinated Adaptive Hybrid and Panic
 
 Goal:
 
-Recover safely and predictably from real communication and service failures.
+Coordinate cheap-night planning with conservative daytime reserve recovery.
 
-Planned work:
+Delivered in the 1.3.0 working tree:
 
-- MQTT reconnect ownership and bounded retry;
-- network failure detection;
-- serial communication recovery;
-- inverter communication recovery;
-- `mpp-solar` timeout and blocking protection;
-- Home Assistant connectivity failure handling;
-- service startup, shutdown, and restart behavior;
-- safe-state reconstruction;
-- bounded retry/backoff policies;
-- escalation and notification behavior;
-- external heartbeat/watchdog strategy.
+- aligned post-07:00 consumption/solar energy balance for AHM;
+- adaptive 30–95% target with persisted context;
+- 07:00–23:50 Panic ownership with 20/60/80/95% targets;
+- offline waiting, charging, and Panic Grid Hold phases;
+- dated AHM morning-debt handoff;
+- explicit AHM takeover from Panic at 23:50;
+- expanded MQTT/dashboard diagnostics and coordinated heat-pump permission;
+- release tests, documentation, and updated infographics.
 
 Safety rule:
 
-> EnergyHub must never automatically restart the inverter.
+> Panic preserves reserve conservatively; neither AHM nor Panic automatically starts a smart thermal load.
 
 Status:
 
-Planned.
+Implementation complete; supervised deployment validation pending.
 
 ---
 
-## EnergyHub 1.4 — Remote Access & Telegram
+## EnergyHub 1.4 — Recovery & Remote Operations
 
 Goal:
 
-Provide secure remote visibility and structured alert delivery without moving decision logic into cloud services.
+Add bounded communication/service recovery plus secure remote visibility and structured alerts without moving decision logic into cloud services.
 
 Planned work:
 

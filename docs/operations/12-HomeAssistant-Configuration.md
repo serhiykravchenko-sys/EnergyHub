@@ -229,7 +229,8 @@ The final nightly sequence is:
 
 ```text
 23:49
-→ Home Assistant publishes fresh decision inputs
+→ Home Assistant publishes fresh decision inputs, including the first
+  tomorrow hourly Solcast estimate at or above 300 W
 
 23:50
 → Home Assistant requests Hybrid evaluation
@@ -414,6 +415,23 @@ Hybrid Grid Hold
 Solar
 ```
 
+Adaptive Night Hybrid evaluates once at 23:50. EnergyHub calculates:
+
+    projected_soc_at_07 = current_soc - 15
+    morning_gap_soc = hours_from_07_to_first_300W_forecast × 10
+    target_soc = min(95, 20 + morning_gap_soc + 10)
+
+The three outcomes are:
+
+- projected SOC meets target: remain Solar;
+- current SOC meets target but projected SOC does not: enter Grid Hold;
+- current SOC is below target: enter Hybrid Charging, then Grid Hold at target.
+
+The 07:00 schedule restores Solar. Grid Confidence does not change this
+cheap-tariff plan; Panic remains the separate grid-risk strategy. If hourly
+Solcast data is unavailable, EnergyHub uses a conservative five-hour morning
+gap, producing the previous 80% target as a visible fallback.
+
 Home Assistant should not duplicate Hybrid decision formulas.
 
 The authoritative Hybrid decision architecture is documented in:
@@ -433,16 +451,30 @@ Current entities include:
 ```text
 sensor.energyhub_hybrid_decision
 sensor.energyhub_hybrid_decision_reason
+sensor.energyhub_hybrid_evaluated_at
+sensor.energyhub_hybrid_calculation
 sensor.energyhub_hybrid_evaluated_soc
 sensor.energyhub_hybrid_evaluated_consumption
 sensor.energyhub_hybrid_battery_refill_required
 sensor.energyhub_hybrid_total_energy_required
 sensor.energyhub_hybrid_evaluated_forecast
+sensor.energyhub_hybrid_projected_soc_at_07
+sensor.energyhub_hybrid_morning_hours
+sensor.energyhub_hybrid_useful_solar_start
+sensor.energyhub_hybrid_morning_reserve_soc
+sensor.energyhub_hybrid_target_soc
+sensor.energyhub_hybrid_target_capped
+sensor.energyhub_hybrid_forecast_fallback
 ```
 
 These entities allow Home Assistant to show both the final decision and the exact values used during the most recent Hybrid evaluation.
 
 Home Assistant displays these values but does not duplicate the Hybrid decision formula.
+
+The complete 23:50 evaluation is retained in MQTT until the next nightly
+evaluation replaces it. EnergyHub startup publishes discovery but does not
+replace that retained snapshot with `not_evaluated`, so restarting Home
+Assistant or the add-on does not erase the explanation shown on the dashboard.
 
 ---
 
@@ -494,7 +526,8 @@ Accounting starts when EnergyHub enters a SUB-based strategy:
 
 - Hybrid Charging;
 - Hybrid Grid Hold;
-- Panic.
+- Panic Charging;
+- Panic Grid Hold.
 
 Accounting stops after EnergyHub returns to Solar/SBU.
 
@@ -577,6 +610,8 @@ On 2026-08-06, Home Assistant Repairs reported that Tuya authentication had expi
 
 Current EnergyHub System Health covers the EnergyHub process and inverter-facing communication, battery, telemetry freshness, and inverter warning inputs. It does not yet aggregate Home Assistant Repairs, Tuya authentication, Zigbee2MQTT app/bridge availability, or command-to-observed-device confirmation. Those dependencies must be represented separately so a retained or stale entity value cannot be mistaken for healthy end-to-end telemetry. Reauthentication remains an attended action; EnergyHub must alert but must not attempt to automate cloud-account login.
 
+The working-tree Zigbee reliability increment adds `binary_sensor.zigbee2mqtt_bridge_connectivity` from the retained `zigbee2mqtt/bridge/state` MQTT topic. If it remains offline for two minutes, Home Assistant creates one persistent notification stating that readings may be stale and that no restart or relay action was attempted. An online transition dismisses that alert and creates a recovery notice that requires individual-device availability and fresh post-recovery reports to be checked. This is bridge transport monitoring only: it does not prove that the Zigbee2MQTT app is healthy, that a device is reachable, or that any retained measurement is fresh.
+
 ---
 
 # Dashboard Architecture
@@ -621,13 +656,13 @@ The dedicated Heat Pumps view uses the same compact four-card operating layout f
 
 Floor 1 uses `switch.first_floor_heat_pump_plug` and `sensor.first_floor_heat_pump_plug_power`. Floor 2 uses `switch.second_floor_heat_pump_plug` and `sensor.second_floor_heat_pump_plug_power`. Floor 3 retains `switch.chuangmi_212a01_ea40_switch` and `sensor.chuangmi_212a01_ea40_electric_power`. Template sensors `sensor.floor_1_heat_pump_turns_off_at`, `sensor.floor_2_heat_pump_turns_off_at`, and `sensor.floor_3_heat_pump_turns_off_at` render `Today HH:MM`, `Tomorrow HH:MM`, another local date/time, or `Manual` from each timer's `finishes_at` attribute. Daily, weekly, and monthly consumption graphs remain below the compact controls.
 
-These cards expose Home Assistant household controls only. They do not indicate that EnergyHub owns the run or that Smart Thermal automatic starts are enabled. A displayed electrical value can be stale after a Zigbee availability interruption; later automatic policy must verify bridge/device availability, a fresh post-recovery report, and safe ownership reconstruction as documented in [Zigbee2MQTT with SONOFF ZBDongle-E](hardware/zigbee2mqtt-zbdongle-e.md).
+These cards expose Home Assistant household controls only. They do not indicate that EnergyHub owns the run or that Smart Thermal automatic starts are enabled. A displayed electrical value can be stale after a Zigbee availability interruption; later automatic policy must verify bridge/device availability, a fresh post-recovery report, and safe ownership reconstruction as documented in [Zigbee2MQTT with SONOFF ZBDongle-E](../hardware/zigbee2mqtt-zbdongle-e.md).
 
 Mission Control intentionally omits these floor sections after the dedicated view was introduced. Its first screen remains focused on whole-house energy, EnergyHub status, decision logic, and operating controls.
 
 ## Smart-Plug Views
 
-![Smart-plug reserve protection logic](Images/Infographic%233_smart_plug_reserve_logic.png)
+![Smart-plug reserve protection logic](../Images/Infographic%233_smart_plug_reserve_logic.png)
 
 The working-tree dashboard has three explicit tabs: **Mission Control**, **Heat Pumps**, and **Water Systems**. The two focused manual/observational views are:
 
@@ -643,6 +678,8 @@ The water-boiler plug now has a deliberately narrow reserve policy. With fresh E
 Heat pumps use a separate grid-confidence-aware reserve-only policy. EnergyHub exposes four categorical Grid Confidence states (`normal`, `unstable`, `risk`, and `panic`), so the relaxed case is intentionally stricter than `normal`: Grid Confidence must be `normal`, 24-hour availability must equal 100%, 48-hour available time must equal 48 hours, the grid must currently be present, and EnergyHub telemetry must be fresh. In that fully trusted state, only fresh SOC reaching 50% latches the all-floor lockout and requests every running heat pump OFF. Fresh SOC of at least 60% clears it.
 
 Every missing, stale, unavailable, or degraded grid-confidence input selects the conservative policy. With fresh telemetry, reaching 80% SOC requests every running heat-pump plug OFF once. Manual overrides remain possible: floor 2 is shed again at 70%, floor 1 at 60%, and floor 3 is protected until 50%. At 50%, `input_boolean.energyhub_heat_pump_soc_lockout` latches, every running heat pump is requested OFF, and any later ON request is rejected. Fresh SOC of at least 90% clears the conservative lockout. Neither policy turns a heat pump on. Smart Thermal automatic starts remain deferred.
+
+Confirmed `hybrid_charging`, `hybrid_grid_hold`, `panic`, or `panic_grid_hold` with fresh EnergyHub telemetry and current inverter grid voltage above 50 V temporarily permits manual heat-pump plug requests because the house is grid-backed. The underlying SOC lockout remains latched rather than being cleared. If strategy confirmation or present grid power is lost, the remembered lockout is immediately effective again on fresh telemetry and running heat pumps are requested OFF. The permission never turns a heat pump on; automatic Smart Thermal ownership and starts remain deferred.
 
 No command is issued from stale EnergyHub telemetry. The lockouts are best effort: Home Assistant cannot physically prevent a local, Zigbee, or cloud command while Core, Zigbee2MQTT, the Xiaomi integration, the network, or a plug is unavailable. Persistent notifications show requested actions and observed plug states so failed commands are visible. Intermediate 80%/70%/60% shedding is not reconstructed blindly after restart or availability recovery; the 50% safety lockout is re-evaluated when trustworthy telemetry returns. A transition from the fully trusted grid state to a degraded state while SOC is already at or below 80% applies the conservative all-floor shed. The basement pump remains outside both policies. Local integration and long-term-statistics rendering require supervised validation after deployment. Power and calculated energy remain operational trend data rather than electrical-protection inputs.
 
@@ -674,10 +711,13 @@ Current sections include:
 
 ### Panic Decision
 
-- Solar Forecast Today;
-- Previous Daily Consumption;
 - Panic Decision;
-- Panic Decision Reason.
+- Panic Decision Reason;
+- Panic Phase;
+- Panic Target SOC;
+- Grid Confidence Target;
+- inherited AHM Target;
+- Panic Target Source.
 
 The main decision lines are visually emphasized while detailed evaluation inputs remain available below them.
 
@@ -838,7 +878,7 @@ A Zigbee coordinator may remain connected through its own persistent `by-id` pat
 Installation and upgrade steps are documented in:
 
 ```text
-docs/INSTALLATION.md
+docs/operations/INSTALLATION.md
 ```
 
 ---

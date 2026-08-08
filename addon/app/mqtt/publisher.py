@@ -256,7 +256,7 @@ def publish_grid_import_discovery(client):
             "Grid Import Yesterday Estimated",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
     }
 
@@ -316,25 +316,25 @@ def publish_daily_summary_discovery(client):
             "Daily House Consumption",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "daily_solar_forecast": (
             "Daily Solar Forecast",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "daily_solar_surplus_estimated": (
             "Daily Solar Surplus Estimated",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "daily_grid_import": (
             "Daily Summary Grid Import",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "daily_grid_availability": (
             "Daily Grid Availability",
@@ -716,6 +716,36 @@ def publish_panic_decision_discovery(client):
             None,
             None,
         ),
+        "panic_phase": (
+            "Panic Phase",
+            None,
+            None,
+            None,
+        ),
+        "panic_target_source": (
+            "Panic Target Source",
+            None,
+            None,
+            None,
+        ),
+        "panic_target_soc": (
+            "Panic Target SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "panic_grid_target_soc": (
+            "Panic Grid Confidence Target SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "panic_ahm_target_soc": (
+            "Panic AHM Target SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
     }
 
     _publish_sensor_discovery(
@@ -752,6 +782,18 @@ def publish_hybrid_decision_discovery(client):
             None,
             None,
         ),
+        "hybrid_evaluated_at": (
+            "Hybrid Evaluated At",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_calculation": (
+            "Hybrid Calculation",
+            None,
+            None,
+            None,
+        ),
         "hybrid_evaluated_soc": (
             "Hybrid Evaluated SOC",
             "%",
@@ -762,25 +804,97 @@ def publish_hybrid_decision_discovery(client):
             "Hybrid Evaluated Consumption",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "hybrid_evaluated_forecast": (
             "Hybrid Evaluated Forecast",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "hybrid_battery_refill_required": (
             "Hybrid Battery Refill Required",
             "kWh",
             "energy",
-            "measurement",
+            None,
         ),
         "hybrid_total_energy_required": (
             "Hybrid Total Energy Required",
             "kWh",
             "energy",
+            None,
+        ),
+        "hybrid_projected_soc_at_07": (
+            "Hybrid Projected SOC at 07:00",
+            "%",
+            "battery",
             "measurement",
+        ),
+        "hybrid_morning_hours": (
+            "Hybrid Morning Gap",
+            "h",
+            "duration",
+            "measurement",
+        ),
+        "hybrid_useful_solar_start": (
+            "Hybrid Useful Solar Start",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_morning_reserve_soc": (
+            "Hybrid Morning Reserve",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "hybrid_expected_consumption_after_07": (
+            "Hybrid Expected Consumption after 07:00",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "hybrid_solar_forecast_after_07": (
+            "Hybrid Solar Forecast after 07:00",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "hybrid_daytime_deficit_kwh": (
+            "Hybrid Daytime Deficit",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "hybrid_daytime_deficit_soc": (
+            "Hybrid Daytime Deficit SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "hybrid_energy_balance_available": (
+            "Hybrid Energy Balance Available",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_target_soc": (
+            "Hybrid Adaptive Target SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "hybrid_target_capped": (
+            "Hybrid Target Capped",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_forecast_fallback": (
+            "Hybrid Forecast Fallback",
+            None,
+            None,
+            None,
         ),
     }
 

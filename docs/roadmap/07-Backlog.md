@@ -62,26 +62,55 @@ Add tests for:
 
 ## EnergyHub 1.1 — Smart Plug Reserve Guard
 
+### MQTT energy metadata pre-release audit
+
+Priority: High before the next release tag.
+
+Home Assistant Core reported MQTT discovery warnings on 2026-08-07 because several EnergyHub sensors combine `device_class: energy` with the now-invalid `state_class: measurement`. Observed examples include Daily House Consumption, Daily Solar Forecast, Daily Summary Grid Import, and Hybrid Evaluated Consumption. The audit must cover every EnergyHub MQTT energy sensor rather than only the entities named in the startup log.
+
+- classify each published energy value by behavior: instantaneous snapshot or estimate, resettable daily total, monotonic lifetime counter, or finalized period total;
+- assign `state_class: total`, `total_increasing`, or no state class according to that behavior; never retain `measurement` on an energy device class;
+- add discovery-payload tests that reject invalid energy metadata and verify reset behavior assumptions;
+- rebuild and restart the Energy Hub add-on so corrected retained MQTT discovery replaces the existing payloads;
+- restart or reload the affected integration as required, then confirm the warnings no longer appear;
+- verify current values, Recorder long-term statistics, and dependent dashboard charts after the metadata migration.
+
+Acceptance criterion: a supervised pre-release startup produces no EnergyHub MQTT energy metadata warnings, all affected entities retain correct units and values, and their intended statistics remain usable.
+
 ### Adaptive Night Hybrid reserve protection
 
 Priority: High before unattended Smart Thermal control and before shorter, less-sunny days materially increase overnight reserve risk.
 
 User outcome: EnergyHub enters the morning with enough stored energy to survive a plausible grid outage and the morning load peak, even when sunrise occurs but cloud prevents useful solar production.
 
+Initial scheduled increment implemented and live-validated on 2026-08-07:
+one 23:50 calculation, a 15-point overnight allowance, the first tomorrow
+Solcast hourly period at or above 300 W, 10 SOC points per morning-gap hour,
+a 20% protected reserve, a 10% uncertainty margin, a 95% cap, immediate
+Charging or Grid Hold when required, retained dashboard explanation, and 07:00
+Solar restoration.
+
 - estimate the real discharge rate from a robust rolling SOC window while excluding charging and mode-transition periods;
-- evaluate the reserve repeatedly overnight and through the morning instead of relying only on the existing 23:50 decision or a fixed 07:00 Solar restoration;
+- retain one scheduled 23:50 target decision; consider only a separate bounded
+  emergency-floor check if observation later proves it necessary, rather than
+  repeatedly retargeting Hybrid overnight;
 - treat measured overnight SOC decline as only one input because predictable morning loads can be materially higher than the overnight baseline;
 - calculate a morning resilience target from the protected reserve, a conservative estimate of net house energy through a configurable resilience horizon, and a forecast-uncertainty margin;
 - use conservative forecast solar, not sunrise or the first non-zero PV report; if forecast quality is stale or unavailable, assume little or no dependable PV for the protected interval;
-- calculate required charge duration from the SOC gain and a conservative observed grid-charge rate, then derive a start-by time from the cheap-tariff end; use 06:00 as the initial latest-start backstop for the current 23:00–07:00 tariff and 30 A configuration, but start earlier whenever one hour is insufficient;
+- calculate expected charge duration at 23:50 from the SOC gain and a
+  conservative observed grid-charge rate, start required charging immediately,
+  and warn when the target is unlikely to be reachable before 07:00;
 - expose an explicit policy for a target that cannot be reached before cheap tariff ends: safety-first charging after 07:00, cost-first stop, or attended confirmation; never silently choose between cost and reserve;
 - enter Hybrid preventively before SOC crosses the dynamic target, charge to the target when required, and otherwise use Grid Hold to preserve an already adequate reserve;
 - first implement a narrow overnight hard-floor guard using fresh, repeated SOC readings and an initial candidate floor of protected reserve plus a configurable margin; this provides protection while the predictor is still being validated;
-- publish the adaptive target and projection in shadow mode for several nights and compare predicted net energy, target, and useful-solar time with observed outcomes before authorizing automatic entry;
+- continue comparing the live adaptive projection, target, useful-solar time,
+  and observed outcome over several nights after the successful first
+  automatic validation;
 - confirm sustainable useful solar from actual PV surplus, non-declining battery SOC, and adequate remaining forecast before returning to Solar; a brief cloud break must not cause an early exit;
 - add entry/exit hysteresis, conservative fallbacks for unreliable rate data, fresh-input gates, persisted ownership, and restart-safe reconstruction;
 - keep scheduled cheap-tariff Hybrid and Panic as distinct intents with explicit priority;
-- increase the target conservatively when Grid Confidence is poor, while leaving high-risk Panic behavior distinct;
+- keep Grid Confidence out of the cheap-tariff Hybrid target; use the separate
+  Panic strategy for grid-risk-driven reserve recovery;
 - inhibit future Smart Thermal starts whenever the projected reserve is unsafe;
 - cover the projection, target, priority, hysteresis, stale-input, and restart boundaries with unit tests before live activation.
 
@@ -99,6 +128,52 @@ morning_resilience_target =
 ```
 
 The target represents energy to retain for a possible grid outage; it is not a prediction that the battery will continue supplying the house after Grid Hold begins. The entry projection and post-entry charge target remain separate because Grid Hold carries the live house load from grid. If the grid is already unavailable, EnergyHub cannot create reserve: it must inhibit discretionary loads, preserve the hard floor, and alert.
+
+#### Next increment: cold-season post-07:00 energy balance
+
+Status: implemented for EnergyHub 1.3.0 using the explicit 17/24 aligned-load projection, hourly post-07 Solcast sum, 16 kWh battery model, and 90% conservative efficiency. Measured time-of-day load profiles remain a future refinement.
+
+Priority: planned after several nights of Adaptive Hybrid observation; important
+before cold-season consumption reaches roughly 30-40 kWh/day while generation
+may be only about 15 kWh/day.
+
+- estimate expected house consumption from 07:00 to the next cheap-tariff
+  window rather than using the complete calendar-day total;
+- compare it with forecast solar over the same interval;
+- exclude night-window consumption because Grid Hold supplies that load
+  directly from cheap grid power;
+- convert only the remaining positive energy deficit to SOC using usable
+  battery capacity and a conservative efficiency;
+- calculate the target as protected reserve plus uncertainty margin plus the
+  larger of morning-gap SOC or post-07:00 deficit SOC, avoiding double-counting;
+- keep the 20% reserve protected rather than treating it as normal forecast
+  deficit energy;
+- display whole-day consumption and generation totals as context, not as a
+  direct subtraction formula;
+- learn the time-of-day load profile from measured history and later consider
+  thermal-load plans and weather sensitivity;
+- publish the daytime deficit, SOC conversion, cap, and reason on the dashboard;
+- test winter scenarios such as 30/15 and 40/15 kWh consumption/generation,
+  forecast error, target-cap saturation, and unavailable load history.
+
+```text
+post_07_energy_deficit_kwh =
+    max(0,
+        expected_house_consumption_after_07
+        - forecast_solar_after_07)
+
+future_target_soc =
+    min(95,
+        protected_reserve
+        + uncertainty_margin
+        + max(morning_gap_soc, daytime_deficit_soc))
+```
+
+Panic remains a distinct daytime recovery layer. A later, lower-priority policy
+may use actual SOC trajectory and remaining forecast to replenish reserve
+during the day when the night plan proves insufficient. Do not trigger Panic
+from the daily energy gap alone until its grid-risk priority, thresholds,
+hysteresis, and interaction with Adaptive Hybrid have been validated.
 
 Initial charge-deadline model:
 
@@ -247,6 +322,7 @@ Implemented heat-pump policy:
 - conservative shedding requests all running floors OFF at 80%, then floor 2 at 70%, floor 1 at 60%, and floor 3/all floors at the 50% lockout;
 - the conservative lockout clears at 90%; recovery never turns a heat pump on;
 - below the active lockout threshold, reject new manual heat-pump ON requests and force observed ON plugs OFF, subject to command availability;
+- while confirmed Hybrid Charging or Hybrid Grid Hold is grid-backed and telemetry is fresh, temporarily permit manual heat-pump requests without clearing the remembered SOC lockout; end the permission and re-enforce the latch when Hybrid or current grid power is lost;
 - mains interruption is emergency reserve shedding, not normal heat-pump regulation; heat-pump nameplate/load suitability remains a required validation item.
 
 Automatic early starts must use sustained net surplus, not PV generation alone:

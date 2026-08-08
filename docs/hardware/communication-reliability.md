@@ -101,7 +101,7 @@ Current recovery is bounded:
 - safe Solar requests have queue priority;
 - no automatic inverter reboot.
 
-See [Recovery Strategy](../13-Recovery-Strategy.md).
+See [Recovery Strategy](../operations/13-Recovery-Strategy.md).
 
 ## Known hardware limits
 

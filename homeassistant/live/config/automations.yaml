@@ -1,3 +1,46 @@
+- id: '1786100000101'
+  alias: EnergyHub - Zigbee2MQTT Bridge Offline Alert
+  description: Alert when the retained Zigbee2MQTT bridge state remains offline; never restart or toggle a device
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.zigbee2mqtt_bridge_connectivity
+    to: 'off'
+    for: 00:02:00
+  actions:
+  - action: persistent_notification.create
+    data:
+      notification_id: energyhub_zigbee2mqtt_bridge_offline
+      title: EnergyHub - Zigbee2MQTT bridge offline
+      message: >-
+        Zigbee2MQTT has remained offline for at least 2 minutes since
+        {{ as_local(trigger.to_state.last_changed).strftime('%Y-%m-%d %H:%M:%S') }}.
+        Smart-plug availability and electrical readings may be stale. No automatic
+        restart or relay command was attempted. Inspect the Zigbee2MQTT and
+        Supervisor logs before an attended recovery.
+  mode: single
+- id: '1786100000102'
+  alias: EnergyHub - Zigbee2MQTT Bridge Recovery Alert
+  description: Report bridge transport recovery without treating retained device telemetry as fresh
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.zigbee2mqtt_bridge_connectivity
+    from: 'off'
+    to: 'on'
+  actions:
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_zigbee2mqtt_bridge_offline
+  - action: persistent_notification.create
+    data:
+      notification_id: energyhub_zigbee2mqtt_bridge_recovered
+      title: EnergyHub - Zigbee2MQTT bridge online
+      message: >-
+        Zigbee2MQTT reported online at
+        {{ as_local(trigger.to_state.last_changed).strftime('%Y-%m-%d %H:%M:%S') }}.
+        Confirm each required device is available and has supplied fresh
+        post-recovery telemetry before trusting measurements or resuming automation.
+        No relay command was issued by this health automation.
+  mode: single
 - id: '1781793005552'
   alias: EnergyHub Beacon
   description: 'Color shows battery reserve. Brightness and animation show the real
@@ -429,6 +472,45 @@
       retain: true
   - action: mqtt.publish
     data:
+      topic: energyhub/input/ha/adaptive_hybrid_plan
+      payload: >-
+        {% set hourly =
+          state_attr('sensor.solcast_pv_forecast_forecast_tomorrow',
+          'detailedHourly') or [] %}
+        {% set morning_start = today_at('07:00') + timedelta(days=1) %}
+        {% set day_end = morning_start + timedelta(hours=17) %}
+        {% set ns = namespace(useful_solar_start=none, solar_after_07=0) %}
+        {% for item in hourly %}
+          {% set period = as_local(as_datetime(item.period_start)) %}
+          {% if period >= morning_start and period < day_end %}
+            {% set ns.solar_after_07 = ns.solar_after_07
+              + (item.pv_estimate | float(0)) %}
+          {% endif %}
+          {% if ns.useful_solar_start is none
+            and item.pv_estimate | float(0) >= 0.3 %}
+            {% set ns.useful_solar_start = period %}
+          {% endif %}
+        {% endfor %}
+        {% if ns.useful_solar_start is not none %}
+          {% set morning_hours = [0,
+            (as_timestamp(ns.useful_solar_start)
+            - as_timestamp(morning_start)) / 3600] | max %}
+          {{ {
+            'morning_hours': morning_hours | round(2),
+            'useful_solar_start':
+              ns.useful_solar_start.strftime('%H:%M'),
+            'solar_after_07_kwh': ns.solar_after_07 | round(2)
+          } | tojson }}
+        {% else %}
+          {{ {
+            'morning_hours': 5,
+            'useful_solar_start': 'fallback 12:00',
+            'solar_after_07_kwh': ns.solar_after_07 | round(2)
+          } | tojson }}
+        {% endif %}
+      retain: true
+  - action: mqtt.publish
+    data:
       topic: energyhub/input/ha/daily_solar_surplus_estimated
       payload: '{{ states(''input_number.energyhub_daily_solar_surplus_estimated'')
         }}'
@@ -473,6 +555,45 @@
     data:
       topic: energyhub/input/ha/solar_forecast_tomorrow_live
       payload: '{{ states(''sensor.solcast_pv_forecast_forecast_tomorrow'') }}'
+      retain: true
+  - action: mqtt.publish
+    data:
+      topic: energyhub/input/ha/adaptive_hybrid_plan
+      payload: >-
+        {% set hourly =
+          state_attr('sensor.solcast_pv_forecast_forecast_tomorrow',
+          'detailedHourly') or [] %}
+        {% set morning_start = today_at('07:00') + timedelta(days=1) %}
+        {% set day_end = morning_start + timedelta(hours=17) %}
+        {% set ns = namespace(useful_solar_start=none, solar_after_07=0) %}
+        {% for item in hourly %}
+          {% set period = as_local(as_datetime(item.period_start)) %}
+          {% if period >= morning_start and period < day_end %}
+            {% set ns.solar_after_07 = ns.solar_after_07
+              + (item.pv_estimate | float(0)) %}
+          {% endif %}
+          {% if ns.useful_solar_start is none
+            and item.pv_estimate | float(0) >= 0.3 %}
+            {% set ns.useful_solar_start = period %}
+          {% endif %}
+        {% endfor %}
+        {% if ns.useful_solar_start is not none %}
+          {% set morning_hours = [0,
+            (as_timestamp(ns.useful_solar_start)
+            - as_timestamp(morning_start)) / 3600] | max %}
+          {{ {
+            'morning_hours': morning_hours | round(2),
+            'useful_solar_start':
+              ns.useful_solar_start.strftime('%H:%M'),
+            'solar_after_07_kwh': ns.solar_after_07 | round(2)
+          } | tojson }}
+        {% else %}
+          {{ {
+            'morning_hours': 5,
+            'useful_solar_start': 'fallback 12:00',
+            'solar_after_07_kwh': ns.solar_after_07 | round(2)
+          } | tojson }}
+        {% endif %}
       retain: true
   mode: restart
 - id: '1783697064742'
@@ -549,6 +670,7 @@
       event: '{{ trigger.payload_json }}'
       event_type: '{{ event.type | default(''unknown'') }}'
       mode: '{{ event.mode | default(''unknown'') }}'
+      requested_mode: '{{ event.requested_mode | default(''unknown'') }}'
       soc: '{{ event.soc | default(''unknown'') }}'
       target_soc: '{{ event.target_soc | default(''unknown'') }}'
       reason: '{{ event.reason | default(''No reason provided'') }}'
@@ -558,7 +680,7 @@
     - conditions:
       - condition: template
         value_template: '{{ event_type == ''automatic_mode_activation'' and mode ==
-          ''hybrid'' }}'
+          ''hybrid'' and requested_mode != ''solar'' }}'
       sequence:
       - action: persistent_notification.create
         data:
@@ -568,13 +690,39 @@
 
             Tomorrow forecast: {{ event.forecast | round(2) }} kWh
 
-            Required energy: {{ event.required_energy | round(2) }} kWh
+            Projected SOC at 07:00: {{ event.projected_soc_at_07 }}%
+
+            Useful solar starts: {{ event.useful_solar_start }}
+
+            Morning gap: {{ event.morning_hours }} hour(s)
+
+            Expected consumption after 07:00:
+            {{ event.expected_consumption_after_07 | default(''unknown'') }} kWh
+
+            Solar forecast after 07:00:
+            {{ event.solar_forecast_after_07 | default(''unknown'') }} kWh
+
+            Daytime deficit: {{ event.daytime_deficit_kwh | default(''unknown'') }}
+            kWh / {{ event.daytime_deficit_soc | default(''unknown'') }}% SOC
 
             Target SOC: {{ target_soc }}%
 
             EnergyHub will keep the house on the night grid until 07:00.
 
             Reason: {{ reason }}'
+    - conditions:
+      - condition: template
+        value_template: '{{ event_type == ''automatic_mode_activation'' and mode ==
+          ''hybrid'' and requested_mode == ''solar'' }}'
+      sequence:
+      - action: persistent_notification.create
+        data:
+          title: "☀️ EnergyHub: AHM restored Solar"
+          notification_id: energyhub_hybrid
+          message: >-
+            AHM took ownership from daytime Panic at 23:50 and restored Solar.
+            Battery SOC: {{ soc }}%. Target SOC: {{ target_soc }}%.
+            Reason: {{ reason }}
     - conditions:
       - condition: template
         value_template: '{{ event_type == ''automatic_mode_activation'' and mode ==
@@ -588,9 +736,11 @@
 
             Grid confidence: {{ event.grid_confidence | default(''unknown'') }}
 
-            Solar forecast: {{ event.forecast | round(2) }} kWh
-
             Target SOC: {{ target_soc }}%
+
+            Panic phase: {{ event.phase | default(''unknown'') }}
+
+            Target source: {{ event.target_source | default(''unknown'') }}
 
             Reason: {{ reason }}'
     - conditions:
@@ -787,7 +937,8 @@
   alias: EnergyHub - Heat Pump Reserve Shed
   description: In the conservative grid policy, requests all running heat-pump
     plugs OFF once when fresh battery SOC reaches 80% or the grid becomes untrusted.
-    Fully trusted grid operation skips this action.
+    Fully trusted grid operation and confirmed grid-backed Hybrid/Panic permission skip
+    this action.
   triggers:
   - trigger: numeric_state
     entity_id: sensor.powmr_10_2m_battery_soc
@@ -808,6 +959,9 @@
     entity_id: sensor.powmr_10_2m_grid_voltage
     below: 50
     id: current_grid_lost
+  - trigger: state
+    entity_id: sensor.energyhub_operating_mode
+    id: operating_mode_changed
   conditions:
   - condition: state
     entity_id: sensor.energyhub_telemetry_freshness
@@ -820,10 +974,25 @@
       {% if trigger.id == 'soc_at_80' %}
         {{ trigger.from_state is not none
            and trigger.from_state.state | float(-1) > 80 }}
+      {% elif trigger.id == 'operating_mode_changed' %}
+        {{ trigger.from_state is not none
+           and trigger.to_state is not none
+           and trigger.from_state.state | lower in
+             ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+           and trigger.to_state.state | lower not in
+             ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold'] }}
       {% else %}
         {{ trigger.from_state is not none
            and trigger.from_state.state not in ['unknown', 'unavailable'] }}
       {% endif %}
+  - condition: template
+    value_template: >-
+      {% set hybrid_grid_permission =
+        states('sensor.energyhub_operating_mode') | lower in
+          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      %}
+      {{ not hybrid_grid_permission }}
   - condition: template
     value_template: >-
       {{ not (
@@ -897,6 +1066,14 @@
     state: fresh
   - condition: template
     value_template: >-
+      {% set hybrid_grid_permission =
+        states('sensor.energyhub_operating_mode') | lower in
+          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      %}
+      {{ not hybrid_grid_permission }}
+  - condition: template
+    value_template: >-
       {{ not (
         states('sensor.energyhub_grid_confidence') | lower == 'normal'
         and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
@@ -965,7 +1142,9 @@
 - id: '1786023000013'
   alias: EnergyHub - Heat Pump Critical SOC Lockout
   description: At 50% fresh SOC, latches the global heat-pump lockout and requests
-    every running heat-pump plug OFF.
+    every running heat-pump plug OFF unless confirmed Hybrid is currently carrying
+    the house from a present grid. The latch remains remembered during that temporary
+    manual-use permission.
   triggers:
   - trigger: numeric_state
     entity_id: sensor.powmr_10_2m_battery_soc
@@ -994,6 +1173,14 @@
   - action: input_boolean.turn_on
     target:
       entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+  - condition: template
+    value_template: >-
+      {% set hybrid_grid_permission =
+        states('sensor.energyhub_operating_mode') | lower in
+          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      %}
+      {{ not hybrid_grid_permission }}
   - if:
     - condition: state
       entity_id: switch.first_floor_heat_pump_plug
@@ -1047,7 +1234,9 @@
 - id: '1786023000014'
   alias: EnergyHub - Enforce Heat Pump SOC Lockout
   description: Rejects any heat-pump ON request while the 50% global lockout is
-    latched and EnergyHub telemetry is fresh.
+    latched and EnergyHub telemetry is fresh, except for temporary manual permission
+    during confirmed grid-backed Hybrid/Panic. A mode or grid change re-enforces the
+    remembered latch without automatically starting any heat pump.
   triggers:
   - trigger: state
     entity_id: switch.first_floor_heat_pump_plug
@@ -1061,6 +1250,21 @@
     entity_id: switch.chuangmi_212a01_ea40_switch
     to: 'on'
     id: floor_3
+  - trigger: state
+    entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+    to: 'on'
+    id: lockout_latched
+  - trigger: state
+    entity_id: sensor.energyhub_operating_mode
+    id: operating_mode_changed
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_grid_voltage
+    below: 50
+    id: current_grid_lost
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
   conditions:
   - condition: state
     entity_id: input_boolean.energyhub_heat_pump_soc_lockout
@@ -1068,37 +1272,52 @@
   - condition: state
     entity_id: sensor.energyhub_telemetry_freshness
     state: fresh
+  - condition: template
+    value_template: >-
+      {% set hybrid_grid_permission =
+        states('sensor.energyhub_operating_mode') | lower in
+          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+      %}
+      {{ not hybrid_grid_permission }}
   actions:
-  - choose:
-    - conditions:
-      - condition: trigger
-        id: floor_1
-      sequence:
-      - action: switch.turn_off
-        continue_on_error: true
-        target:
-          entity_id: switch.first_floor_heat_pump_plug
-    - conditions:
-      - condition: trigger
-        id: floor_2
-      sequence:
-      - action: switch.turn_off
-        continue_on_error: true
-        target:
-          entity_id: switch.second_floor_heat_pump_plug
-    - conditions:
-      - condition: trigger
-        id: floor_3
-      sequence:
-      - action: switch.turn_off
-        continue_on_error: true
-        target:
-          entity_id: switch.chuangmi_212a01_ea40_switch
+  - if:
+    - condition: state
+      entity_id: switch.first_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.first_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.second_floor_heat_pump_plug
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.second_floor_heat_pump_plug
+  - if:
+    - condition: state
+      entity_id: switch.chuangmi_212a01_ea40_switch
+      state: 'on'
+    then:
+    - action: switch.turn_off
+      continue_on_error: true
+      target:
+        entity_id: switch.chuangmi_212a01_ea40_switch
   - delay:
       seconds: 3
   - action: persistent_notification.create
     data:
-      title: EnergyHub - Heat-pump ON rejected
+      title: >-
+        {% if trigger.id in ['floor_1', 'floor_2', 'floor_3'] %}
+          EnergyHub - Heat-pump ON rejected
+        {% else %}
+          EnergyHub - Heat-pump protection restored
+        {% endif %}
       notification_id: energyhub_heat_pump_soc_lockout
       message: >-
         {% set trusted_grid =
@@ -1108,7 +1327,14 @@
           and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
         %}
         {% set recovery_soc = 60 if trusted_grid else 90 %}
-        The heat-pump SOC lockout is active. Battery SOC is
+        {% if trigger.id in ['floor_1', 'floor_2', 'floor_3'] %}
+          A heat-pump ON request was rejected because the remembered SOC lockout
+          is active.
+        {% else %}
+          Temporary grid-backed Hybrid/Panic permission ended. EnergyHub requested every
+          running heat pump OFF because the remembered SOC lockout is active.
+        {% endif %}
+        Battery SOC is
         {{ states('sensor.powmr_10_2m_battery_soc') }}%; unlock currently requires
         fresh SOC of at least {{ recovery_soc }}%. Current observed states: floor 1
         {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
@@ -1173,6 +1399,46 @@
   - action: input_boolean.turn_off
     target:
       entity_id: input_boolean.energyhub_heat_pump_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_soc_lockout
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_reserve_shed
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_floor_2_shed
+  - action: persistent_notification.dismiss
+    data:
+      notification_id: energyhub_heat_pump_floor_1_shed
+  mode: restart
+- id: '1786023000016'
+  alias: EnergyHub - Hybrid Heat Pump Manual Permission
+  description: While confirmed Hybrid or Panic is carrying the house from a present grid
+    with fresh telemetry, allows manual heat-pump plug requests without clearing
+    the remembered SOC lockout and without turning any heat pump on.
+  triggers:
+  - trigger: state
+    entity_id: sensor.energyhub_operating_mode
+    id: operating_mode_changed
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_grid_voltage
+    above: 50
+    id: current_grid_recovered
+  - trigger: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    to: fresh
+    id: telemetry_recovered
+  conditions:
+  - condition: state
+    entity_id: sensor.energyhub_telemetry_freshness
+    state: fresh
+  - condition: template
+    value_template: >-
+      {{ states('sensor.energyhub_operating_mode') | lower in
+           ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+         and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50 }}
+  actions:
   - action: persistent_notification.dismiss
     data:
       notification_id: energyhub_heat_pump_soc_lockout

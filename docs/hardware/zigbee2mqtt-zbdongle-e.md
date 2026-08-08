@@ -114,6 +114,12 @@ After any adapter, MQTT, Zigbee2MQTT, or Home Assistant interruption:
 
 Do not issue a speculative toggle to force state synchronization. Manual control and the Home Assistant auto-off timers may remain available, but future EnergyHub Smart Thermal control must not resume commands from bridge availability or retained telemetry alone. A future Watchdog recovery must pass the same state, availability, freshness, ownership, and no-unintended-relay checks before it is trusted. Heat-pump nameplate and load-suitability checks remain separate validation gates.
 
+## Bridge health alerting
+
+The working-tree Home Assistant configuration exposes the retained `zigbee2mqtt/bridge/state` topic as `binary_sensor.zigbee2mqtt_bridge_connectivity`. An offline state must persist for two minutes before one persistent alert is created, avoiding noise from short attended restarts. Recovery produces a separate notice and explicitly requires device availability and fresh post-recovery reports to be verified.
+
+This first reliability increment is observable but not self-healing. It does not call the Supervisor API, restart Zigbee2MQTT, toggle a relay, or authorize automatic Smart Thermal control. The observed `HOST_FATAL_ERROR` restart loop shows that a bounded cooldown and escalation design must be validated before automatic recovery is enabled.
+
 ## Backup and recovery
 
 Before firmware, channel, coordinator, or host migration:
@@ -128,4 +134,4 @@ For recovery, restore the complete data set rather than reconstructing only `con
 
 ## Pairing gate
 
-Keep `permit_join` disabled except during an attended pairing window. Pair one plug at a time and complete the validation matrix in the [EnergyHub 1.x Development Plan](../14-EnergyHub-1.x-Development.md) before any unattended automatic Smart Thermal use is considered.
+Keep `permit_join` disabled except during an attended pairing window. Pair one plug at a time and complete the validation matrix in the [EnergyHub 1.x Development Plan](../roadmap/14-EnergyHub-1.x-Development.md) before any unattended automatic Smart Thermal use is considered.

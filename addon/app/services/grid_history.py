@@ -62,10 +62,10 @@ class GridHistoryService:
             self.last_state = grid_available
             self.last_change = now
             self.save()
-            return
+            return True
 
         if grid_available == self.last_state:
-            return
+            return False
 
         duration = now - self.last_change
 
@@ -85,6 +85,7 @@ class GridHistoryService:
         self.save()
 
         log(f"Grid state changed: {'online' if grid_available else 'offline'}")
+        return True
 
     def outage_hours(self, hours: int):
         now = time.time()
