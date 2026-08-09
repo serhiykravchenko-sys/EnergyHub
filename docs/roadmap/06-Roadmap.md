@@ -67,7 +67,7 @@ Non-goals:
 
 Status:
 
-1.1.0 release candidate. Final `ha core check`, restart, and supervised reserve-guard validation are required before tagging.
+The 1.1 work was folded into the validated 1.3.0 release candidate rather than tagged separately.
 
 ---
 
@@ -141,7 +141,7 @@ Safety rule:
 
 Status:
 
-Implementation complete; supervised deployment validation pending.
+Implementation and supervised deployment validation completed on 2026-08-09; public publication is pending explicit approval.
 
 ---
 

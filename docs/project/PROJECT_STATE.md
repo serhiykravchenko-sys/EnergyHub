@@ -1,10 +1,10 @@
 # EnergyHub Project State
 
-Last updated: 2026-08-06.
+Last updated: 2026-08-09.
 
 ## Current milestone
 
-**EnergyHub 1.3.0 — Coordinated Adaptive Hybrid and Panic, under supervised validation.**
+**EnergyHub 1.3.0 — Coordinated Adaptive Hybrid and Panic, validated for public promotion.**
 
 ## 1.3 coordinated decision state
 
@@ -231,6 +231,17 @@ Covered areas:
 - automatic Panic evaluation returned normal no-action;
 - full Home Assistant host restart passed with the Zigbee coordinator connected.
 
+## EnergyHub 1.3 release validation completed on 2026-08-09
+
+- all 44 release-logic tests passed in both the development and public-release worktrees;
+- the deployed Home Assistant add-on mirror matched the committed 1.3.0 source;
+- Supervisor reported Energy Hub 1.3.0 started and current;
+- live runtime logs showed valid telemetry, coordinated Panic evaluation, and normal recovery from one transient invalid sample;
+- the MQTT energy-metadata regression test passed and current Home Assistant logs contained no matching metadata warning;
+- the Zigbee2MQTT bridge automations were aligned with the discovered bridge connection entity;
+- `ha core check` completed successfully after the final YAML deployment;
+- public promotion was prepared locally without pushing, tagging, or changing repository visibility.
+
 ## Known limitations and deferred work
 
 - `aarch64` only;
@@ -248,7 +259,7 @@ Covered areas:
 
 ## Next product milestones
 
-- 1.3 — complete supervised validation and promote Coordinated Adaptive Hybrid and Panic to the public repository;
+- 1.3 — publish the validated Coordinated Adaptive Hybrid and Panic release candidate;
 - 1.4 — validated settings, policy profiles, recovery/supportability, and provider-neutral messaging with Telegram as the first candidate adapter;
 - 1.5 — capability-based flexible energy management, including Smart Thermal and solar-first EV charging;
 - 2.x — day-ahead import/export planning, Net Billing, dynamic prices, and validated inverter/transport adapters;

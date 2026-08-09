@@ -278,7 +278,7 @@ EnergyHub 1.3.0 builds on the tested 1.0.2 baseline and the 1.1 smart-plug work 
 - incident and recovery documentation for the observed Ember failures and Tuya reauthentication;
 - coordinated AHM/Panic ownership, persisted targets, morning-debt recovery, and expanded diagnostics.
 
-This branch contains the EnergyHub 1.3.0 release candidate. The `v1.3.0` tag and GitHub Release remain gated on final supervised add-on and Home Assistant validation.
+This branch contains the validated EnergyHub 1.3.0 release candidate. The `v1.3.0` tag and GitHub Release remain pending explicit publication approval.
 
 ## Roadmap
 
