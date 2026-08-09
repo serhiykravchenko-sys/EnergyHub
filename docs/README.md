@@ -24,3 +24,7 @@ The local Git repository is the durable source of truth for EnergyHub. Topic-spe
 6. Update project state, roadmap, changelog, and release notes only when their status actually changes.
 
 Chat history is useful working context, but it is not the project record. A new task should be able to continue safely from the repository alone.
+
+## Product positioning
+
+See [`project/POSITIONING.md`](project/POSITIONING.md) for the current public message, target users, evidence requirements, claim boundaries, and future positioning direction.

@@ -4,7 +4,7 @@
 
 This document is the working plan for EnergyHub 1.x development after the tested EnergyHub 1.0.2 release.
 
-The local `SKrav69/EnergyHub` repository is the development source of truth. The stable public distribution repository is not modified during 1.x development.
+The private development repository is the engineering source of truth. Only reviewed, validated, and sanitized release content is promoted to this public distribution repository.
 
 ## Released baseline
 

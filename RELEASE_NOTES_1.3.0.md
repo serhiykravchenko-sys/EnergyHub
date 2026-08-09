@@ -1,6 +1,10 @@
 # EnergyHub 1.3.0 — Coordinated Adaptive Hybrid and Panic
 
+**Adaptive solar planning. Smart tariff use. Outage-ready reserve.**
+
 EnergyHub 1.3.0 coordinates planned cheap-night charging with conservative daytime grid-outage recovery.
+
+The release uses one configured cheap-tariff window. Multiple fixed tariff periods, dynamic day-ahead prices, export planning, and Net Billing remain roadmap capabilities rather than 1.3.0 claims.
 
 ## Adaptive Hybrid Mode
 

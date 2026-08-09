@@ -248,11 +248,11 @@ Covered areas:
 
 ## Next product milestones
 
-- 1.1 — Smart Plug Reserve Guard: Zigbee2MQTT, validated smart plugs, focused dashboards, auto-off timers, and reserve-only OFF protection;
-- 1.2 — Configurable EnergyHub;
-- 1.3 — Recovery & Resilience;
-- 1.4 — Remote Access & Telegram;
-- 1.5 — first automatic Smart Thermal Energy controller.
+- 1.3 — complete supervised validation and promote Coordinated Adaptive Hybrid and Panic to the public repository;
+- 1.4 — validated settings, policy profiles, recovery/supportability, and provider-neutral messaging with Telegram as the first candidate adapter;
+- 1.5 — capability-based flexible energy management, including Smart Thermal and solar-first EV charging;
+- 2.x — day-ahead import/export planning, Net Billing, dynamic prices, and validated inverter/transport adapters;
+- 3.x — broader whole-home coordination.
 
 The 1.1 work preserves the tested 1.0.2 inverter behavior. Zigbee2MQTT owns the SONOFF coordinator and paired-device transport; EnergyHub does not access the coordinator directly. Reserve guards may request OFF at documented thresholds, but no 1.1 automation starts a boiler or heat pump.
 

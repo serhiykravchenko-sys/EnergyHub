@@ -1,14 +1,18 @@
 # EnergyHub 1.3 — Coordinated Adaptive Hybrid and Panic
 
-EnergyHub is a local-first Home Assistant app that turns a PowMr 10.2M inverter, a 16 kWh battery, solar forecasts, grid history, and Home Assistant inputs into an explainable household energy strategy.
+**Adaptive solar planning. Smart tariff use. Outage-ready reserve.**
 
-**EnergyHub 1.3.0 coordinates mathematical cheap-night planning with conservative daytime reserve recovery while preserving manual control and reserve-only smart-plug protection.**
+EnergyHub is a local-first, resilience-aware Home Assistant energy controller for the PowMr 10.2M / POW-HVM10.2M hybrid inverter. It combines tomorrow's hourly solar forecast, expected household demand, battery state, a configured cheap-tariff window, and observed grid reliability to plan economical overnight charging and maintain an adaptive reserve.
+
+**EnergyHub 1.3.0 coordinates Adaptive Hybrid planning with conservative daytime Panic reserve recovery. Every strategy transition has an explicit owner, target, reason, and observable result.**
 
 Feature development, the functional audit, dependency pinning, credential hardening, executable release tests, persistent USB serial access, packaging validation, and live restart testing have been completed.
 
 EnergyHub never turns the boiler or heat pumps on in 1.3.0. Automatic Smart Thermal control remains deferred.
 
 See [Installation and Upgrade](docs/operations/INSTALLATION.md), [System Architecture](docs/design/05-System-Architecture.md), and [Developer Architecture](docs/design/10-Developer-Architecture.md).
+
+![Adaptive Hybrid and Panic coordination](docs/Images/Infographic%235_ahm_panic_coordination.png)
 
 ## What EnergyHub does
 
@@ -26,6 +30,8 @@ EnergyHub:
 - stores restart-critical state atomically on local disk;
 - reconstructs the operating strategy after an app restart;
 - returns to Solar safely when Autopilot is disabled during an active automatic strategy.
+
+The current release uses one configured cheap-tariff window. Future tariff planning may use multiple fixed periods or day-ahead import/export prices, but EnergyHub 1.3.0 does not claim dynamic-price or Net Billing optimization.
 
 ## Supported release platform
 
@@ -272,7 +278,7 @@ EnergyHub 1.3.0 builds on the tested 1.0.2 baseline and the 1.1 smart-plug work 
 - incident and recovery documentation for the observed Ember failures and Tuya reauthentication;
 - coordinated AHM/Panic ownership, persisted targets, morning-debt recovery, and expanded diagnostics.
 
-The public repository remains unchanged until the 1.3.0 working tree passes supervised add-on and Home Assistant validation and is explicitly committed and pushed.
+This branch contains the EnergyHub 1.3.0 release candidate. The `v1.3.0` tag and GitHub Release remain gated on final supervised add-on and Home Assistant validation.
 
 ## Roadmap
 
@@ -280,9 +286,9 @@ The public repository remains unchanged until the 1.3.0 working tree passes supe
 - **1.1 — Smart Plug Reserve Guard:** Zigbee2MQTT groundwork, validated smart plugs, focused dashboards, consumption history, and reserve-only OFF protection; no automatic starts.
 - **1.2 — Adaptive Hybrid prototype:** developed and night-tested in the working tree; folded into the coordinated 1.3 release.
 - **1.3 — Coordinated AHM & Panic:** post-07 energy planning, conservative daytime reserve targets, offline waiting, Grid Hold, and explicit 23:50 ownership transfer.
-- **1.4 — Recovery & Remote Operations:** bounded service recovery, secure remote access, alerts, and commands.
-- **1.5 — Smart Thermal Energy:** introduce tested automatic heating and cooling using surplus solar or cheap-tariff electricity, independent of occupancy.
-- **2.x — Energy Optimization:** broader economic and multi-vendor optimization.
+- **1.4 — Configuration, Recovery & Messaging:** validated profiles, generic tariff schedules, forecast fallback, supportability, bounded recovery, and provider-neutral messaging.
+- **1.5 — Flexible Energy & EV Charging:** capability-based thermal loads, solar-first EV charging, ownership, priorities, and safe time-bounded overrides.
+- **2.x — Economic Planning & Hardware Ecosystem:** day-ahead import/export prices, Net Billing, resilience-constrained optimization, and validated inverter/transport adapters.
 - **3.x — Full HEMS:** whole-home energy management.
 
 See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.md).
@@ -302,6 +308,7 @@ See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.
 - [Documentation Map](docs/README.md)
 - [Installation and Upgrade](docs/operations/INSTALLATION.md)
 - [Project](docs/project/01-Project.md)
+- [Project Positioning](docs/project/POSITIONING.md)
 - [System Architecture](docs/design/05-System-Architecture.md)
 - [Roadmap](docs/roadmap/06-Roadmap.md)
 - [Backlog](docs/roadmap/07-Backlog.md)

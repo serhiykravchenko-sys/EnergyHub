@@ -480,7 +480,7 @@ Architectural result:
 
 # August 2026 — EnergyHub 1.x Development Start
 
-EnergyHub 1.0.2 was tagged, released, and tested. Development then moved to the `SKrav69/EnergyHub` repository while the stable public distribution repository remained unchanged.
+EnergyHub 1.0.2 was tagged, released, and tested. Development then moved to a separate development repository while the stable public distribution repository remained unchanged until the next reviewed release promotion.
 
 The initial 1.1 sequence was agreed as:
 

@@ -145,21 +145,30 @@ Implementation complete; supervised deployment validation pending.
 
 ---
 
-## EnergyHub 1.4 — Recovery & Remote Operations
+## EnergyHub 1.4 — Configuration, Recovery & Messaging
 
 Goal:
 
-Add bounded communication/service recovery plus secure remote visibility and structured alerts without moving decision logic into cloud services.
+Make EnergyHub configurable and supportable, add bounded communication/service recovery, and provide secure provider-neutral messaging without moving decision logic into cloud services.
 
 Planned work:
 
+- a validated settings model that separates immutable hardware limits from homeowner preferences;
+- user-facing `Resilience`, `Balanced`, and `Economy` policy profiles;
+- arbitrary fixed tariff schedules with one or more eligible periods per day;
+- persisted forecast quality, same-date last-known forecast fallback, and conservative unavailable-forecast behavior;
+- charge-duration and latest-start estimates;
+- sanitized support bundles, replayable decision inputs, shadow mode, and inverter-write counters;
 - secure remote Home Assistant access;
 - Cloudflare Tunnel with WireGuard backup strategy;
 - structured EnergyHub notification events;
-- Telegram status queries;
+- a provider-neutral messaging interface with Telegram as the first candidate adapter and room for WhatsApp, Signal, Matrix, or other supported providers;
+- read-only status, health, mode, forecast, tariff, and reserve queries before remote control is considered;
 - health, outage, anomaly, and strategy-transition alerts;
-- carefully bounded remote commands;
+- authenticated, authorized, audited, and carefully bounded remote commands;
 - notification policy and rate limiting.
+
+Profiles modify household preferences only. They never replace battery, inverter, telemetry-freshness, or emergency safety limits.
 
 Status:
 
@@ -167,13 +176,13 @@ Planned.
 
 ---
 
-## EnergyHub 1.5 — Smart Thermal Energy
+## EnergyHub 1.5 — Flexible Energy & EV Charging
 
 Goal:
 
-Use flexible heating and cooling as an energy asset while preserving comfort and battery resilience.
+Use flexible heating, cooling, water heating, and EV charging as energy assets while preserving comfort, departure requirements, and battery resilience.
 
-This milestone introduces tested automatic thermal-load starts, ownership, comfort decisions, minimum runtime, cooldown, and coordinated operation. The design replaces the old narrow Away Mode concept.
+This milestone introduces a capability-based Load Manager with tested automatic starts, ownership, priority, hysteresis, minimum runtime/off-time, and coordinated operation. The design replaces the old narrow Away Mode concept.
 
 Planned inputs:
 
@@ -184,7 +193,10 @@ Planned inputs:
 - battery SOC and reserve;
 - solar forecast;
 - grid reliability;
-- current and projected household demand.
+- current and projected household demand;
+- EV connection state, requested energy or target SOC, and departure deadline;
+- EVSE minimum/maximum current and phase capabilities;
+- tariff schedule and optional permission to use the household battery for EV charging.
 
 Planned behavior:
 
@@ -192,8 +204,14 @@ Planned behavior:
 - preheat or precool during cheap-tariff periods when justified;
 - preserve required battery reserve;
 - coordinate multiple heat pumps and thermal loads;
+- maximize direct solar use for EV charging and use approved low-price periods when solar alone cannot meet a departure target;
+- prevent household-battery discharge into an EV unless the homeowner explicitly permits it;
+- exclude EnergyHub-controlled flexible energy from the learned base household load;
 - stop only loads that EnergyHub previously started;
+- support time-bounded dashboard, automation, voice, or messenger requests through a deterministic EnergyHub override evaluator;
 - introduce a generic Grid Input / Breaker Guard that can reduce charging current when household demand rises.
+
+Voice or messenger assistants are request interfaces, not safety authorities. EnergyHub evaluates data freshness, projected reserve, grid availability, active strategy, load energy, and immutable emergency limits before allowing, shortening, delaying, or denying an override.
 
 Status:
 
@@ -201,24 +219,30 @@ Planned.
 
 ---
 
-## EnergyHub 2.x — Energy Optimization Platform
+## EnergyHub 2.x — Economic Planning & Hardware Ecosystem
 
 Goal:
 
-Optimize monetary and technical value across broader hardware and tariff ecosystems.
+Plan import, export, storage, and flexible-load energy across broader hardware and tariff ecosystems while keeping resilience and hardware safety as hard constraints.
 
 Planned direction:
 
-- multiple inverter support;
-- Deye, GoodWe, Victron, and other vendors;
+- day-ahead import and export prices normalized into arbitrary market intervals;
+- multiple fixed or dynamic tariff periods per day;
+- supplier markup, tax, network-charge, negative-price, export-limit, and Net Billing rules;
+- interval plans for expected load, solar, charge, discharge, import, export, SOC, cost, revenue, and protected reserve;
+- planned-versus-actual cost and revenue accounting;
+- staged price monitoring, shadow planning, attended control, automatic import, and stricter automatic-export validation;
+- a normalized inverter capability model separated from transport;
+- additional validated PowMr and Voltronic-compatible PI30/PI30MAX models;
+- telemetry-only and shadow modes for unknown or unvalidated models;
+- USB-RS232, Solar2MQTT, ESPHome, or other transports only where telemetry, command, acknowledgement, freshness, and recovery semantics are validated;
+- eventual Deye, GoodWe, Victron, and other vendor adapters;
 - additional BMS vendors;
-- device capability abstraction;
-- dynamic electricity tariffs;
-- energy price forecasting;
-- import and export optimization;
-- Net Billing;
 - battery degradation models;
 - cost-aware reserve management.
+
+Economic planning may use spare battery capacity, but it must never silently import, export, or discharge through a protected reserve or unsupported hardware boundary.
 
 Core question:
 

@@ -402,16 +402,54 @@ The current code uses Grid Confidence, SOC, and forecast sufficiency. Review whe
 - concise family message plus technical detail link;
 - deduplication and severity policy.
 
-## EnergyHub 1.2 — Configuration
+## Post-1.3 configuration and supportability
 
-- configuration schema and validation;
-- migration from hard-coded defaults;
-- Home Assistant configuration dashboard;
-- safe reset to known defaults;
-- policy profile export/import;
-- separation of hardware limits and strategy preferences.
+### Validated settings and policy profiles
 
-## EnergyHub 1.3 — Recovery & Resilience
+User outcome: a homeowner can choose understandable energy priorities without editing Python or weakening hardware safety.
+
+- configuration schema, migration, validation, acknowledgement, persistence, reconciliation, and audit;
+- immutable battery/inverter limits separated from homeowner strategy preferences;
+- Home Assistant Settings view with effective-value and decision previews;
+- `Resilience`, `Balanced`, and `Economy` profiles;
+- profile-controlled reserve preference, forecast margin, tariff flexibility, export willingness, and flexible-load permissions;
+- emergency SOC floors, stale-data inhibition, unsupported commands, and hardware limits remain invariant;
+- safe reset and profile export/import.
+
+Validation: unit-test every profile at Grid Confidence boundaries and verify that no profile can cross a hardware or emergency limit.
+
+### Generic tariff schedule
+
+User outcome: EnergyHub can use the household's actual low-cost periods rather than assuming that every installation has one night window.
+
+- represent one or more fixed tariff intervals per day;
+- handle intervals crossing midnight, timezone changes, and daylight-saving transitions;
+- publish the active interval and next eligible interval;
+- keep EnergyHub 1.3's current night window as the migration default;
+- do not treat a missing or malformed schedule as free electricity.
+
+### Forecast quality and fallback
+
+User outcome: an internet or forecast-provider problem produces visible conservative behavior rather than an optimistic plan.
+
+- persist the last complete hourly forecast with target date and retrieval time;
+- classify forecast input as fresh, stale-but-applicable, incomplete, expired, or unavailable;
+- allow a same-date stale forecast only with a documented conservative haircut or reserve margin;
+- never reuse a forecast for the wrong date as tomorrow's plan;
+- fall back to a conservative historical/seasonal baseline or no dependable forecast solar;
+- expose source, age, coverage, quality, and fallback reason in Home Assistant.
+
+### Support bundle, replay, and shadow mode
+
+User outcome: unexpected decisions can be reproduced without sharing secrets or writing to hardware.
+
+- sanitized version, hardware, capability, configuration, telemetry, forecast, tariff, Grid Confidence, controller-state, decision, transition, and error snapshot;
+- automatic redaction of credentials, network identities, precise private paths, and device identifiers;
+- normalized replay input accepted by decision tests;
+- shadow mode that publishes proposed actions but performs no inverter or load writes;
+- requested, ACK-confirmed, read-back-confirmed, duplicate-avoided, and failed inverter-write counters.
+
+### Recovery and dependency health
 
 - classify MQTT connection failures;
 - classify network and DNS failures;
@@ -419,46 +457,97 @@ The current code uses Grid Confidence, SOC, and forecast sufficiency. Review whe
 - bounded adapter retries;
 - process-level heartbeat;
 - missed schedule recovery;
-- HA-unavailable behavior;
+- Home Assistant-unavailable behavior;
 - delayed retained-input behavior;
 - external watchdog;
 - recovery test matrix.
 
-## EnergyHub 1.4 — Remote Access & Telegram
+## Messaging and remote access
 
-- Cloudflare Tunnel deployment and security review;
-- WireGuard backup;
-- Telegram bot authentication;
-- `/status`, `/health`, `/mode`, `/forecast` commands;
-- alerts for offline, transition failure, low reserve, and Panic;
-- optional approved mode commands with Autopilot checks;
-- audit trail.
+User outcome: the homeowner can receive concise alerts and request status through a preferred secure messaging provider without moving EnergyHub control into the cloud.
 
-## EnergyHub 1.5 — Smart Thermal Energy
+- provider-neutral messaging interface;
+- Telegram as the first candidate adapter, without making Telegram the permanent product boundary;
+- future WhatsApp, Signal, Matrix, or other adapters only where supported authentication and API terms permit them;
+- read-only `/status`, `/health`, `/mode`, `/forecast`, `/tariff`, and `/reserve` capabilities first;
+- health, outage, anomaly, forecast-fallback, strategy-transition, and low-reserve alerts;
+- notification severity, deduplication, quiet hours, and rate limiting;
+- authenticated identities, role-based authorization, explicit Autopilot checks, and an audit trail before any remote command;
+- Cloudflare Tunnel deployment/security review and WireGuard backup for remote Home Assistant access.
 
-### Requirements
+Messaging and voice assistants submit requests. They never decide whether a hardware action is safe.
 
-- build the first automatic Smart Thermal controller on the validated 1.1 device and reserve-guard foundation;
-- capability registry for heat pumps and smart plugs;
-- room temperature and humidity inputs;
-- comfort bands;
-- SOC start/stop bands;
-- surplus/cheap-tariff eligibility;
-- minimum runtime;
-- cooldown;
-- ownership marker;
-- manual override;
-- multiple-load priority;
-- restart reconstruction;
-- notification policy.
+## Flexible Energy and EV charging
 
-### Research
+### Capability-based Load Manager
+
+- capability registry for heat pumps, boiler, EVSE, and future loads;
+- observed/expected power, availability, command/state confirmation, and power-on behavior;
+- priority, hysteresis, minimum runtime, minimum off-time, cooldown, and sequential starts;
+- explicit EnergyHub ownership marker and restart reconstruction;
+- comfort, hot-water, departure, and homeowner-override requirements;
+- base household load separated from EnergyHub-controlled flexible energy;
+- conservative behavior when telemetry, Home Assistant, messaging, or the device is unavailable.
+
+### Smart Thermal research and validation
 
 - real heat-pump power curves;
 - effect of inverter modes on available surplus;
 - best thermal storage periods by season;
 - preheating/precooling value;
-- room-specific comfort priorities.
+- room-specific comfort priorities;
+- staged observer mode before automatic starts.
+
+### Solar-first EV charging
+
+User outcome: the EV receives the maximum practical direct-solar energy without silently consuming protected household reserve.
+
+- connection state, EV/EVSE availability, present power, minimum/maximum current, and phase capabilities;
+- requested energy or target SOC and departure deadline;
+- `Solar Surplus`, `Smart Schedule`, `Immediate`, and `Paused for Reserve` states;
+- sustained dependable surplus rather than raw PV power;
+- optional low-price tariff completion when forecast solar cannot meet the departure target;
+- no household-battery discharge into the EV unless explicitly enabled;
+- EV charging excluded from learned base household consumption;
+- direct control only after EVSE validation, with evcc coordination preferred where it already owns the charger safely.
+
+### Time-bounded manual override evaluator
+
+User outcome: a homeowner can ask through the dashboard, automation, voice, or messaging to run a flexible load temporarily and receive an explainable safe answer.
+
+- evaluate telemetry freshness, current and projected SOC, grid availability, Grid Confidence, load energy, active strategy, tariff, solar, other loads, and immutable emergency limits;
+- respond `allow`, `shorten`, `delay`, or `deny` with a reason and projected outcome;
+- record requester, source, load, start, expiry, energy budget, and interrupt conditions;
+- terminate an override when grid loss or reserve decline crosses the applicable hard boundary;
+- never justify a risky request by assuming that Panic can charge from a grid that may be unavailable.
+
+## Economic planning and Net Billing
+
+User outcome: EnergyHub can decide when to consume, store, import, or export energy using the actual tariff contract while preserving outage reserve.
+
+- day-ahead import and export price ingestion in arbitrary 15/30/60-minute intervals;
+- currency, timezone, DST, data completeness, source, and freshness normalization;
+- supplier markup, taxes, distribution charges, settlement periods, export compensation caps, and negative-price behavior;
+- Net Billing rules and separate import/export meters;
+- expected load, flexible load, solar, charge, discharge, import, export, SOC, cost, revenue, and reserve per interval;
+- battery efficiency, charge/discharge power, optional wear allowance, and export limits;
+- protected reserve and hardware capability as hard constraints;
+- planned-versus-actual cost/revenue and forecast-error reporting;
+- replanning after material tariff, forecast, load, grid, or device changes;
+- staged delivery: monitoring, visualization, shadow plan, attended import, bounded automatic import, export shadow mode, attended export, then separately validated automatic export.
+
+## Inverter and transport ecosystem
+
+User outcome: additional inverters can reuse EnergyHub policy without treating similar RS232 commands as proof of safe compatibility.
+
+- normalized capability model between policy and hardware control;
+- separate model adapter from communication transport;
+- model/firmware fingerprint, telemetry queries, write commands, supported values, strategy mapping, ACK semantics, read-back semantics, limits, and recovery capabilities;
+- unknown models default to telemetry-only and shadow decisions;
+- validate additional PowMr models before broader Voltronic-compatible PI30/PI30MAX claims;
+- validate USB-RS232, Solar2MQTT, ESPHome, or other transports independently from model support;
+- require raw capture, read-only validation, shadow decisions, attended commands, failure testing, restart reconstruction, and compatibility documentation before automatic writes;
+- consider Deye, GoodWe, Victron, Solax, and other families only after the capability boundary is stable.
 
 ## Technical debt
 
