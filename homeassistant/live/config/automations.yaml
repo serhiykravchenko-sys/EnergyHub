@@ -3,7 +3,7 @@
   description: Alert when the retained Zigbee2MQTT bridge state remains offline; never restart or toggle a device
   triggers:
   - trigger: state
-    entity_id: binary_sensor.zigbee2mqtt_bridge_connectivity
+    entity_id: binary_sensor.zigbee2mqtt_bridge_connection_state
     to: 'off'
     for: 00:02:00
   actions:
@@ -23,7 +23,7 @@
   description: Report bridge transport recovery without treating retained device telemetry as fresh
   triggers:
   - trigger: state
-    entity_id: binary_sensor.zigbee2mqtt_bridge_connectivity
+    entity_id: binary_sensor.zigbee2mqtt_bridge_connection_state
     from: 'off'
     to: 'on'
   actions:
