@@ -1,7 +1,9 @@
 from datetime import datetime
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 import json
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -18,12 +20,21 @@ except ModuleNotFoundError:
     sys.modules["paho.mqtt.client"] = mqtt_client_module
 
 from app.services.grid_stability import GridStabilityEngine
+from app.services.early_solar_handover import EarlySolarHandoverEngine
 from app.services.hybrid_decision import HybridDecisionEngine
+from app.services.hybrid_night_enforcement import (
+    HybridNightEnforcement,
+)
 from app.services.inverter_controller import InverterController
+from app.services.morning_load_profile import MorningLoadProfileService
 from app.services.panic_decision import PanicDecisionEngine
+from app.services.reserve_advisor import ReserveAdvisorService
 from app.services.telemetry_freshness import TelemetryFreshnessMonitor
 from app.mqtt.publisher import (
     publish_daily_summary_discovery,
+    publish_early_solar_handover,
+    publish_early_solar_handover_discovery,
+    publish_hybrid_decision,
     publish_hybrid_decision_discovery,
 )
 
@@ -47,6 +58,93 @@ class SplitAvailabilityHistory:
 
     def availability_percent(self, hours):
         return self.values[hours]
+
+
+class HybridNightEnforcementTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = HybridNightEnforcement()
+        self.now = datetime.fromisoformat("2026-08-18T00:30:00+03:00")
+        self.defaults = {
+            "autopilot_enabled": True,
+            "enforcement_until_date": "2026-08-18",
+            "operating_mode": "solar",
+            "battery_soc": 40,
+            "target_soc": 20,
+            "grid_available": True,
+            "telemetry_freshness": "fresh",
+            "now": self.now,
+        }
+
+    def evaluate(self, **overrides):
+        values = dict(self.defaults)
+        values.update(overrides)
+        return self.engine.evaluate(**values)
+
+    def test_night_solar_remains_while_soc_is_above_target(self):
+        self.assertIsNone(self.evaluate()["request"])
+
+    def test_exact_target_enters_grid_hold(self):
+        self.assertEqual(
+            "hybrid_grid_hold",
+            self.evaluate(battery_soc=20)["request"],
+        )
+
+    def test_below_target_enters_charging(self):
+        self.assertEqual(
+            "hybrid",
+            self.evaluate(battery_soc=19)["request"],
+        )
+
+    def test_grid_hold_resumes_charging_after_grid_outage_drop(self):
+        self.assertEqual(
+            "hybrid",
+            self.evaluate(
+                operating_mode="hybrid_grid_hold",
+                battery_soc=18,
+            )["request"],
+        )
+
+    def test_offline_grid_arms_without_request(self):
+        decision = self.evaluate(
+            battery_soc=19,
+            grid_available=False,
+        )
+        self.assertEqual("waiting_for_grid", decision["status"])
+        self.assertIsNone(decision["request"])
+
+    def test_stale_telemetry_never_requests_control(self):
+        decision = self.evaluate(
+            battery_soc=19,
+            telemetry_freshness="stale",
+        )
+        self.assertEqual("waiting_for_telemetry", decision["status"])
+        self.assertIsNone(decision["request"])
+
+    def test_plan_date_must_match_current_night(self):
+        decision = self.evaluate(
+            enforcement_until_date="2026-08-17",
+            battery_soc=19,
+        )
+        self.assertEqual("inactive", decision["status"])
+        self.assertIsNone(decision["request"])
+
+    def test_seven_am_is_outside_window(self):
+        decision = self.evaluate(
+            now=datetime.fromisoformat("2026-08-18T07:00:00+03:00"),
+            battery_soc=19,
+        )
+        self.assertEqual("outside_window", decision["status"])
+        self.assertIsNone(decision["request"])
+
+    def test_2350_plan_is_dated_for_the_following_morning(self):
+        self.assertEqual(
+            "2026-08-19",
+            self.engine.enforcement_date(
+                datetime.fromisoformat(
+                    "2026-08-18T23:50:00+03:00"
+                )
+            ),
+        )
 
 
 class FakeInverter:
@@ -103,6 +201,7 @@ class MqttDiscoveryMetadataTests(unittest.TestCase):
         client = FakeMqttClient()
         publish_daily_summary_discovery(client)
         publish_hybrid_decision_discovery(client)
+        publish_early_solar_handover_discovery(client)
 
         for topic, payload in client.discovery_payloads().items():
             if payload.get("device_class") != "energy":
@@ -113,6 +212,330 @@ class MqttDiscoveryMetadataTests(unittest.TestCase):
                 "measurement",
                 topic,
             )
+
+    def test_initial_hybrid_publish_replaces_retained_legacy_reason(self):
+        client = FakeMqttClient()
+        decision = HybridDecisionEngine()
+
+        publish_hybrid_decision(client, decision)
+
+        published = {
+            topic: (payload, retain)
+            for topic, payload, retain in client.published
+        }
+        reason, retained = published[
+            "powmr/hybrid_decision_reason/state"
+        ]
+        status, status_retained = published[
+            "powmr/hybrid_decision/state"
+        ]
+
+        self.assertEqual(
+            reason,
+            "No Adaptive Hybrid evaluation has been received since "
+            "EnergyHub started; next scheduled evaluation is 23:50",
+        )
+        self.assertEqual(status, "awaiting_evaluation")
+        self.assertTrue(status_retained)
+        self.assertTrue(retained)
+        self.assertLessEqual(len(reason), 255)
+
+    def test_initial_hybrid_publish_explains_retained_target(self):
+        client = FakeMqttClient()
+        decision = HybridDecisionEngine(retained_target_soc=30)
+
+        publish_hybrid_decision(client, decision)
+
+        published = {
+            topic: payload
+            for topic, payload, _retain in client.published
+        }
+        self.assertEqual(
+            published["powmr/hybrid_decision_reason/state"],
+            "Detailed night plan is unavailable after EnergyHub restart; "
+            "retained target 30.0%; next evaluation is 23:50",
+        )
+
+    def test_hybrid_reason_has_a_publisher_boundary_limit(self):
+        client = FakeMqttClient()
+        decision = SimpleNamespace(
+            mqtt_values=lambda: {
+                "hybrid_decision_reason": "x" * 355,
+            }
+        )
+
+        publish_hybrid_decision(client, decision)
+
+        _topic, payload, retained = client.published[-1]
+        self.assertEqual(len(payload), 255)
+        self.assertTrue(retained)
+
+
+class EarlySolarHandoverTests(unittest.TestCase):
+    NOW = datetime.fromisoformat("2026-08-15T06:05:00+03:00")
+
+    def setUp(self):
+        self.engine = EarlySolarHandoverEngine()
+
+    def evaluate(self, **overrides):
+        values = {
+            "autopilot_enabled": True,
+            "operating_mode": "hybrid_grid_hold",
+            "battery_soc": 30,
+            "hybrid_target_soc": 30,
+            "telemetry_freshness": "fresh",
+            "total_solar_fresh": True,
+            "total_solar_power_w": 300,
+            "forecast_energy_kwh": 1.6,
+            "grid_available": True,
+            "request_date": "2026-08-15",
+            "now": self.NOW,
+        }
+        values.update(overrides)
+        return self.engine.evaluate(**values)
+
+    def test_exact_thresholds_request_early_solar(self):
+        decision = self.evaluate()
+
+        self.assertEqual(decision["status"], "release_requested")
+        self.assertEqual(decision["request"], "solar")
+        self.assertIn("300 W", decision["reason"])
+        self.assertIn("1.60 kWh", decision["reason"])
+
+    def test_confirmed_transition_becomes_released(self):
+        self.evaluate()
+        result = self.engine.confirm_transition(True)
+
+        self.assertEqual(result["status"], "released")
+        self.assertIn("transition confirmed", result["reason"])
+
+    def test_failed_transition_remains_observable(self):
+        self.evaluate()
+        result = self.engine.confirm_transition(False, "Menu 01 mismatch")
+
+        self.assertEqual(result["status"], "transition_failed")
+        self.assertIn("Menu 01 mismatch", result["reason"])
+
+    def test_non_hold_modes_are_not_applicable(self):
+        for mode in ("solar", "hybrid_charging", "panic", "unknown"):
+            with self.subTest(mode=mode):
+                decision = self.evaluate(operating_mode=mode)
+                self.assertEqual(decision["status"], "not_applicable")
+                self.assertIsNone(decision["request"])
+
+    def test_autopilot_disabled_is_not_applicable(self):
+        decision = self.evaluate(autopilot_enabled=False)
+        self.assertEqual(decision["status"], "not_applicable")
+
+    def test_time_window_is_enforced_inside_energyhub(self):
+        for now in (
+            datetime.fromisoformat("2026-08-15T05:59:00+03:00"),
+            datetime.fromisoformat("2026-08-15T07:00:00+03:00"),
+        ):
+            with self.subTest(now=now):
+                decision = self.evaluate(now=now)
+                self.assertEqual(decision["status"], "not_applicable")
+                self.assertIsNone(decision["request"])
+
+    def test_missing_or_unreached_target_holds(self):
+        for target, soc in ((None, 30), (30, 29)):
+            with self.subTest(target=target, soc=soc):
+                decision = self.evaluate(
+                    hybrid_target_soc=target,
+                    battery_soc=soc,
+                )
+                self.assertEqual(decision["status"], "held")
+                self.assertIsNone(decision["request"])
+
+    def test_stale_inputs_or_offline_grid_hold(self):
+        cases = (
+            {"telemetry_freshness": "stale"},
+            {"total_solar_fresh": False},
+            {"grid_available": False},
+            {"request_date": "2026-08-14"},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                decision = self.evaluate(**overrides)
+                self.assertEqual(decision["status"], "held")
+                self.assertIsNone(decision["request"])
+
+    def test_below_either_solar_threshold_holds(self):
+        cases = (
+            {"total_solar_power_w": 299.9},
+            {"forecast_energy_kwh": 1.599},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                decision = self.evaluate(**overrides)
+                self.assertEqual(decision["status"], "held")
+                self.assertIsNone(decision["request"])
+
+    def test_mqtt_values_publish_final_diagnostics(self):
+        self.evaluate()
+        self.engine.confirm_transition(True)
+        client = FakeMqttClient()
+
+        publish_early_solar_handover(client, self.engine)
+
+        published = {
+            topic: (payload, retained)
+            for topic, payload, retained in client.published
+        }
+        self.assertEqual(
+            published["powmr/hybrid_early_solar_check/state"],
+            ("released", True),
+        )
+        self.assertEqual(
+            published["powmr/hybrid_early_solar_live_power_w/state"],
+            ("300.0", True),
+        )
+
+
+class MorningLoadProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.profile = MorningLoadProfileService(
+            Path(self.temporary.name) / "morning.json"
+        )
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def record_day(self, day, essential_values):
+        house = 1.0
+        heat = 10.0
+        self.profile.record_snapshot({
+            "captured_at": f"{day}T07:00:00+03:00",
+            "date": day,
+            "hour": 7,
+            "house_kwh": house,
+            "heat_pump_kwh": heat,
+        })
+        for hour, essential in zip(range(8, 13), essential_values):
+            heat_delta = 0.4 if hour == 9 else 0.0
+            house += essential + heat_delta
+            heat += heat_delta
+            self.profile.record_snapshot({
+                "captured_at": f"{day}T{hour:02d}:00:00+03:00",
+                "date": day,
+                "hour": hour,
+                "house_kwh": house,
+                "heat_pump_kwh": heat,
+            })
+
+    def test_subtracts_heat_pumps_from_hourly_house_energy(self):
+        self.record_day("2026-08-10", [0.5, 0.6, 0.7, 0.8, 0.9])
+
+        profile = self.profile.profile()
+
+        self.assertEqual(profile[7]["expected_kwh"], 0.5)
+        self.assertEqual(profile[8]["expected_kwh"], 0.6)
+
+    def test_rejects_non_finite_cumulative_energy(self):
+        result = self.profile.record_snapshot({
+            "captured_at": "2026-08-10T07:00:00+03:00",
+            "date": "2026-08-10",
+            "hour": 7,
+            "house_kwh": float("nan"),
+            "heat_pump_kwh": 10.0,
+        })
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["reason"], "non-finite cumulative energy")
+        self.assertEqual(self.profile.snapshots, {})
+
+    def test_falls_back_until_three_complete_mornings_exist(self):
+        self.record_day("2026-08-08", [0.5] * 5)
+        self.record_day("2026-08-09", [0.6] * 5)
+
+        plan = self.profile.flexible_plan([
+            {"hour": hour, "power_w": 1000}
+            for hour in range(7, 12)
+        ])
+
+        self.assertFalse(plan["available"])
+        self.assertEqual(plan["sample_count"], 2)
+        self.assertIn("learning 2/3", plan["reason"])
+
+    def test_uses_75th_percentile_and_two_hour_solar_confirmation(self):
+        self.record_day("2026-08-08", [0.4, 0.6, 0.8, 0.7, 0.5])
+        self.record_day("2026-08-09", [0.5, 0.7, 0.9, 0.8, 0.6])
+        self.record_day("2026-08-10", [0.6, 0.8, 1.0, 0.9, 0.7])
+        solar = [
+            {"hour": 7, "power_w": 100},
+            {"hour": 8, "power_w": 400},
+            {"hour": 9, "power_w": 1100},
+            {"hour": 10, "power_w": 1000},
+            {"hour": 11, "power_w": 1200},
+        ]
+
+        plan = self.profile.flexible_plan(solar)
+
+        self.assertTrue(plan["available"])
+        self.assertEqual(plan["support_time"], "09:00")
+        self.assertEqual(plan["expected_load_kwh"], 3.3)
+        self.assertEqual(plan["forecast_solar_kwh"], 2.6)
+        self.assertEqual(plan["deficit_kwh"], 0.9)
+
+
+class ReserveAdvisorTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.advisor = ReserveAdvisorService(
+            Path(self.temporary.name) / "advisor.json"
+        )
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def observe(self, date_key, minimum, selected):
+        return self.advisor.observe({
+            "date": date_key,
+            "minimum_soc": minimum,
+            "selected_soc": selected,
+        })["advisor"]
+
+    def test_learns_until_three_comparable_mornings_exist(self):
+        self.observe("2026-08-08", 25, 20)
+        advice = self.observe("2026-08-09", 24, 20)
+
+        self.assertEqual(advice["status"], "learning")
+        self.assertEqual(advice["sample_count"], 2)
+
+    def test_increases_after_two_low_mornings_out_of_three(self):
+        self.observe("2026-08-08", 25, 20)
+        self.observe("2026-08-09", 24, 20)
+        advice = self.observe("2026-08-10", 40, 20)
+
+        self.assertEqual(advice["status"], "increase")
+        self.assertEqual(advice["suggested_soc"], 30)
+
+    def test_decreases_only_after_three_comfortable_mornings(self):
+        self.observe("2026-08-08", 55, 30)
+        self.observe("2026-08-09", 54, 30)
+        advice = self.observe("2026-08-10", 50, 30)
+
+        self.assertEqual(advice["status"], "decrease")
+        self.assertEqual(advice["suggested_soc"], 20)
+
+    def test_setting_change_resets_comparable_window(self):
+        self.observe("2026-08-08", 25, 20)
+        self.observe("2026-08-09", 24, 20)
+        self.observe("2026-08-10", 25, 20)
+
+        advice = self.advisor.evaluate(30)
+
+        self.assertEqual(advice["status"], "learning")
+        self.assertEqual(advice["sample_count"], 0)
+
+    def test_custom_setting_moves_to_next_safer_named_level(self):
+        self.observe("2026-08-08", 29, 25)
+        self.observe("2026-08-09", 30, 25)
+        advice = self.observe("2026-08-10", 45, 25)
+
+        self.assertEqual(advice["status"], "increase")
+        self.assertEqual(advice["suggested_soc"], 30)
 
 
 class HybridDecisionTests(unittest.TestCase):
@@ -129,6 +552,7 @@ class HybridDecisionTests(unittest.TestCase):
             "forecast_tomorrow": 30,
             "consumption_today": 14,
             "solar_forecast_after_07": 30,
+            "minimum_soc": 20,
         }
         values.update(overrides)
         return self.engine.evaluate(**values)
@@ -141,10 +565,10 @@ class HybridDecisionTests(unittest.TestCase):
         self.assertEqual(result["projected_soc_at_07"], 30)
         self.assertEqual(result["morning_hours"], 3)
         self.assertEqual(result["morning_reserve_soc"], 30)
-        self.assertEqual(result["target_soc"], 60)
+        self.assertEqual(result["target_soc"], 50)
         self.assertIsNotNone(self.engine.evaluated_at)
         self.assertIn(
-            "target 60.0% = 20% reserve + 10% margin + max(30.0% morning",
+            "target 50.0% = 20% selected minimum + max(30.0% morning",
             self.engine.calculation,
         )
 
@@ -163,7 +587,7 @@ class HybridDecisionTests(unittest.TestCase):
         )
         self.assertAlmostEqual(result["daytime_deficit_kwh"], 8.33)
         self.assertAlmostEqual(result["daytime_deficit_soc"], 57.87)
-        self.assertAlmostEqual(result["target_soc"], 87.87)
+        self.assertAlmostEqual(result["target_soc"], 77.87)
 
     def test_extreme_cold_season_deficit_caps_target(self):
         result = self.evaluate(
@@ -183,23 +607,43 @@ class HybridDecisionTests(unittest.TestCase):
         )
 
         self.assertEqual(result["daytime_deficit_kwh"], 0)
-        self.assertEqual(result["target_soc"], 60)
+        self.assertEqual(result["target_soc"], 50)
 
     def test_holds_when_soc_meets_target_but_would_fall_below_it(self):
-        result = self.evaluate(battery_soc=65)
+        result = self.evaluate(battery_soc=55)
 
         self.assertEqual(result["status"], "hybrid_grid_hold")
         self.assertEqual(result["request"], "hybrid_grid_hold")
-        self.assertEqual(result["projected_soc_at_07"], 50)
-        self.assertEqual(result["target_soc"], 60)
+        self.assertEqual(result["projected_soc_at_07"], 40)
+        self.assertEqual(result["target_soc"], 50)
 
-    def test_keeps_solar_when_projected_soc_meets_target(self):
-        result = self.evaluate(battery_soc=80)
+    def test_stays_solar_when_projected_soc_meets_target(self):
+        result = self.evaluate(battery_soc=65)
 
         self.assertEqual(result["status"], "solar")
         self.assertIsNone(result["request"])
-        self.assertEqual(result["projected_soc_at_07"], 65)
-        self.assertEqual(result["target_soc"], 60)
+        self.assertEqual(result["projected_soc_at_07"], 50)
+        self.assertEqual(result["target_soc"], 50)
+
+    def test_stays_solar_with_large_projected_surplus(self):
+        result = self.evaluate(
+            battery_soc=72,
+            morning_hours=1,
+        )
+
+        self.assertEqual(result["status"], "solar")
+        self.assertIsNone(result["request"])
+        self.assertEqual(result["projected_soc_at_07"], 57)
+        self.assertEqual(result["target_soc"], 30)
+        self.assertIn("night-grid support is not required", result["reason"])
+        self.assertLessEqual(
+            len(self.engine.mqtt_values()["hybrid_decision_reason"]),
+            255,
+        )
+        self.assertEqual(
+            self.engine.mqtt_values()["hybrid_decision_reason"],
+            "Projected 07:00 SOC 57.0% meets target 30.0%; remain Solar",
+        )
 
     def test_caps_target_at_95_percent(self):
         result = self.evaluate(
@@ -218,10 +662,90 @@ class HybridDecisionTests(unittest.TestCase):
             useful_solar_start=None,
         )
 
-        self.assertEqual(result["target_soc"], 80)
+        self.assertEqual(result["target_soc"], 70)
         self.assertEqual(result["morning_hours"], 5)
         self.assertTrue(result["used_fallback"])
         self.assertIn("fallback", result["reason"])
+
+    def test_confirmed_300_to_600_w_ramp_gives_one_hour_credit(self):
+        result = self.evaluate(
+            battery_soc=38,
+            morning_hours=1,
+            raw_morning_hours=2,
+            useful_solar_start="09:00",
+            effective_solar_start="08:00",
+            ramp_confirmed=True,
+            ramp_credit_hours=1,
+            ramp_start_power_w=1006.6,
+            ramp_next_power_w=2396,
+        )
+
+        self.assertEqual(result["raw_morning_hours"], 2)
+        self.assertEqual(result["ramp_credit_hours"], 1)
+        self.assertEqual(result["morning_hours"], 1)
+        self.assertEqual(result["effective_solar_start"], "08:00")
+        self.assertEqual(result["target_soc"], 30)
+        self.assertEqual(result["request"], "hybrid_grid_hold")
+
+    def test_addon_rejects_unconfirmed_ramp_credit(self):
+        result = self.evaluate(
+            raw_morning_hours=2,
+            useful_solar_start="09:00",
+            effective_solar_start="08:00",
+            ramp_confirmed=True,
+            ramp_credit_hours=1,
+            ramp_start_power_w=300,
+            ramp_next_power_w=599,
+        )
+
+        self.assertFalse(result["ramp_confirmed"])
+        self.assertEqual(result["ramp_credit_hours"], 0)
+        self.assertEqual(result["morning_hours"], 2)
+        self.assertEqual(result["effective_solar_start"], "09:00")
+        self.assertEqual(result["target_soc"], 40)
+
+    def test_selected_minimum_soc_replaces_hidden_margin(self):
+        result = self.evaluate(
+            morning_hours=0,
+            minimum_soc=50,
+        )
+
+        self.assertEqual(result["minimum_soc"], 50)
+        self.assertEqual(result["target_soc"], 50)
+
+    def test_learned_net_energy_replaces_fixed_ten_percent_per_hour(self):
+        result = self.evaluate(
+            morning_hours=3,
+            flexible_morning_plan={
+                "available": True,
+                "reason": "learned essential load",
+                "sample_count": 5,
+                "expected_load_kwh": 2.7,
+                "forecast_solar_kwh": 1.0,
+                "deficit_kwh": 1.7,
+                "support_time": "10:00",
+            },
+        )
+
+        self.assertEqual(result["morning_model_source"], "learned_net_energy")
+        self.assertEqual(result["effective_solar_start"], "10:00")
+        self.assertAlmostEqual(result["morning_reserve_soc"], 11.81)
+        self.assertAlmostEqual(result["target_soc"], 31.81)
+
+    def test_learning_model_falls_back_to_legacy_ramp(self):
+        result = self.evaluate(
+            morning_hours=2,
+            flexible_morning_plan={
+                "available": False,
+                "reason": "learning 2/3 samples",
+                "sample_count": 2,
+            },
+        )
+
+        self.assertEqual(result["morning_model_source"], "verified_ramp_fallback")
+        self.assertEqual(result["morning_reserve_soc"], 20)
+        self.assertEqual(result["target_soc"], 40)
+        self.assertIn("learning 2/3", self.engine.calculation)
 
     def test_ahm_overtakes_panic_at_2350(self):
         result = self.evaluate(
@@ -231,7 +755,7 @@ class HybridDecisionTests(unittest.TestCase):
 
         self.assertEqual(result["request"], "hybrid")
 
-    def test_ahm_restores_solar_when_panic_reserve_is_sufficient(self):
+    def test_ahm_restores_solar_from_panic_hold_when_soc_is_sufficient(self):
         result = self.evaluate(
             operating_mode="panic_grid_hold",
             battery_soc=80,
@@ -332,6 +856,10 @@ class PanicDecisionTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "no_action")
         self.assertIsNone(result["request"])
+        self.assertEqual(
+            self.engine.mqtt_values()["panic_ahm_target_soc"],
+            "None",
+        )
 
     def test_unmet_ahm_target_overrides_grid_target(self):
         result = self.evaluate(
@@ -684,6 +1212,30 @@ class InverterControllerTests(unittest.TestCase):
 
         self.assertTrue(controller.set_hybrid_target_soc(87.87))
         self.assertEqual(controller.hybrid_target_soc, 87.87)
+
+    def test_persists_dated_hybrid_night_enforcement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "controller.json"
+            controller = InverterController(
+                FakeInverter(),
+                state_path=path,
+            )
+            self.assertTrue(controller.set_hybrid_target_soc(35))
+            self.assertTrue(
+                controller.set_hybrid_enforcement_until_date(
+                    "2026-08-19"
+                )
+            )
+
+            restored = InverterController(
+                FakeInverter(),
+                state_path=path,
+            )
+            self.assertEqual(restored.hybrid_target_soc, 35)
+            self.assertEqual(
+                restored.hybrid_enforcement_until_date,
+                "2026-08-19",
+            )
 
     def test_tracks_and_clears_ahm_morning_debt(self):
         controller = self.make_controller()

@@ -2,6 +2,163 @@
 
 All notable EnergyHub changes are recorded here.
 
+## [1.3.8] - 2026-08-18
+
+### Added
+
+- Added continuous enforcement of the dated Adaptive Hybrid target from the
+  23:50 evaluation until the confirmed morning Solar handover.
+- Added reserve-relative heat-pump protection from the selected AHM minimum:
+  one-time shed at minimum +30, mandatory lockout at minimum +20, and recovery
+  at minimum +40 percentage points while the grid is not trusted.
+- Added Telegram Family Assistant 0.1.9 morning ownership guidance and
+  downward-crossing SOC warnings at minimum +30, +20, +10, and the minimum.
+
+### Changed
+
+- Give the family normal manual heat-pump control while Grid Confidence is
+  Normal, the grid is physically present, and EnergyHub telemetry is fresh.
+- Preserve the evaluated night target and its dated enforcement context across
+  EnergyHub restarts.
+- Deliver reserve warnings only while at least one configured heat pump is
+  drawing more than the configured activity threshold; name every active floor
+  and observed power, and defer reserve delivery through 08:01.
+
+### Safety
+
+- At the exact night target, Hybrid enters Grid Hold; below the target it uses
+  Hybrid Charging and the existing ACK-confirmed transition path.
+- Missing or stale SOC produces no inverter or smart-plug command. If the grid
+  is absent, night enforcement remains observational and retries only after a
+  later fresh, grid-present evaluation.
+- A failed night transition is not retried on every telemetry poll; the same
+  unchanged request remains latched until its condition clears or the grid
+  state changes.
+- EnergyHub never turns a heat pump on. Telegram remains outbound-only and
+  cannot execute Home Assistant or inverter commands.
+
+## [1.3.7] - 2026-08-15
+
+### Added
+
+- Added one guarded 06:05 Early Solar handover check while Adaptive Hybrid is
+  in Grid Hold.
+- Added separate MQTT diagnostics for the check result, reason, evaluation
+  time, live aligned Total Solar, and the 06:00-07:00 forecast interval.
+- Added dashboard visibility and an updated Adaptive Hybrid infographic.
+
+### Changed
+
+- Present the post-startup Hybrid state as `awaiting_evaluation` with a clear
+  explanation of the retained target, when available, and the next scheduled
+  23:50 evaluation.
+- Use the clearer homeowner-facing name **Adaptive Hybrid Reserve** while
+  preserving internal AHM identifiers for compatibility.
+- Reject incomplete AHM morning-observation samples after a Home Assistant
+  restart by requiring a valid 07:00 initialization before the 12:05 publish.
+
+### Safety
+
+- Early Solar is eligible only from confirmed Hybrid Grid Hold between 06:00
+  and 07:00 with Autopilot enabled, current dated forecast input, fresh
+  inverter telemetry, fresh aligned Total Solar, present grid power, SOC at or
+  above the retained target, at least 300 W live Total Solar, and at least
+  1.6 kWh forecast for 06:00-07:00.
+- Missing, stale, insufficient, inconsistent, or failed input keeps Grid Hold
+  unchanged. The ordinary 07:00 Solar handover remains the fallback.
+
+## [1.3.6] - 2026-08-14
+
+### Fixed
+
+- Publish the initial concise Hybrid decision state during EnergyHub startup so
+  an incompatible retained pre-1.3.4 reason is replaced before a later Home
+  Assistant Core restart reloads it.
+- Enforce Home Assistant's 255-character state boundary at the
+  `hybrid_decision_reason` publisher as defense in depth.
+
+### Validation
+
+- Confirmed that the 23:50 evaluation on the deployed 1.3.5 baseline replaced
+  the historical 355-character reason with the concise current summary; the
+  migration warning affected presentation only and did not affect AHM or
+  inverter control.
+
+## [1.3.5] - 2026-08-14
+
+### Added
+
+- Added optional read-only Modbus RTU telemetry for PV2 voltage and power from
+  independently hardware-verified registers 4563-4564.
+- Added Total PV power derived only from fresh PV1 and fresh PV2 samples within
+  a 15-second alignment window.
+- Added PV2 telemetry status, freshness, sample age, dedicated availability,
+  and restart-safe stale-value handling.
+- Added focused regression coverage for verified frames, byte swapping,
+  scaling, CRC, timeout, malformed and exception responses, invalid ranges,
+  stale/alignment policy, failure isolation, and restart behavior.
+
+### Safety
+
+- PI30MAX and Modbus transactions share one adapter-owned serial lock.
+- The Modbus interface exposes only the fixed function-03 read of registers
+  4563-4564; it provides no generic register access or write path.
+- PV2 and Total PV remain observational and do not affect AHM, Panic, Hybrid,
+  or inverter-control decisions.
+
+## [1.3.4] - 2026-08-14
+
+### Changed
+
+- Replaced the exposed AHM slider with confirmed 5% decrease/increase controls to prevent accidental changes.
+- Grouped the active reserve, its policy explanation, and its three-morning recommendation under one AHM management section with a prominent risk-coloured value.
+- Renamed the learning fallback diagnostic to `verified_ramp_fallback` and labelled learned energy values as available after 3/3 samples.
+
+### Fixed
+
+- Hybrid Decision Reason now publishes a short Home Assistant-safe summary while the full calculation and notification explanation remain available separately.
+- Panic now publishes `None` instead of `Unknown` when there is no inherited AHM target.
+
+## [1.3.3] - 2026-08-13
+
+### Fixed
+
+- AHM now remains in Solar when projected 07:00 SOC already meets its calculated target.
+- Hybrid Grid Hold is now reserved for the case where current SOC is at or above target but projected overnight discharge would cross below it.
+- AHM still takes ownership from an active Panic strategy at 23:50, restoring Solar when no night-grid support is required.
+
+## [1.3.2] - 2026-08-12
+
+### Added
+
+- Added 07:00–12:00 essential-load learning from hourly house-energy deltas after subtracting all three heat-pump energy deltas.
+- Added a 21-day, per-hour 75th-percentile morning load profile and diagnostics for model source, learning progress, expected essential load, forecast solar, and net deficit.
+- Added a three-completed-morning AHM reserve advisor with dashboard and Telegram learning/increase/decrease/keep guidance.
+
+### Changed
+
+- AHM uses hourly net-energy deficit after three complete morning samples per interval and requires two consecutive forecast hours to cover learned essential load before confirming solar takeover.
+- The verified 300 W → 600 W ramp calculation remains the authoritative fallback while learning is incomplete or inputs are unavailable.
+- Reserve advice is informational and changes by one named 20/30/40/50% step; it never changes AHM or Panic automatically.
+
+### Fixed
+
+- Reject non-finite morning meter values and skip incomplete SOC observations after missing 07:00 telemetry or a Home Assistant restart.
+
+## [1.3.1] - 2026-08-12
+
+### Added
+
+- Added a user-selectable AHM Minimum SOC helper from 20% to 50% in 5% steps, with dashboard risk guidance.
+- Added retained diagnostics for the raw morning gap, 300 W threshold, following-hour forecast, ramp confirmation, one-hour credit, and effective solar-support time.
+
+### Changed
+
+- Replaced the hidden fixed 10% AHM margin with the selected minimum SOC.
+- A confirmed forecast ramp from at least 300 W to at least 600 W in the following hour now advances effective solar support by one hour.
+- EnergyHub independently validates the 300 W/600 W values before accepting the Home Assistant ramp credit.
+- The 23:50 plan now actively preserves its target: SOC below target charges, while SOC at or above target enters Hybrid Grid Hold until 07:00.
+
 ## [1.3.0] - 2026-08-08
 
 ### Added

@@ -90,6 +90,11 @@ a 20% protected reserve, a 10% uncertainty margin, a 95% cap, immediate
 Charging or Grid Hold when required, retained dashboard explanation, and 07:00
 Solar restoration.
 
+EnergyHub 1.3.1 supersedes the fixed 20% + 10% reserve terms with a visible
+20–50% minimum SOC setting. A first 300 W forecast followed by at least 600 W
+earns one verified hour of ramp credit; the original threshold remains retained
+for decision audit.
+
 - estimate the real discharge rate from a robust rolling SOC window while excluding charging and mode-transition periods;
 - retain one scheduled 23:50 target decision; consider only a separate bounded
   emergency-floor check if observation later proves it necessary, rather than
@@ -131,7 +136,7 @@ The target represents energy to retain for a possible grid outage; it is not a p
 
 #### Next increment: cold-season post-07:00 energy balance
 
-Status: implemented for EnergyHub 1.3.0 using the explicit 17/24 aligned-load projection, hourly post-07 Solcast sum, 16 kWh battery model, and 90% conservative efficiency. Measured time-of-day load profiles remain a future refinement.
+Status: the 1.3.0 fallback uses the explicit 17/24 aligned-load projection, hourly post-07 Solcast sum, 16 kWh battery model, and 90% conservative efficiency. EnergyHub 1.3.2 additionally learns the 07:00–12:00 essential-load profile from measured history after subtracting heat-pump energy; broader full-day and weather-sensitive profiling remains future work.
 
 Priority: planned after several nights of Adaptive Hybrid observation; important
 before cold-season consumption reaches roughly 30-40 kWh/day while generation
@@ -339,18 +344,34 @@ A reported 1 kW of PV may still be a deficit when the house is consuming more th
 
 The current guard needs only observed state, one-shot shed actions, an emergency lockout, and unknown/unavailable handling. Restart recovery must never infer permission to start from SOC alone.
 
-### Smart Thermal Load Controller — deferred to 1.5
+### Smart Thermal Load Controller — deferred to 1.4
 
 User outcome: EnergyHub can decide whether one registered thermal load may run without compromising comfort, battery reserve, or homeowner control.
 
 Future controller inputs:
 
+- an independently selectable participation flag for each heat pump, with the
+  first-floor heat pump proposed as the default participant and the other
+  floors opt-in;
 - registered load capability and measured or expected power;
 - room temperature and comfort band;
 - battery SOC and protected reserve;
 - solar surplus or cheap-tariff eligibility;
 - grid availability/confidence and relevant forecast context;
 - current switch state, availability, and manual override.
+
+Adaptive Hybrid coordination requirements:
+
+- publish the selected participants and their planned post-07:00 run windows
+  or duty cycles to the AHM calculation;
+- exclude cheap-grid thermal energy scheduled before 07:00 from battery demand;
+- add the aligned post-07:00 net thermal deficit for selected participants to
+  the AHM target until forecast solar can carry the planned loads;
+- validate provisional maximum planning rates of 1.5 kWh per running hour for
+  floors 1 and 2 and 0.8 kWh per running hour for floor 3 before using them as
+  authoritative coefficients;
+- retain Panic as the recovery layer for forecast error, unexpected household
+  demand, or thermal consumption above plan.
 
 Future controller requirements:
 
@@ -375,6 +396,18 @@ Initial controller non-goals:
 
 Current Battery Health detects low SOC and ≥2% jumps below 95%, but calculations still need a general plausibility policy.
 
+EnergyHub 1.3.8 starts with an SOC-only observer:
+
+- persist jumps and short oscillations rather than losing the evidence on the
+  next normal sample;
+- record previous/current SOC, delta, interval, battery voltage/current, PV,
+  load, grid, operating mode, freshness, process uptime, and recovery context;
+- keep a bounded rolling history with latest-event and event-count diagnostics;
+- distinguish top-of-charge behavior from mid-range jumps in the event data;
+- do not infer battery degradation from SOC telemetry alone;
+- do not reject a sample, inhibit control, send a command, or change an energy
+  decision in this first observer.
+
 Design:
 
 - quality flags per telemetry sample;
@@ -383,6 +416,38 @@ Design:
 - separate warning from control inhibition;
 - configurable hardware-specific limits.
 
+### Reserve-relative flexible-load policy — target 1.3.9
+
+Use the dashboard-selected 20–50% AHM minimum SOC as the homeowner-preference
+baseline for flexible-load protection:
+
+```text
+normal shed / warning = selected minimum + 30 percentage points
+mandatory OFF         = selected minimum + 20 percentage points
+recovery / unlock     = selected minimum + 40 percentage points
+```
+
+This reproduces the current 50/40/60 boiler bands when the selected minimum is
+20%, and shifts them to 60/50/70, 70/60/80, or 80/70/90 as the homeowner
+selects a more conservative reserve. EnergyHub publishes the effective bands
+as the single source of truth; Home Assistant, dashboards, and messaging
+adapters must not duplicate the calculation.
+
+Initial boundaries:
+
+- boiler and explicitly participating heat pumps only; exclude the basement
+  pump;
+- sustained, fresh, plausible SOC is required before acting;
+- between Normal and Mandatory, a confirmed manual request may run with a
+  clear warning and a declared stop threshold;
+- at Mandatory, request OFF and reject new ON requests while locked;
+- at Recovery, clear the lockout without automatically restarting the load;
+- Grid Confidence, grid loss, Panic, Peak Load Guard, telemetry uncertainty,
+  device availability, compressor timing, and immutable safety limits may
+  tighten or deny the baseline policy;
+- grid-backed Hybrid permission remains explicit and cannot silently erase a
+  remembered reserve lockout.
+
 ### Grid Import validation
 
 - compare estimated import against external meter or smart plug data;
@@ -390,6 +455,15 @@ Design:
 - determine whether full house load during SUB overestimates grid contribution;
 - avoid replacing one known approximation with an unvalidated subtraction formula;
 - preserve explicit non-billing-grade labelling.
+
+Planned 1.3.11 accounting increment:
+
+- classify estimated import into configured cheap and standard tariff periods;
+- persist daily counters across restart and midnight rollover;
+- expose daily, weekly, and monthly energy statistics for both classes;
+- apply configurable prices for informational cost estimates;
+- include the previous day's split and cost in the Telegram morning report;
+- keep tariff accounting separate from later multi-window charging control.
 
 ### Panic policy review
 
@@ -466,16 +540,49 @@ User outcome: unexpected decisions can be reproduced without sharing secrets or 
 
 User outcome: the homeowner can receive concise alerts and request status through a preferred secure messaging provider without moving EnergyHub control into the cloud.
 
+Current foundation: Telegram Family Assistant 0.1.6 sends a morning energy/weather plan, debounced grid-loss and recovery events, Grid Confidence changes, and centralized AHM reserve advice. It is outbound-only and cannot execute Home Assistant commands.
+
 - provider-neutral messaging interface;
 - Telegram as the first candidate adapter, without making Telegram the permanent product boundary;
 - future WhatsApp, Signal, Matrix, or other adapters only where supported authentication and API terms permit them;
 - read-only `/status`, `/health`, `/mode`, `/forecast`, `/tariff`, and `/reserve` capabilities first;
+- begin inbound experimentation with authenticated Ukrainian/English text;
+- add Ukrainian/English voice only after text intents, authorization,
+  confirmation, audit, device-state acknowledgement, and bounded durations are
+  reliable;
+- store a language preference per authorized family member or detect the
+  current message language, and reply in the same language where unambiguous;
+- map Ukrainian and English household phrases to fixed registered aliases,
+  never to arbitrary Home Assistant entity IDs;
+- echo every voice-derived action with the interpreted device and duration and
+  require confirmation before execution;
 - health, outage, anomaly, forecast-fallback, strategy-transition, and low-reserve alerts;
 - notification severity, deduplication, quiet hours, and rate limiting;
 - authenticated identities, role-based authorization, explicit Autopilot checks, and an audit trail before any remote command;
 - Cloudflare Tunnel deployment/security review and WireGuard backup for remote Home Assistant access.
 
 Messaging and voice assistants submit requests. They never decide whether a hardware action is safe.
+
+### Shared intent gateway
+
+User outcome: dashboard, Home Assistant automation, voice, and messenger requests use the same understandable EnergyHub vocabulary and receive the same safety decision.
+
+- define a versioned structured intent envelope with requester, source, intent, parameters, creation time, expiry, correlation ID, and optional confirmation state;
+- begin with read-only intents such as status, health, mode, forecast, tariff, reserve, and explanation of the last decision;
+- add only bounded, explicitly authorized control intents after authentication, audit, Autopilot, freshness, reserve, and hardware-limit checks exist;
+- translate natural-language Telegram and future Home Assistant Assist input into the structured contract before evaluation;
+- respond with EnergyHub's interpretation and `allow`, `shorten`, `delay`, `deny`, or read-only result; ambiguous input performs no hardware action;
+- publish intent-level outcomes rather than exposing MQTT topic names, entity IDs, PI30MAX commands, or internal service boundaries;
+- keep transport adapters replaceable so Telegram is the first adapter, not the product architecture.
+
+Target: the shared intent contract belongs with 2.0 Conversational EnergyHub; a native Home Assistant integration remains later 2.x/3.0 ecosystem work.
+
+### Future native Home Assistant integration
+
+- expose human-readable events such as Grid became unstable, Grid risk detected, Panic mode started, reserve target reached, solar surplus available, and return to Solar;
+- support purpose-specific triggers and conditions such as `When EnergyHub enters Panic mode` and `When grid reliability becomes Risk`;
+- keep Hybrid, Panic, Grid Confidence, recovery, reserve, and flexible-load policy inside EnergyHub rather than reproducing it in Home Assistant automations;
+- use current Home Assistant terminology and modern automation syntax whenever README examples or sample automations are refreshed.
 
 ## Flexible Energy and EV charging
 
@@ -497,6 +604,161 @@ Messaging and voice assistants submit requests. They never decide whether a hard
 - preheating/precooling value;
 - room-specific comfort priorities;
 - staged observer mode before automatic starts.
+
+### Inverter Fault Diagnostics and Adaptive Overload Protection
+
+User outcome: EnergyHub preserves enough evidence around a warning, fault, or
+unexpected inverter restart to explain what happened and later prevent a
+repeat by shedding explicitly participating flexible loads safely.
+
+Current verified foundation:
+
+- EnergyHub reads PI30MAX `QPIWS` every 60 seconds and publishes active warning
+  names through Inverter Health;
+- QPIWS represents current warning bits, so a short event can disappear before
+  the next scheduled read;
+- a recent inverter restart is suspected to be load-related, but the exact
+  cause and load boundary are not established by retained evidence.
+
+Phase A — diagnostics only:
+
+- investigate a shorter or event-prioritized QPIWS interval without starving
+  normal PI30MAX telemetry or increasing serial contention;
+- detect and latch warning transitions, especially `0 → 1`;
+- persist a bounded fault/event history across EnergyHub and Home Assistant
+  restarts;
+- keep a bounded in-memory pre-event telemetry ring so the snapshot includes
+  conditions before communication loss or inverter restart;
+- record timestamp, warning/fault identity, inverter load W and %, battery SOC,
+  voltage/current, grid state, PV, operating mode/source priority, controlled
+  loads observed ON, telemetry freshness, and process/recovery context;
+- expose Current Fault, Last Fault, Last Fault Time, Last-Fault Snapshot, and
+  recent event history for diagnostics and Mission Control;
+- perform no automatic load or inverter action in this phase.
+
+Read-only hardware research:
+
+- confirm whether POW-HVM10.2M Menu 25 / Record Fault Code is enabled and what
+  it means on the installed firmware;
+- treat the community-reported Modbus register 4530 Error Code as an unverified
+  lead until a bounded read-only probe returns meaningful repeatable data;
+- compare any result with the inverter display, QPIWS, and a known observed
+  event before documenting support;
+- keep PI30MAX and Modbus capabilities separate;
+- never write register 4530 or any undocumented Modbus register.
+
+Phase B — observation and calibration:
+
+- collect real continuous load, startup peaks, warnings, faults, and restart
+  evidence;
+- determine whether tolerable power and duration differ under battery/Solar,
+  Hybrid, grid/bypass, charging, and outage operation;
+- establish whether a warning reliably precedes shutdown;
+- derive preventive and emergency limits with margin from evidence rather than
+  the theoretical 10.2 kW rating;
+- retain uncertainty explicitly when the event sample is incomplete.
+
+Phase C — Dry Run:
+
+- publish which participating load would be shed, why, the observed load, the
+  proposed threshold, and the expected reduction;
+- execute no physical switch command;
+- compare decisions with several days or weeks of real operation and faults;
+- reject promotion when telemetry, load ownership, device suitability, or
+  thresholds are not trustworthy.
+
+Phase D — attended then automatic protection:
+
+- preventive shedding uses a sustained threshold below the proven boundary;
+- emergency shedding responds to a verified overload warning or rapid
+  excessive load under separately tested rules;
+- shed one configurable, explicitly opted-in load at a time, confirm observed
+  OFF/power reduction, wait for stabilization, and reevaluate;
+- restore only loads owned or paused by the guard, one at a time, with
+  hysteresis, minimum ON/OFF time, compressor cooldown, inrush allowance, and
+  explicit restoration permission;
+- a smart-load communication failure is a failed protection action and never
+  authorizes an inverter command or an assumption that demand fell;
+- manual override remains available within immutable electrical, reserve, and
+  emergency boundaries;
+- the basement pump and every non-participating critical load remain excluded.
+
+Mission Control should eventually explain, for example:
+
+```text
+Boiler disabled — overload protection
+Load before action: 8.9 kW
+Protection threshold: 8.5 kW
+Next eligible restore: 14:42
+```
+
+Target: EnergyHub 1.4 begins with Phase A. Later 1.4.x stages require their own
+repository, attended hardware, Dry Run, and monitored release evidence.
+
+### Smart Thermal Peak Load Guard
+
+User outcome: keep short periods of high household power from becoming an
+uncontrolled inverter, battery, or grid-loading event by temporarily pausing
+explicitly opted-in flexible thermal loads.
+
+This is a demand/power controller measured in kW, not an accumulated-energy
+controller measured in kWh. It supplements rather than replaces inverter,
+battery, cable, breaker, plug, and appliance protection.
+
+Proposed research policy, not approved production thresholds:
+
+- consider shedding only after total house power remains above 6.0 kW for a
+  sustained 20-30 second window;
+- first pause the electric water boiler, and only when its measured draw is
+  above an idle/noise threshold provisionally set near 100 W;
+- remeasure after every confirmed command before considering another load;
+- if demand remains high, pause one opted-in heat pump at a time in the
+  provisional order: second floor, first floor, then third floor;
+- begin restoration only after total house power remains below 5.0 kW for a
+  sustained 3-5 minute window;
+- restore one load at a time with a post-start observation delay;
+- restore only a device that the guard actually paused and whose recorded
+  pre-shed state and restoration policy permit automatic restart;
+- never shed the basement water pump or another critical/non-opted-in load;
+- treat unavailable power/state telemetry or an unconfirmed switch command as
+  a failed action, not as a successful reduction.
+
+The final trigger, release, dwell, maximum-off, and per-operating-mode values
+must be selected from recorded load, inverter-fault, and appliance evidence. Grid,
+battery, Solar, Hybrid, Panic, and outage operation may require different
+limits; a single 6/5 kW pair must not be assumed universally safe.
+
+Each load capability must record:
+
+- exact switch and power entities plus availability semantics;
+- criticality and shedding/restoration priority;
+- active-power threshold and expected power reduction;
+- plug rating, appliance rating, inrush/start behavior, and suitability for
+  mains interruption;
+- minimum runtime, minimum off-time, compressor cooldown, and maximum temporary
+  off-time;
+- command acknowledgement/state confirmation and bounded retry behavior;
+- power-on behavior after plug, Home Assistant, EnergyHub, or host restart;
+- ownership, pre-shed state, active manual override, and restoration permission;
+- comfort/hot-water constraints and hard reserve/operating-mode exclusions.
+
+Required delivery stages:
+
+1. collect load history and complete the capability/safety inventory;
+2. run observer mode for several days and publish proposed actions/reasons;
+3. validate boiler-only attended shedding and restoration;
+4. validate each heat pump individually with compressor-safe timing;
+5. enable sequential automatic shedding;
+6. enable conservative sequential restoration;
+7. integrate the guard with later solar-, tariff-, comfort-, and
+   forecast-aware Smart Thermal scheduling.
+
+Explanations should distinguish states such as `Peak Load Guard`, `Waiting for
+minimum runtime`, `Cooldown`, `Manual override`, `Unavailable`, and `Restoring
+after demand recovery`.
+
+Target: EnergyHub 1.4 Smart Thermal. The 6.0/5.0 kW values and provisional load
+order remain discussion inputs until explicitly approved.
 
 ### Solar-first EV charging
 
@@ -548,6 +810,45 @@ User outcome: additional inverters can reuse EnergyHub policy without treating s
 - validate USB-RS232, Solar2MQTT, ESPHome, or other transports independently from model support;
 - require raw capture, read-only validation, shadow decisions, attended commands, failure testing, restart reconstruction, and compatibility documentation before automatic writes;
 - consider Deye, GoodWe, Victron, Solax, and other families only after the capability boundary is stable.
+
+### PowMr 10.2M Modbus PV2 telemetry
+
+User outcome: expose both PV arrays separately and derive trustworthy total PV
+without depending on unsupported `QPIGS2`.
+
+- live read-only verification completed on 2026-08-14: slave 5, function 03,
+  2400 baud, byte-swapped holding registers 4563 (PV2 voltage, 0.1 V) and 4564
+  (PV2 power, W);
+- complete: optional Modbus reads use the same adapter-owned serial lock as
+  PI30MAX;
+- complete: CRC, ranges, freshness, restart, timeout, malformed response, and
+  unsupported-firmware behavior have regression coverage;
+- complete: PV2 health and Total PV are published only from fresh component
+  samples;
+- complete: high-production, full-battery/curtailed, nighttime, and
+  homeowner-observed daylight chart behavior were validated; a separate
+  medium-production sample is useful but not a release blocker;
+- complete: every undocumented Modbus write remains disabled;
+- pending: 2–3 days of private monitoring before public promotion.
+
+Target: EnergyHub 1.3.5.
+
+### PowMr dual-output research
+
+User outcome: eventually manage the inverter's second load output from Home
+Assistant through safe EnergyHub intents rather than raw register access.
+
+- the PowMr manual confirms dual-output enable/disable, exit thresholds, and a
+  3400 W maximum second load in battery mode for the 10.2 kW model;
+- no trustworthy register mapping or read-back contract is verified yet;
+- first capture and verify read-only state/settings, then build shadow-mode HA
+  behavior and immutable power/reserve limits;
+- allow an attended write experiment only after exact frames, accepted ranges,
+  read-back, rollback, and recovery are independently established;
+- never expose raw Modbus writes to Home Assistant, messaging, voice, or AI.
+
+Target: research after PV2 telemetry integration; control remains unplanned
+until the safety contract is verified.
 
 ## Technical debt
 

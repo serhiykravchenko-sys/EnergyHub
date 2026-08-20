@@ -42,7 +42,8 @@ homeassistant/
 ## Current HA-owned functions
 
 - Autopilot helper;
-- Adaptive Night Hybrid schedule at 23:50 and Solar restoration at 07:00;
+- Adaptive Hybrid schedule at 23:50, a guarded 06:05 early-Solar check from
+  Grid Hold, and Solar restoration at 07:00;
 - live Solcast publication, including the first tomorrow hourly forecast at
   or above 300 W for the adaptive morning-gap target;
 - atomic Daily Summary publication;
@@ -52,8 +53,12 @@ homeassistant/
 - first-, second-, and third-floor heat-pump auto-off controls;
 - a compact Heat Pumps view with switch, live power, 0–12 h auto-off, absolute turn-off time, and consumption history for all three floors;
 - a compact Mission Control view without duplicated floor cards;
+- a dedicated Solar view with PV1/PV2 daily, weekly, and monthly generation comparisons plus current period totals;
 - separate Heat Pumps and Water Systems views for compact manual control and daily/weekly/monthly locally recorded consumption history.
-- temporary manual heat-pump permission during confirmed grid-backed Hybrid; it never starts a heat pump and preserves the remembered SOC lockout underneath.
+- family heat-pump permission whenever Grid Confidence is Normal, the grid is
+  present, and telemetry is fresh; otherwise AHM-relative shed/lockout/recovery
+  bands apply. The permission never starts a heat pump and preserves any
+  remembered SOC lockout underneath.
 
 ## Current EnergyHub-owned functions
 

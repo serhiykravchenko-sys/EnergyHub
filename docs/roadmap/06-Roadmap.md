@@ -135,6 +135,20 @@ Delivered in the 1.3.0 working tree:
 - expanded MQTT/dashboard diagnostics and coordinated heat-pump permission;
 - release tests, documentation, and updated infographics.
 
+Delivered in the 1.3.1 maintenance increment:
+
+- dashboard-selected 20–50% AHM minimum SOC;
+- verified 300 W → 600 W one-hour solar-ramp credit;
+- retained raw/effective morning-gap and ramp diagnostics.
+
+Delivered in the 1.3.2 monitoring increment:
+
+- 07:00–12:00 essential-load learning after subtracting heat-pump energy;
+- a conservative 21-day per-interval profile with three-sample activation and observable fallback;
+- aligned learned-load/hourly-solar net-energy planning;
+- a three-completed-morning, one-step AHM reserve advisor;
+- an optional outbound-only Telegram Family Assistant for morning plans, grid events, Grid Confidence changes, and reserve advice.
+
 Safety rule:
 
 > Panic preserves reserve conservatively; neither AHM nor Panic automatically starts a smart thermal load.
@@ -145,38 +159,234 @@ Implementation and supervised deployment validation completed on 2026-08-09; pub
 
 ---
 
-## EnergyHub 1.4 — Configuration, Recovery & Messaging
+## EnergyHub 1.3.5 — PV2 and Total PV Telemetry
 
 Goal:
 
-Make EnergyHub configurable and supportable, add bounded communication/service recovery, and provide secure provider-neutral messaging without moving decision logic into cloud services.
+Expose both installed PV arrays and trustworthy combined production, then use
+those entities in the solar charts.
 
 Planned work:
 
-- a validated settings model that separates immutable hardware limits from homeowner preferences;
-- user-facing `Resilience`, `Balanced`, and `Economy` policy profiles;
-- arbitrary fixed tariff schedules with one or more eligible periods per day;
-- persisted forecast quality, same-date last-known forecast fallback, and conservative unavailable-forecast behavior;
-- charge-duration and latest-start estimates;
-- sanitized support bundles, replayable decision inputs, shadow mode, and inverter-write counters;
-- secure remote Home Assistant access;
-- Cloudflare Tunnel with WireGuard backup strategy;
-- structured EnergyHub notification events;
-- a provider-neutral messaging interface with Telegram as the first candidate adapter and room for WhatsApp, Signal, Matrix, or other supported providers;
-- read-only status, health, mode, forecast, tariff, and reserve queries before remote control is considered;
-- health, outage, anomaly, and strategy-transition alerts;
-- authenticated, authorized, audited, and carefully bounded remote commands;
-- notification policy and rate limiting.
+- optional read-only Modbus polling behind the existing serial owner/lock;
+- PV2 voltage, PV2 power, and telemetry freshness/health;
+- Total PV Power derived only from fresh PV1 and PV2 samples;
+- CRC, range, timeout, malformed-response, unsupported-firmware, restart, and
+  recovery behavior;
+- MQTT discovery, tests, release notes, and documentation;
+- monitored deployment followed by PV1/PV2/Total PV chart integration.
 
-Profiles modify household preferences only. They never replace battery, inverter, telemetry-freshness, or emergency safety limits.
+No undocumented Modbus writes or output-2 control belong in this release.
 
 Status:
 
-Planned.
+Implementation, 80 add-on tests, supervised deployment, nighttime validation,
+and homeowner-observed daylight chart validation are complete. Read-only
+registers 4563 and 4564 passed high-production and full-battery/curtailed-
+production probes on the installed inverter. A 2–3-day private monitoring
+period remains before public promotion.
 
 ---
 
-## EnergyHub 1.5 — Flexible Energy & EV Charging
+## EnergyHub 1.3.6 — Retained Hybrid State Cleanup
+
+Goal:
+
+Ensure an EnergyHub upgrade deterministically replaces an incompatible retained
+Hybrid decision reason before a later Home Assistant restart reloads it.
+
+Scope:
+
+- publish the concise initial Hybrid state after MQTT Discovery during app
+  startup;
+- retain the replacement so future Home Assistant restarts receive it;
+- enforce the 255-character Home Assistant state boundary at the reason
+  publisher;
+- keep the full calculation and control decisions unchanged.
+
+Status:
+
+Implemented and regression-tested in the private repository. Supervised
+deployment and add-on startup validation completed on 2026-08-15. The 2–3-day
+private monitoring period and a later planned Home Assistant Core
+retained-state restoration check remain pending before public promotion.
+
+---
+
+## EnergyHub 1.3.7 — Early Solar Handover
+
+Goal:
+
+Avoid unnecessary grid use between 06:05 and 07:00 when Adaptive Hybrid has
+already reached its reserve and strong early solar is independently confirmed.
+
+Scope:
+
+- request one dated 06:00-07:00 Solcast interval from Home Assistant at 06:05;
+- permit release only from confirmed Hybrid Grid Hold, never Charging;
+- require Autopilot, current date, local 06:00-07:00 time, fresh inverter
+  telemetry, fresh aligned Total Solar, grid present, and SOC at or above the
+  retained target;
+- require at least 300 W live Total Solar and 1.6 kWh forecast for the interval;
+- publish focused evidence and the confirmed transition outcome;
+- keep Grid Hold unchanged on every missing, stale, insufficient, invalid, or
+  failed gate, with the normal 07:00 Solar handover as fallback.
+
+Status:
+
+Prepared, privately deployed, startup-validated, monitored, and publicly
+released as part of the 1.3.8 baseline.
+
+---
+
+## EnergyHub 1.3.8 — Night Target and Heat-Pump Ownership
+
+Goal:
+
+Close the unexpected-night-load gap without introducing another public
+controller: AHM remains the night owner, Panic remains the daytime owner, and
+the family can use heat pumps normally while the grid is trusted.
+
+Scope:
+
+- persist the date through which the 23:50 AHM target is authoritative;
+- on every fresh night telemetry cycle, remain Solar above target, enter Grid
+  Hold at target, and enter or resume Charging below target;
+- keep an offline request observational and retry only after the grid returns;
+- clear night enforcement after a confirmed non-AHM morning Solar handover;
+- define trusted heat-pump use as Normal Grid Confidence, present grid, and
+  fresh EnergyHub telemetry;
+- while trusted, leave every heat pump under family manual control;
+- while untrusted, shed once at AHM minimum +30, lock OFF at minimum +20, and
+  unlock at minimum +40 without automatically restarting anything;
+- add outbound Telegram ownership guidance plus SOC warnings at AHM minimum
+  +30, +20, +10, and +0.
+
+Status:
+
+Regression-tested, synchronized to Home Assistant, started, privately
+monitored without a reported regression, and publicly released.
+
+---
+
+## EnergyHub 1.3.9 — SOC Anomaly Journal
+
+Goal:
+
+Persist suspicious SOC changes with enough surrounding evidence to distinguish
+a possible battery/BMS issue from inverter estimation, PI30MAX telemetry,
+rounding, communication recovery, or an app restart.
+
+Scope:
+
+- record SOC jumps and short oscillations in a bounded persistent journal;
+- capture previous/current SOC, delta, elapsed time, battery voltage/current,
+  PV, load, grid state, operating mode, telemetry freshness, and restart or
+  recovery context;
+- expose the latest event and event count for diagnostics;
+- treat the journal as evidence, not as a battery-health diagnosis;
+- keep the observer strictly read-only: no telemetry quarantine, control
+  inhibition, inverter action, load action, or automatic notification.
+
+Status:
+
+Next planned observer-only increment after 1.3.8 release closure.
+
+---
+
+## EnergyHub 1.3.10 — Inverter Fault Diagnostics
+
+Goal:
+
+Preserve inverter faults and the conditions preceding them before introducing
+automatic overload action.
+
+Scope:
+
+- decode and persist verified QPIWS fault/warning transitions;
+- retain a bounded pre-fault telemetry snapshot;
+- expose current and recent faults to Home Assistant and the morning report;
+- research community-reported register 4530 only through bounded read-only
+  probes on the installed firmware;
+- keep fault observation separate from automatic load shedding.
+
+Status:
+
+Planned after the SOC Anomaly Journal.
+
+---
+
+## EnergyHub 1.3.11 — Tariff-Split Grid Import Accounting
+
+Goal:
+
+Turn the existing estimated Grid Import stream into understandable cheap- and
+standard-tariff energy and cost statistics without changing inverter control.
+
+Scope:
+
+- classify every estimated import interval by the configured tariff window;
+- persist daily cheap and standard import separately across restart and
+  midnight rollover;
+- expose daily, weekly, and monthly kWh totals for both classes;
+- apply configurable informational prices and publish estimated cost;
+- add tariff-split dashboard statistics and a concise Telegram morning line;
+- preserve the current warning that EnergyHub Grid Import is estimated and is
+  not a billing-grade meter.
+
+This release does not add multiple charging windows, dynamic prices, or Net
+Billing control. Those remain later tariff-scheduling/economic-planning work.
+
+Status:
+
+Planned after inverter fault diagnostics.
+
+---
+
+## EnergyHub Telegram Intents — Ukrainian/English Text and Voice Experiment
+
+Goal:
+
+Test family-friendly conversational control before committing to the complete
+2.0 interface, using the existing timed Home Assistant load controls and the
+central EnergyHub safety decision.
+
+Representative requests:
+
+- `Увімкни кондиціонер на третьому поверсі на три години.`
+- `Чи вистачить батареї до ранку?`
+- `Why are we using the grid?`
+- `Prepare the house for a possible outage.`
+
+Required control boundary:
+
+```text
+Telegram/voice
+→ authenticated structured intent
+→ EnergyHub safety evaluation
+→ allow / shorten / delay / deny
+→ Home Assistant action
+→ observed-state confirmation
+```
+
+Sequence:
+
+1. authenticated Ukrainian/English chat with read-only questions;
+2. bounded text requests for registered devices, such as running the
+   third-floor air conditioner for three hours;
+3. interpreted-action echo, explicit confirmation, expiry, audit, and observed
+   device-state acknowledgement;
+4. Ukrainian/English Telegram voice messages translated into the same tested
+   intent contract;
+5. no raw entity IDs, MQTT, PI30MAX, or Modbus commands exposed to the
+   assistant.
+
+This experiment informs the full 2.0 architecture; it does not bypass reserve
+lockouts, Grid Confidence, Panic, device timing, or immutable safety limits.
+
+---
+
+## EnergyHub 1.4 — Smart Thermal & Flexible Loads
 
 Goal:
 
@@ -186,6 +396,9 @@ This milestone introduces a capability-based Load Manager with tested automatic 
 
 Planned inputs:
 
+- current and transitioned QPIWS warning/fault bits;
+- persistent inverter fault history and a bounded pre-fault telemetry buffer;
+- optional model/firmware-verified read-only fault-code telemetry;
 - room temperature and comfort targets;
 - occupancy context without making occupancy the only trigger;
 - available solar surplus;
@@ -200,57 +413,163 @@ Planned inputs:
 
 Planned behavior:
 
+- begin with persistent inverter-fault diagnostics and operating-condition
+  snapshots rather than guessing a permanent overload threshold;
+- calibrate separate safe-load margins for battery/inverter and grid/bypass
+  operation from observed load, warnings, faults, restarts, and startup peaks;
+- run overload protection in Dry Run before any automatic load command;
 - use otherwise curtailed or unused solar for useful heating/cooling;
 - preheat or precool during cheap-tariff periods when justified;
 - preserve required battery reserve;
 - coordinate multiple heat pumps and thermal loads;
+- provide an observer-first Peak Load Guard that pauses explicitly opted-in
+  thermal loads one at a time after sustained high household power, confirms
+  the measured result, and restores conservatively after sustained recovery;
 - maximize direct solar use for EV charging and use approved low-price periods when solar alone cannot meet a departure target;
 - prevent household-battery discharge into an EV unless the homeowner explicitly permits it;
 - exclude EnergyHub-controlled flexible energy from the learned base household load;
-- stop only loads that EnergyHub previously started;
+- under normal optimization, stop only loads that EnergyHub previously started;
+  Peak Load Guard may additionally pause an explicitly opted-in manually
+  started load, but must remember its pre-shed state and apply its separate
+  restoration permission;
 - support time-bounded dashboard, automation, voice, or messenger requests through a deterministic EnergyHub override evaluator;
 - introduce a generic Grid Input / Breaker Guard that can reduce charging current when household demand rises.
+
+Fault diagnostics and overload protection are staged independently:
+
+1. improve QPIWS transition capture and persist fault snapshots;
+2. perform a bounded read-only POW-HVM10.2M probe for any independently
+   verified fault-code register, treating PI30MAX and Modbus as separate
+   capability layers;
+3. collect sufficient operating history to select mode-specific thresholds and
+   safety margins;
+4. run observer/Dry Run decisions for several days or weeks;
+5. validate attended preventive and emergency shedding one load at a time;
+6. enable sequential automatic shedding and later conservative restoration
+   only after every preceding gate passes.
+
+Community reports that Modbus register 4530 may expose an error code and that
+Menu 25 may retain fault codes are research leads only. EnergyHub must verify
+the installed model/firmware with read-only access and must never write an
+undocumented register.
 
 Voice or messenger assistants are request interfaces, not safety authorities. EnergyHub evaluates data freshness, projected reserve, grid availability, active strategy, load energy, and immutable emergency limits before allowing, shortening, delaying, or denying an override.
 
 Status:
 
-Planned.
+Planned. The 1.4 family begins with diagnostics and calibration; it does not
+ship a guessed active overload threshold.
 
 ---
 
-## EnergyHub 2.x — Economic Planning & Hardware Ecosystem
+## EnergyHub 2.0 — Conversational EnergyHub
 
 Goal:
 
-Plan import, export, storage, and flexible-load energy across broader hardware and tariff ecosystems while keeping resilience and hardware safety as hard constraints.
+Provide secure text and voice interaction through Telegram first, while keeping
+messaging providers and language models outside the EnergyHub safety boundary.
 
-Planned direction:
+Planned work:
 
-- day-ahead import and export prices normalized into arbitrary market intervals;
-- multiple fixed or dynamic tariff periods per day;
-- supplier markup, tax, network-charge, negative-price, export-limit, and Net Billing rules;
-- interval plans for expected load, solar, charge, discharge, import, export, SOC, cost, revenue, and protected reserve;
-- planned-versus-actual cost and revenue accounting;
-- staged price monitoring, shadow planning, attended control, automatic import, and stricter automatic-export validation;
-- a normalized inverter capability model separated from transport;
-- additional validated PowMr and Voltronic-compatible PI30/PI30MAX models;
-- telemetry-only and shadow modes for unknown or unvalidated models;
-- USB-RS232, Solar2MQTT, ESPHome, or other transports only where telemetry, command, acknowledgement, freshness, and recovery semantics are validated;
-- eventual Deye, GoodWe, Victron, and other vendor adapters;
-- additional BMS vendors;
-- battery degradation models;
-- cost-aware reserve management.
+- evolve the outbound Telegram Family Assistant into the first adapter behind a
+  provider-neutral messaging interface;
+- versioned structured intents shared by Telegram, dashboards, automations, and
+  future Home Assistant Assist;
+- read-only status, health, mode, forecast, tariff, reserve, and decision
+  explanations first;
+- authenticated, authorized, audited, rate-limited, and bounded control intents
+  only after the read-only stage;
+- Telegram voice-message transcription into the same intent contract;
+- Ukrainian and English text, aliases, confirmations, explanations, and voice
+  transcription, with replies in the requester's configured or detected
+  language;
+- deterministic handling of bilingual device names, durations, and explicit
+  confirmation before a voice-derived control request;
+- EnergyHub responses of `allow`, `shorten`, `delay`, or `deny` with reasons;
+- future WhatsApp, Signal, Matrix, or other adapters only where their supported
+  APIs and authentication models are suitable;
+- no raw PI30MAX, Modbus, MQTT, switch-entity, or inverter commands exposed to
+  users, messaging providers, voice systems, or language models.
 
-Economic planning may use spare battery capacity, but it must never silently import, export, or discharge through a protected reserve or unsupported hardware boundary.
+Telegram and other messengers are request/presentation adapters, not direct
+command proxies or safety authorities.
 
-Core question:
+Status:
 
-> Is it better to consume, store, import, or export energy now?
+Outbound Telegram reporting and notifications are implemented. A bounded
+Ukrainian/English text-then-voice experiment is planned after 1.4. Full
+inbound authentication, authorization, audit, and generalized bounded intents
+remain the 2.0 milestone.
 
 ---
 
-## EnergyHub 3.x — Full Home Energy Management System
+## EnergyHub 2.x — Tariff Scheduling
+
+Goal:
+
+Generalize the current single night window into safe fixed or dynamic import
+schedules without making electricity export a prerequisite.
+
+Planned direction:
+
+- one, two, or three configurable cheap periods per day;
+- weekday/weekend schedules, midnight crossing, timezone, and daylight-saving
+  handling;
+- active and next eligible tariff interval visibility;
+- AHM/Hybrid evaluation for each eligible period;
+- avoid grid charging when forecast and protected reserve already suffice;
+- preserve the current single night window as the migration default;
+- later optional day-ahead import prices and shadow planning;
+- later optional dynamic import prices after fixed-window behavior is proven;
+- implement only when household need or public adoption justifies the work.
+
+Profiles, configuration validation, forecast fallback, support bundles, replay,
+shadow mode, dependency health, and bounded recovery remain cross-cutting
+engineering requirements and may land incrementally in any release that needs
+them.
+
+---
+
+## EnergyHub 3.0 — Hardware & Economic Ecosystem
+
+Goal:
+
+Support additional validated inverter capabilities and optional economic import
+and export planning without weakening resilience or hardware safety.
+
+Planned direction:
+
+- normalized inverter capability model separated from communication transport;
+- additional PowMr and other vendor adapters only after model/firmware-specific
+  telemetry, commands, acknowledgement, limits, and recovery are verified;
+- telemetry-only and shadow modes for unknown or unvalidated models;
+- day-ahead import/export prices and interval energy plans;
+- optional Net Billing, export limits, revenue, battery wear, and
+  planned-versus-actual accounting;
+- staged monitoring, shadow planning, attended control, automatic import, and
+  stricter separately validated export control;
+- export only with compatible hardware, appropriate metering, supplier
+  contract, and applicable regional/grid permission;
+- a future native Home Assistant integration exposing intent-level EnergyHub
+  triggers, conditions, actions, and events without exposing internal topics or
+  command mappings.
+
+Net Billing is an advanced optional capability, not EnergyHub's central product
+promise.
+
+Research backlog supporting these milestones:
+
+- PowMr second-output control, beginning with model/firmware verification and
+  bounded read-only capability discovery;
+- a generic inverter capability model;
+- a replay and what-if laboratory;
+- conservative forecast fallback;
+- privacy-sanitized support bundles;
+- solar-first EV charging.
+
+---
+
+## Long-term vision — Full Home Energy Management System
 
 Goal:
 

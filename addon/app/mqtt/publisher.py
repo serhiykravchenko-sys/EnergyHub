@@ -6,7 +6,9 @@ from app.config import (
     BASE_TOPIC,
     ENERGYHUB_AVAILABILITY_TOPIC,
     INVERTER_AVAILABILITY_TOPIC,
+    PV2_AVAILABILITY_TOPIC,
     SENSORS,
+    TOTAL_PV_AVAILABILITY_TOPIC,
 )
 from app.utils.logger import log
 
@@ -15,6 +17,8 @@ OUTPUT_SOURCE_PRIORITY_MAP = {
     "Solar Battery Utility": "SBU",
     "Solar Utility Battery": "SUB",
 }
+
+HOME_ASSISTANT_STATE_MAX_LENGTH = 255
 
 
 # Stable entity IDs for fresh Home Assistant installations. Existing entities
@@ -118,6 +122,133 @@ def publish_discovery(client, device_name):
         )
 
     log("MQTT discovery published")
+
+
+def publish_pv2_discovery(client, device_name="PowMr 10.2M"):
+    device = {
+        "identifiers": ["powmr_10_2m"],
+        "name": device_name,
+        "manufacturer": "PowMr",
+        "model": "10.2M",
+    }
+
+    measurements = {
+        "pv2_input_voltage": (
+            "PV2 Voltage",
+            "sensor.powmr_10_2m_pv2_voltage",
+            "V",
+            "voltage",
+            PV2_AVAILABILITY_TOPIC,
+        ),
+        "pv2_charging_power": (
+            "PV2 Power",
+            "sensor.powmr_10_2m_pv2_power",
+            "W",
+            "power",
+            PV2_AVAILABILITY_TOPIC,
+        ),
+        "total_pv_power": (
+            "Total PV Power",
+            "sensor.powmr_10_2m_total_pv_power",
+            "W",
+            "power",
+            TOTAL_PV_AVAILABILITY_TOPIC,
+        ),
+    }
+
+    for key, (
+        name,
+        default_entity_id,
+        unit,
+        device_class,
+        availability_topic,
+    ) in measurements.items():
+        unique_id = f"powmr_10_2m_{key}"
+        payload = {
+            "name": name,
+            "unique_id": unique_id,
+            "default_entity_id": default_entity_id,
+            "state_topic": f"{BASE_TOPIC}/{key}/state",
+            "unit_of_measurement": unit,
+            "device_class": device_class,
+            "state_class": "measurement",
+            "availability": [
+                {"topic": ENERGYHUB_AVAILABILITY_TOPIC},
+                {"topic": availability_topic},
+            ],
+            "availability_mode": "all",
+            "device": device,
+        }
+        client.publish(
+            f"homeassistant/sensor/{unique_id}/config",
+            json.dumps(payload),
+            retain=True,
+        )
+
+    diagnostics = {
+        "pv2_telemetry_status": (
+            "PV2 Telemetry Status",
+            None,
+            None,
+            None,
+        ),
+        "pv2_telemetry_freshness": (
+            "PV2 Telemetry Freshness",
+            None,
+            None,
+            None,
+        ),
+        "pv2_sample_age_seconds": (
+            "PV2 Sample Age",
+            "s",
+            "duration",
+            "measurement",
+        ),
+    }
+    _publish_sensor_discovery(client, _energyhub_device(), diagnostics)
+
+    log("PV2 MQTT discovery published")
+
+
+def publish_pv2_telemetry(client, pv2_telemetry):
+    if pv2_telemetry.last_voltage is not None:
+        client.publish(
+            f"{BASE_TOPIC}/pv2_input_voltage/state",
+            str(pv2_telemetry.last_voltage),
+            retain=True,
+        )
+
+    if pv2_telemetry.last_power is not None:
+        client.publish(
+            f"{BASE_TOPIC}/pv2_charging_power/state",
+            str(pv2_telemetry.last_power),
+            retain=True,
+        )
+
+    if pv2_telemetry.last_total_power is not None:
+        client.publish(
+            f"{BASE_TOPIC}/total_pv_power/state",
+            str(pv2_telemetry.last_total_power),
+            retain=True,
+        )
+
+    for key, value in pv2_telemetry.mqtt_values().items():
+        client.publish(
+            f"{BASE_TOPIC}/{key}/state",
+            str(value),
+            retain=True,
+        )
+
+    client.publish(
+        PV2_AVAILABILITY_TOPIC,
+        "online" if pv2_telemetry.pv2_is_fresh() else "offline",
+        retain=True,
+    )
+    client.publish(
+        TOTAL_PV_AVAILABILITY_TOPIC,
+        "online" if pv2_telemetry.total_is_fresh() else "offline",
+        retain=True,
+    )
 
 
 def publish_values(client, data, previous):
@@ -759,11 +890,82 @@ def publish_panic_decision_discovery(client):
 
 def publish_hybrid_decision(client, hybrid_decision):
     for key, value in hybrid_decision.mqtt_values().items():
+        state = str(value)
+
+        if key == "hybrid_decision" and state == "not_evaluated":
+            state = "awaiting_evaluation"
+
+        if key == "hybrid_decision_reason":
+            state = state[:HOME_ASSISTANT_STATE_MAX_LENGTH]
+
+        client.publish(
+            f"{BASE_TOPIC}/{key}/state",
+            state,
+            retain=True,
+        )
+
+
+def publish_early_solar_handover(client, early_solar_handover):
+    for key, value in early_solar_handover.mqtt_values().items():
+        state = str(value)
+
+        if key == "hybrid_early_solar_reason":
+            state = state[:HOME_ASSISTANT_STATE_MAX_LENGTH]
+
+        client.publish(
+            f"{BASE_TOPIC}/{key}/state",
+            state,
+            retain=True,
+        )
+
+
+def publish_reserve_advisor(client, reserve_advisor):
+    for key, value in reserve_advisor.mqtt_values().items():
+        if value is None:
+            continue
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
             str(value),
             retain=True,
         )
+
+
+def publish_reserve_advisor_discovery(client):
+    device = _energyhub_device()
+    sensors = {
+        "ahm_reserve_advice": (
+            "AHM Reserve Advice",
+            None,
+            None,
+            None,
+        ),
+        "ahm_reserve_advice_current_soc": (
+            "AHM Reserve Advice Current SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "ahm_reserve_advice_suggested_soc": (
+            "AHM Reserve Advice Suggested SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "ahm_reserve_advice_sample_count": (
+            "AHM Reserve Advice Sample Count",
+            None,
+            None,
+            None,
+        ),
+        "ahm_reserve_advice_reason": (
+            "AHM Reserve Advice Reason",
+            None,
+            None,
+            None,
+        ),
+    }
+    _publish_sensor_discovery(client, device, sensors)
+    log("AHM Reserve Advisor MQTT discovery published")
 
 
 def publish_hybrid_decision_discovery(client):
@@ -830,8 +1032,20 @@ def publish_hybrid_decision_discovery(client):
             "battery",
             "measurement",
         ),
+        "hybrid_minimum_soc": (
+            "Hybrid Selected Minimum SOC",
+            "%",
+            "battery",
+            "measurement",
+        ),
+        "hybrid_raw_morning_hours": (
+            "Hybrid Raw Morning Gap",
+            "h",
+            "duration",
+            "measurement",
+        ),
         "hybrid_morning_hours": (
-            "Hybrid Morning Gap",
+            "Hybrid Effective Morning Gap",
             "h",
             "duration",
             "measurement",
@@ -842,11 +1056,77 @@ def publish_hybrid_decision_discovery(client):
             None,
             None,
         ),
+        "hybrid_effective_solar_start": (
+            "Hybrid Effective Solar Support",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_ramp_confirmed": (
+            "Hybrid Solar Ramp Confirmed",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_ramp_credit_hours": (
+            "Hybrid Solar Ramp Credit",
+            "h",
+            "duration",
+            "measurement",
+        ),
+        "hybrid_ramp_start_power_w": (
+            "Hybrid Ramp Start Power",
+            "W",
+            "power",
+            "measurement",
+        ),
+        "hybrid_ramp_next_power_w": (
+            "Hybrid Ramp Next-Hour Power",
+            "W",
+            "power",
+            "measurement",
+        ),
         "hybrid_morning_reserve_soc": (
             "Hybrid Morning Reserve",
             "%",
             "battery",
             "measurement",
+        ),
+        "hybrid_morning_model_source": (
+            "Hybrid Morning Model Source",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_morning_model_reason": (
+            "Hybrid Morning Model Reason",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_morning_model_samples": (
+            "Hybrid Morning Model Samples",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_morning_expected_load_kwh": (
+            "Hybrid Morning Expected Essential Load",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "hybrid_morning_forecast_solar_kwh": (
+            "Hybrid Morning Forecast Solar",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "hybrid_morning_net_deficit_kwh": (
+            "Hybrid Morning Net Deficit",
+            "kWh",
+            "energy",
+            None,
         ),
         "hybrid_expected_consumption_after_07": (
             "Hybrid Expected Consumption after 07:00",
@@ -905,6 +1185,45 @@ def publish_hybrid_decision_discovery(client):
     )
 
     log("Hybrid Decision MQTT discovery published")
+
+
+def publish_early_solar_handover_discovery(client):
+    device = _energyhub_device()
+    sensors = {
+        "hybrid_early_solar_check": (
+            "Hybrid Early Solar Check",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_early_solar_reason": (
+            "Hybrid Early Solar Reason",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_early_solar_evaluated_at": (
+            "Hybrid Early Solar Evaluated At",
+            None,
+            None,
+            None,
+        ),
+        "hybrid_early_solar_live_power_w": (
+            "Hybrid Early Solar Live Power",
+            "W",
+            "power",
+            "measurement",
+        ),
+        "hybrid_early_solar_forecast_kwh": (
+            "Hybrid Early Solar Forecast 06:00–07:00",
+            "kWh",
+            "energy",
+            None,
+        ),
+    }
+
+    _publish_sensor_discovery(client, device, sensors)
+    log("Hybrid Early Solar MQTT discovery published")
 
 
 def publish_notification_event(client, event):

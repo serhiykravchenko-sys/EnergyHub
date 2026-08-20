@@ -4,7 +4,9 @@
 
 This document is the working plan for EnergyHub 1.x development after the tested EnergyHub 1.0.2 release.
 
-The private development repository is the engineering source of truth. Only reviewed, validated, and sanitized release content is promoted to this public distribution repository.
+The private development repository is the engineering source of truth. Only
+reviewed and monitored releases are promoted to this public distribution
+repository.
 
 ## Released baseline
 
@@ -30,7 +32,7 @@ Every 1.x issue starts from an understood baseline and includes validation propo
 
 EnergyHub 1.1 begins Smart Loads groundwork while continuing the test-drive and telemetry-robustness work planned after 1.0.2.
 
-The target outcome is safe, explainable smart-plug observation, manual control, timed OFF behavior, and conservative reserve-only OFF protection. EnergyHub 1.1 never starts a thermal load. The first automatic Smart Thermal controller remains deferred to 1.5.
+The target outcome is safe, explainable smart-plug observation, manual control, timed OFF behavior, and conservative reserve-only OFF protection. EnergyHub 1.1 never starts a thermal load. The first automatic Smart Thermal controller remains deferred to 1.4.
 
 ## Issue sequence
 
@@ -40,11 +42,11 @@ Outcome:
 
 - the roadmap, backlog, architecture, current state, decisions, and history agree on the 1.x direction;
 - 1.1 explicitly includes Zigbee2MQTT, two smart-plug validations, focused dashboards, auto-off timers, and reserve-only OFF guards;
-- automatic Smart Thermal ownership and starts remain the 1.5 milestone.
+- automatic Smart Thermal ownership and starts remain the 1.4 milestone.
 
 Validation:
 
-- no current-state contradiction about 1.1 reserve-only behavior versus 1.5 automatic Smart Thermal scope;
+- no current-state contradiction about 1.1 reserve-only behavior versus 1.4 automatic Smart Thermal scope;
 - no change to the tested EnergyHub 1.0.2 inverter runtime or strategy behavior;
 - Home Assistant changes remain narrowly scoped to the documented smart-plug functions.
 
@@ -210,7 +212,7 @@ Outcome:
 
 The dedicated Heat Pumps view now uses one compact operating section for each first-, second-, and third-floor heat pump: switch, live power, 0–12 h auto-off duration, and absolute local turn-off time. Duration `0` is manual mode. The turn-off sensors render `Manual` while idle and `Today HH:MM`, `Tomorrow HH:MM`, or a local date/time while active. Shared daily/weekly/monthly consumption history remains below the controls. The first- and second-floor controls use the paired Zigbee plugs; the third floor retains its existing Xiaomi plug and locally integrates live watts for history. The duplicated floor sections were removed from Mission Control so it remains a compact whole-house energy/status/decision view. A compact whole-house Smart Thermal summary remains future controller work.
 
-Future 1.5 capability model:
+Future 1.4 capability model:
 
 - stable load identifier;
 - switch entity/topic;
@@ -229,7 +231,7 @@ The 40 L hot-water boiler is added as a future flexible-load capability, while t
 
 The working tree now contains separate Heat Pumps and Water Systems views. Compact device cards expose manual on/off, unavailable state, live watts, and heat-pump auto-off controls. Each view shows daily bars for 7 days, weekly bars for 6 weeks, and monthly bars for 12 months. Floor 1/2 history uses native cumulative energy. Third-floor, boiler, and pump history uses local left-method Integral sensors with a five-minute maximum sub-interval after Xiaomi cloud counters produced implausible daily values. These sensors start at deployment and cannot import older Xiaomi cloud history. Local integration and statistics require supervised validation. Pump nameplate, motor starting surge, plug rating, outage behavior, water-system consequences, and safe switching must be validated before any SOC policy is even proposed for it.
 
-Future 1.5 decision inputs:
+Future 1.4 decision inputs:
 
 - capability and current device state;
 - room temperature and comfort target;
@@ -240,7 +242,7 @@ Future 1.5 decision inputs:
 - forecast context where it changes the decision safely;
 - required input freshness.
 
-Future 1.5 automatic-control safety behavior:
+Future 1.4 automatic-control safety behavior:
 
 - never start when required inputs are missing, stale, or invalid;
 - never stop a load unless EnergyHub owns the current run;
@@ -313,13 +315,17 @@ Move trusted household strategy values into validated configuration with safe bo
 
 Formalize bounded recovery for MQTT, network, serial communication, `mpp-solar`, Home Assistant connectivity, startup, shutdown, and external watchdog behavior.
 
-### 1.4 — Remote Access & Telegram
+### 1.3.5 — PV2 & Total PV
 
-Add secure remote visibility, structured alerts, authenticated status queries, and carefully bounded remote commands without moving decision logic into the cloud.
+Add optional read-only PV2 telemetry, trustworthy Total PV, freshness, failure isolation, and monitored deployment followed by PV1/PV2/Total PV chart integration. Implementation and chart integration are complete; private monitoring remains pending before public promotion.
 
-### 1.5 — Smart Thermal Energy Expansion
+### 1.4 — Smart Thermal Energy Expansion
 
 Mature the validated 1.1 prototype into coordinated multi-load heating and cooling with seasonal comfort policy, priorities, shared electrical limits, and production-grade restart/recovery behavior.
+
+### 2.0 — Conversational EnergyHub
+
+Add Telegram-first authenticated text/voice intents through the safe EnergyHub control boundary without moving decision or hardware safety logic into the cloud.
 
 ## Definition of done for a 1.x issue
 

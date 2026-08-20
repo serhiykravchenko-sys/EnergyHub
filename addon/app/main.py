@@ -22,6 +22,8 @@ from app.mqtt.publisher import (
     publish_daily_summary,
     publish_daily_summary_discovery,
     publish_discovery,
+    publish_early_solar_handover,
+    publish_early_solar_handover_discovery,
     publish_grid_discovery,
     publish_grid_history,
     publish_grid_import,
@@ -39,6 +41,10 @@ from app.mqtt.publisher import (
     publish_operating_mode_discovery,
     publish_panic_decision,
     publish_panic_decision_discovery,
+    publish_pv2_discovery,
+    publish_pv2_telemetry,
+    publish_reserve_advisor,
+    publish_reserve_advisor_discovery,
     publish_system_health,
     publish_system_health_discovery,
     publish_telemetry_freshness,
@@ -47,6 +53,9 @@ from app.mqtt.publisher import (
 from app.services.autopilot import AutopilotState
 from app.services.battery_health import BatteryHealthMonitor
 from app.services.daily_summary import DailySummaryService
+from app.services.early_solar_handover import (
+    EarlySolarHandoverEngine,
+)
 from app.services.event_bus import EventBus
 from app.services.grid_history import GridHistoryService
 from app.services.grid_import import GridImportService
@@ -54,9 +63,15 @@ from app.services.grid_monitor import GridMonitor
 from app.services.grid_stability import GridStabilityEngine
 from app.services.health_monitor import HealthMonitor
 from app.services.hybrid_decision import HybridDecisionEngine
+from app.services.hybrid_night_enforcement import (
+    HybridNightEnforcement,
+)
 from app.services.inverter_controller import InverterController
 from app.services.inverter_health import InverterHealthMonitor
+from app.services.morning_load_profile import MorningLoadProfileService
 from app.services.panic_decision import PanicDecisionEngine
+from app.services.pv2_telemetry import PV2TelemetryService
+from app.services.reserve_advisor import ReserveAdvisorService
 from app.services.system_health import SystemHealthMonitor
 from app.services.telemetry import TelemetryService
 from app.services.telemetry_freshness import (
@@ -111,6 +126,15 @@ def main():
         f"Poll interval: "
         f"{options['poll_interval']} sec"
     )
+    log(
+        "PV2 Modbus telemetry: "
+        f"{'enabled' if options.get('pv2_modbus_enabled', False) else 'disabled'}"
+    )
+    if options.get("pv2_modbus_enabled", False):
+        log(
+            "PV2 poll interval: "
+            f"{options.get('pv2_poll_interval', 30)} sec"
+        )
 
     inverter = PowMrLocalAdapter(options)
     inverter_controller = InverterController(inverter)
@@ -118,6 +142,10 @@ def main():
     client = make_client(options)
 
     telemetry = TelemetryService(client)
+    pv2_telemetry = PV2TelemetryService(
+        enabled=options.get("pv2_modbus_enabled", False),
+        poll_interval=options.get("pv2_poll_interval", 30),
+    )
     watchdog = CommunicationWatchdog()
     health = HealthMonitor()
     battery_health = BatteryHealthMonitor()
@@ -134,6 +162,8 @@ def main():
         history,
         grid_import,
     )
+    morning_load_profile = MorningLoadProfileService()
+    reserve_advisor = ReserveAdvisorService()
 
     # Live decision inputs are kept separate from Daily Summary snapshot
     # inputs. Solcast updates these values throughout the day, while the
@@ -141,7 +171,11 @@ def main():
     # snapshot publications.
     decision_inputs = {}
 
-    hybrid_decision = HybridDecisionEngine()
+    hybrid_decision = HybridDecisionEngine(
+        inverter_controller.hybrid_target_soc
+    )
+    hybrid_night_enforcement = HybridNightEnforcement()
+    early_solar_handover = EarlySolarHandoverEngine()
     panic_decision = PanicDecisionEngine()
 
     hybrid_target_soc = inverter_controller.hybrid_target_soc
@@ -159,7 +193,9 @@ def main():
     last_panic_evaluation = 0
 
     hybrid_evaluation_requested = False
+    early_solar_evaluation_request = None
     panic_evaluation_requested = False
+    last_hybrid_night_enforcement_signature = None
 
     startup_reconstruction_complete = False
     autopilot_state_received = False
@@ -340,6 +376,10 @@ def main():
             notification_event = None
 
         if requested_mode == "safe_solar":
+            inverter_controller.set_hybrid_enforcement_until_date(
+                None
+            )
+
             if (
                 inverter_controller.mode
                 not in AUTOPILOT_SAFE_RECOVERY_MODES
@@ -450,6 +490,19 @@ def main():
 
         publish_controller_state()
 
+        if (
+            notification_event is not None
+            and notification_event.get("mode") == "early_solar"
+        ):
+            early_solar_handover.confirm_transition(
+                transition_succeeded,
+                inverter_controller.last_error,
+            )
+            publish_early_solar_handover(
+                client,
+                early_solar_handover,
+            )
+
         if notification_event is not None:
             event = dict(notification_event)
 
@@ -460,6 +513,7 @@ def main():
                     client,
                     event,
                 )
+
             else:
                 event["type"] = (
                     "automatic_mode_activation_failed"
@@ -480,6 +534,22 @@ def main():
                     event,
                 )
 
+        if (
+            transition_succeeded
+            and requested_mode == "solar"
+            and (
+                notification_event is None
+                or notification_event.get("mode") != "hybrid"
+            )
+        ):
+            inverter_controller.set_hybrid_enforcement_until_date(
+                None
+            )
+
+            log(
+                "AHM night enforcement completed after Solar handover"
+            )
+
         if inverter_controller.mode == "solar":
             panic_evaluation_requested = True
 
@@ -490,6 +560,10 @@ def main():
 
     def evaluate_hybrid(state):
         nonlocal hybrid_target_soc
+
+        flexible_morning_plan = morning_load_profile.flexible_plan(
+            decision_inputs.get("hybrid_hourly_solar")
+        )
 
         forecast_tomorrow = decision_inputs.get(
             "solar_forecast_tomorrow",
@@ -517,6 +591,30 @@ def main():
             solar_forecast_after_07=decision_inputs.get(
                 "hybrid_solar_after_07"
             ),
+            minimum_soc=decision_inputs.get(
+                "ahm_minimum_soc"
+            ),
+            raw_morning_hours=decision_inputs.get(
+                "hybrid_raw_morning_hours"
+            ),
+            effective_solar_start=decision_inputs.get(
+                "hybrid_effective_solar_start"
+            ),
+            ramp_confirmed=decision_inputs.get(
+                "hybrid_ramp_confirmed",
+                False,
+            ),
+            ramp_credit_hours=decision_inputs.get(
+                "hybrid_ramp_credit_hours",
+                0,
+            ),
+            ramp_start_power_w=decision_inputs.get(
+                "hybrid_ramp_start_power_w"
+            ),
+            ramp_next_power_w=decision_inputs.get(
+                "hybrid_ramp_next_power_w"
+            ),
+            flexible_morning_plan=flexible_morning_plan,
         )
 
         if decision.get("target_soc") is not None:
@@ -524,6 +622,17 @@ def main():
             inverter_controller.set_hybrid_target_soc(
                 hybrid_target_soc
             )
+
+            evaluation_time = datetime.now().astimezone()
+            enforcement_date = (
+                hybrid_night_enforcement.enforcement_date(
+                    evaluation_time
+                )
+            )
+            if enforcement_date is not None:
+                inverter_controller.set_hybrid_enforcement_until_date(
+                    enforcement_date
+                )
 
         publish_hybrid_decision(
             client,
@@ -560,8 +669,43 @@ def main():
                     decision["projected_soc_at_07"]
                 ),
                 "morning_hours": decision["morning_hours"],
+                "raw_morning_hours": (
+                    decision["raw_morning_hours"]
+                ),
                 "useful_solar_start": (
                     decision["useful_solar_start"]
+                ),
+                "effective_solar_start": (
+                    decision["effective_solar_start"]
+                ),
+                "ramp_confirmed": decision["ramp_confirmed"],
+                "ramp_credit_hours": (
+                    decision["ramp_credit_hours"]
+                ),
+                "ramp_start_power_w": (
+                    decision["ramp_start_power_w"]
+                ),
+                "ramp_next_power_w": (
+                    decision["ramp_next_power_w"]
+                ),
+                "minimum_soc": decision["minimum_soc"],
+                "morning_model_source": (
+                    decision["morning_model_source"]
+                ),
+                "morning_model_reason": (
+                    decision["morning_model_reason"]
+                ),
+                "morning_model_samples": (
+                    decision["morning_model_samples"]
+                ),
+                "morning_expected_load_kwh": (
+                    decision["morning_expected_load_kwh"]
+                ),
+                "morning_forecast_solar_kwh": (
+                    decision["morning_forecast_solar_kwh"]
+                ),
+                "morning_net_deficit_kwh": (
+                    decision["morning_net_deficit_kwh"]
                 ),
                 "target_soc": hybrid_target_soc,
                 "target_capped": decision["target_capped"],
@@ -579,6 +723,49 @@ def main():
                 ),
                 "forecast_fallback": (
                     decision["used_fallback"]
+                ),
+                "reason": decision["reason"],
+            },
+        )
+
+    def evaluate_early_solar(state, request):
+        decision = early_solar_handover.evaluate(
+            autopilot_enabled=autopilot.is_enabled(),
+            operating_mode=inverter_controller.mode,
+            battery_soc=state.battery_soc,
+            hybrid_target_soc=hybrid_target_soc,
+            telemetry_freshness=telemetry_freshness.status,
+            total_solar_fresh=pv2_telemetry.total_is_fresh(),
+            total_solar_power_w=pv2_telemetry.last_total_power,
+            forecast_energy_kwh=request.get("forecast_kwh"),
+            grid_available=grid.is_available,
+            request_date=request.get("date"),
+        )
+
+        publish_early_solar_handover(
+            client,
+            early_solar_handover,
+        )
+
+        log(
+            "Early Solar evaluation: "
+            f"status={decision['status']}, "
+            f"reason={decision['reason']}"
+        )
+
+        if decision.get("request") != "solar":
+            return
+
+        queue_mode_request(
+            "solar",
+            notification_event={
+                "mode": "early_solar",
+                "requested_mode": "solar",
+                "soc": decision["battery_soc"],
+                "target_soc": decision["target_soc"],
+                "live_solar_w": decision["live_solar_w"],
+                "forecast_energy_kwh": (
+                    decision["forecast_energy_kwh"]
                 ),
                 "reason": decision["reason"],
             },
@@ -697,6 +884,54 @@ def main():
             },
         )
 
+    def enforce_hybrid_night_target(state):
+        nonlocal last_hybrid_night_enforcement_signature
+
+        decision = hybrid_night_enforcement.evaluate(
+            autopilot_enabled=autopilot.is_enabled(),
+            enforcement_until_date=(
+                inverter_controller.hybrid_enforcement_until_date
+            ),
+            operating_mode=inverter_controller.mode,
+            battery_soc=state.battery_soc,
+            target_soc=hybrid_target_soc,
+            grid_available=grid.is_available,
+            telemetry_freshness=telemetry_freshness.status,
+        )
+
+        requested_mode = decision.get("request")
+        if requested_mode is None:
+            last_hybrid_night_enforcement_signature = None
+            return
+
+        request_signature = (
+            inverter_controller.hybrid_enforcement_until_date,
+            inverter_controller.mode,
+            requested_mode,
+        )
+        if request_signature == last_hybrid_night_enforcement_signature:
+            return
+
+        log(
+            "AHM night target enforcement triggered: "
+            f"request={requested_mode}, reason={decision['reason']}"
+        )
+
+        queued = queue_mode_request(
+            requested_mode,
+            notification_event={
+                "mode": "hybrid_night_enforcement",
+                "requested_mode": requested_mode,
+                "soc": state.battery_soc,
+                "target_soc": hybrid_target_soc,
+                "reason": decision["reason"],
+            },
+        )
+        if queued:
+            last_hybrid_night_enforcement_signature = (
+                request_signature
+            )
+
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
             log("MQTT connected")
@@ -733,6 +968,7 @@ def main():
 
     def on_message(client, userdata, msg):
         nonlocal autopilot_state_received
+        nonlocal early_solar_evaluation_request
 
         topic = msg.topic
         payload = msg.payload.decode("utf-8")
@@ -784,6 +1020,37 @@ def main():
             queue_mode_request(requested_mode)
             return
 
+        if key == "early_solar_check":
+            try:
+                request = json.loads(payload)
+                request_date = str(request["date"]).strip()
+                forecast_kwh = request.get("forecast_kwh")
+                if forecast_kwh is not None:
+                    forecast_kwh = round(float(forecast_kwh), 3)
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ):
+                log(
+                    "Early Solar request ignored invalid payload: "
+                    f"{payload}"
+                )
+                return
+
+            early_solar_evaluation_request = {
+                "date": request_date,
+                "forecast_kwh": forecast_kwh,
+            }
+
+            log(
+                "Early Solar evaluation requested: "
+                f"date={request_date}, "
+                f"forecast_06_07={forecast_kwh} kWh"
+            )
+            return
+
         if key == "adaptive_hybrid_plan":
             try:
                 plan = json.loads(payload)
@@ -791,15 +1058,62 @@ def main():
                     float(plan["morning_hours"]),
                     2,
                 )
+                raw_morning_hours = round(
+                    float(
+                        plan.get(
+                            "raw_morning_hours",
+                            morning_hours,
+                        )
+                    ),
+                    2,
+                )
                 useful_solar_start = str(
                     plan["useful_solar_start"]
                 ).strip()
+                effective_solar_start = str(
+                    plan.get(
+                        "effective_solar_start",
+                        useful_solar_start,
+                    )
+                ).strip()
+                ramp_confirmed = (
+                    plan.get("ramp_confirmed") is True
+                )
+                ramp_credit_hours = round(
+                    float(plan.get("ramp_credit_hours", 0)),
+                    2,
+                )
+                ramp_start_power_w = plan.get(
+                    "ramp_start_power_w"
+                )
+                if ramp_start_power_w is not None:
+                    ramp_start_power_w = round(
+                        float(ramp_start_power_w),
+                        1,
+                    )
+                ramp_next_power_w = plan.get(
+                    "ramp_next_power_w"
+                )
+                if ramp_next_power_w is not None:
+                    ramp_next_power_w = round(
+                        float(ramp_next_power_w),
+                        1,
+                    )
                 solar_after_07 = plan.get("solar_after_07_kwh")
                 if solar_after_07 is not None:
                     solar_after_07 = round(
                         float(solar_after_07),
                         2,
                     )
+                hourly_solar = []
+                for item in plan.get("hourly_solar", []):
+                    hourly_solar.append({
+                        "hour": int(item["hour"]),
+                        "power_w": round(
+                            float(item["power_w"]),
+                            1,
+                        ),
+                    })
             except (
                 json.JSONDecodeError,
                 KeyError,
@@ -815,20 +1129,126 @@ def main():
             decision_inputs["hybrid_morning_hours"] = (
                 morning_hours
             )
+            decision_inputs["hybrid_raw_morning_hours"] = (
+                raw_morning_hours
+            )
             decision_inputs["hybrid_useful_solar_start"] = (
                 useful_solar_start
+            )
+            decision_inputs["hybrid_effective_solar_start"] = (
+                effective_solar_start
+            )
+            decision_inputs["hybrid_ramp_confirmed"] = (
+                ramp_confirmed
+            )
+            decision_inputs["hybrid_ramp_credit_hours"] = (
+                ramp_credit_hours
+            )
+            decision_inputs["hybrid_ramp_start_power_w"] = (
+                ramp_start_power_w
+            )
+            decision_inputs["hybrid_ramp_next_power_w"] = (
+                ramp_next_power_w
             )
             if solar_after_07 is not None:
                 decision_inputs["hybrid_solar_after_07"] = (
                     solar_after_07
                 )
+            decision_inputs["hybrid_hourly_solar"] = hourly_solar
 
             log(
                 "Adaptive Hybrid plan input updated: "
+                f"raw_morning_hours={raw_morning_hours}, "
+                f"ramp_credit={ramp_credit_hours}, "
                 f"morning_hours={morning_hours}, "
                 f"useful_solar_start={useful_solar_start}, "
-                f"solar_after_07_kwh={solar_after_07}"
+                f"effective_solar_start={effective_solar_start}, "
+                f"ramp_confirmed={ramp_confirmed}, "
+                f"solar_after_07_kwh={solar_after_07}, "
+                f"hourly_solar_periods={len(hourly_solar)}"
             )
+            return
+
+        if key == "morning_load_snapshot":
+            try:
+                snapshot = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                log(
+                    "Morning load snapshot ignored invalid JSON: "
+                    f"{payload}"
+                )
+                return
+
+            result = morning_load_profile.record_snapshot(snapshot)
+            if result["accepted"]:
+                log(
+                    "Morning load snapshot accepted: "
+                    f"hour={snapshot.get('hour')}, "
+                    f"essential_sample_kwh="
+                    f"{result.get('sample_kwh')}"
+                )
+            else:
+                log(
+                    "Morning load snapshot ignored: "
+                    f"{result['reason']}"
+                )
+            return
+
+        if key == "ahm_reserve_observation":
+            try:
+                observation = json.loads(payload)
+            except (json.JSONDecodeError, TypeError):
+                log(
+                    "AHM reserve observation ignored invalid JSON: "
+                    f"{payload}"
+                )
+                return
+
+            result = reserve_advisor.observe(observation)
+            if not result["accepted"]:
+                log(
+                    "AHM reserve observation ignored: "
+                    f"{result['reason']}"
+                )
+                return
+            publish_reserve_advisor(client, reserve_advisor)
+            advice = result["advisor"]
+            log(
+                "AHM reserve advice updated: "
+                f"status={advice['status']}, "
+                f"current={advice['current_soc']}%, "
+                f"suggested={advice['suggested_soc']}%, "
+                f"samples={advice['sample_count']}"
+            )
+            return
+
+        if key == "ahm_minimum_soc":
+            try:
+                value = round(float(payload), 1)
+            except (TypeError, ValueError):
+                log(
+                    "Decision input ignored invalid AHM minimum SOC: "
+                    f"{payload}"
+                )
+                return
+
+            if (
+                not 20 <= value <= 50
+                or value % 5 != 0
+            ):
+                log(
+                    "Decision input ignored out-of-range AHM "
+                    f"minimum SOC: {value}"
+                )
+                return
+
+            decision_inputs["ahm_minimum_soc"] = value
+
+            reserve_advisor.current = reserve_advisor.evaluate(value)
+            reserve_advisor.save()
+            publish_reserve_advisor(client, reserve_advisor)
+
+            log(f"AHM minimum SOC updated: {value}%")
             return
 
         live_forecast_keys = {
@@ -941,6 +1361,8 @@ def main():
         client,
         options["device_name"],
     )
+    publish_pv2_discovery(client, options["device_name"])
+    publish_pv2_telemetry(client, pv2_telemetry)
 
     publish_grid_discovery(client)
     publish_grid_import_discovery(client)
@@ -951,6 +1373,16 @@ def main():
     publish_inverter_settings_discovery(client)
     publish_operating_mode_discovery(client)
     publish_hybrid_decision_discovery(client)
+    # Replace any retained pre-1.3.4 reason before Home Assistant can keep
+    # presenting an overlong state after a later Core restart.
+    publish_hybrid_decision(client, hybrid_decision)
+    publish_early_solar_handover_discovery(client)
+    publish_early_solar_handover(
+        client,
+        early_solar_handover,
+    )
+    publish_reserve_advisor_discovery(client)
+    publish_reserve_advisor(client, reserve_advisor)
     publish_panic_decision_discovery(client)
     publish_autopilot_discovery(client)
     publish_system_health_discovery(client)
@@ -1008,6 +1440,30 @@ def main():
 
             data = inverter.read_telemetry()
             state = telemetry.process(data)
+            pv1_sample_time = time.monotonic()
+
+            if state.valid and pv2_telemetry.due(pv1_sample_time):
+                pv2_succeeded = pv2_telemetry.poll(
+                    inverter,
+                    state.pv_power,
+                    pv1_sample_time,
+                )
+
+                if pv2_succeeded:
+                    log(
+                        "PV2 OK | "
+                        f"Voltage={pv2_telemetry.last_voltage}V | "
+                        f"Power={pv2_telemetry.last_power}W | "
+                        f"Total={pv2_telemetry.last_total_power}W"
+                    )
+                else:
+                    log(
+                        "PV2 telemetry unavailable: "
+                        f"{pv2_telemetry.status}"
+                    )
+
+            pv2_telemetry.refresh()
+            publish_pv2_telemetry(client, pv2_telemetry)
 
             telemetry_freshness.update(state)
 
@@ -1170,6 +1626,13 @@ def main():
                     evaluate_hybrid(state)
                     hybrid_evaluation_requested = False
 
+                if early_solar_evaluation_request is not None:
+                    request = early_solar_evaluation_request
+                    early_solar_evaluation_request = None
+                    evaluate_early_solar(state, request)
+
+                enforce_hybrid_night_target(state)
+
                 if (
                     autopilot.is_enabled()
                     and inverter_controller.mode
@@ -1260,6 +1723,9 @@ def main():
                 )
 
         except subprocess.TimeoutExpired:
+            pv2_telemetry.refresh()
+            publish_pv2_telemetry(client, pv2_telemetry)
+
             telemetry_freshness.update_status()
 
             publish_telemetry_freshness(
@@ -1286,6 +1752,9 @@ def main():
             )
 
         except Exception:
+            pv2_telemetry.refresh()
+            publish_pv2_telemetry(client, pv2_telemetry)
+
             telemetry_freshness.update_status()
 
             publish_telemetry_freshness(

@@ -54,6 +54,25 @@ The Inverter Controller answers **how to change the hardware safely**.
 
 This boundary prevents policy code from writing inverter settings directly and makes future hardware adapters possible.
 
+## Expose intent, not implementation details
+
+Home Assistant, voice assistants, dashboards, and messaging adapters should interact with EnergyHub through household-level intents and events rather than internal MQTT topics, entity IDs, inverter commands, or service layout.
+
+Examples of user-facing EnergyHub events include:
+
+- Grid became unstable;
+- Grid risk detected;
+- Panic mode started;
+- Battery reserve target reached;
+- Solar surplus available;
+- EnergyHub returned to Solar mode.
+
+Examples of input intents include requesting status, requesting Panic, setting a time-bounded reserve requirement, explaining the last decision, or requesting a temporary flexible-load override. Home Assistant Assist and Telegram may translate natural language into the same structured intent contract, but neither channel decides whether an action is safe.
+
+EnergyHub remains the authority for Hybrid, Panic, Grid Confidence, recovery, reserve, and future flexible-load policy. It validates the requester, data freshness, Autopilot state, projected reserve, hardware constraints, and expiry before accepting, delaying, shortening, or denying an intent. Ambiguous input causes no hardware action.
+
+A future native Home Assistant integration should expose EnergyHub-specific, human-readable triggers, conditions, and actions without requiring users to understand the underlying transport. README examples and sample automations should use current Home Assistant terminology and modern automation syntax.
+
 ## Honest certainty
 
 EnergyHub distinguishes between:

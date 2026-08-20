@@ -17,13 +17,13 @@
                 {
                   "type": "heading",
                   "heading_style": "title",
-                  "heading": "Solar PV - House load - Battery %"
+                  "heading": "Whole-House Energy"
                 },
                 {
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "Solar, Load & Battery — 24h",
+                    "title": "Energy Flow — 24h",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -67,8 +67,8 @@
                   },
                   "series": [
                     {
-                      "entity": "sensor.powmr_10_2m_pv1_power",
-                      "name": "Solar PV",
+                      "entity": "sensor.powmr_10_2m_total_pv_power",
+                      "name": "Total Solar Now",
                       "type": "line",
                       "color": "#f39c12",
                       "yaxis_id": "power",
@@ -140,8 +140,7 @@
                     }
                   ]
                 }
-              ],
-              "column_span": 1
+                ]
             },
             {
               "type": "grid",
@@ -149,13 +148,146 @@
                 {
                   "type": "heading",
                   "heading_style": "title",
-                  "heading": "House Consumption / Unused Solar / Grid Import"
+                  "heading": "PV Arrays"
                 },
                 {
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "Energy Balance — 7 days",
+                    "title": "PV Power — 24h",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "24h",
+                  "update_interval": "60s",
+                  "apex_config": {
+                    "chart": {
+                      "height": 350,
+                      "toolbar": {
+                        "show": false
+                      }
+                    },
+                    "dataLabels": {
+                      "enabled": false
+                    },
+                    "stroke": {
+                      "curve": "smooth",
+                      "lineCap": "round"
+                    },
+                    "markers": {
+                      "size": 0
+                    },
+                    "legend": {
+                      "show": true,
+                      "position": "bottom",
+                      "horizontalAlign": "center"
+                    },
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "tickAmount": 8,
+                      "labels": {
+                        "datetimeUTC": false,
+                        "format": "HH:mm",
+                        "rotate": 0
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.powmr_10_2m_pv1_power",
+                      "name": "PV1",
+                      "type": "line",
+                      "color": "#0d47a1",
+                      "yaxis_id": "power",
+                      "stroke_width": 2,
+                      "float_precision": 0,
+                      "show": {
+                        "in_header": false
+                      },
+                      "group_by": {
+                        "func": "avg",
+                        "duration": "5min"
+                      }
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_pv2_power",
+                      "name": "PV2",
+                      "type": "line",
+                      "color": "#4fc3f7",
+                      "yaxis_id": "power",
+                      "stroke_width": 2,
+                      "float_precision": 0,
+                      "show": {
+                        "in_header": false
+                      },
+                      "group_by": {
+                        "func": "avg",
+                        "duration": "5min"
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv1_generated_today",
+                      "name": "PV1 Today",
+                      "color": "#0d47a1",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv2_generated_today",
+                      "name": "PV2 Today",
+                      "color": "#4fc3f7",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.total_solar_generated_today",
+                      "name": "Total Solar Today",
+                      "color": "#f39c12",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "power",
+                      "min": 0,
+                      "decimals": 0,
+                      "apex_config": {
+                        "title": {
+                          "text": "Power (W)"
+                        }
+                      }
+                    }
+                  ]
+                }
+                ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading_style": "title",
+                  "heading": "Daily Energy Balance"
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Consumption, EV Potential & Grid — 7 days",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -219,13 +351,13 @@
                         "in_header": false
                       },
                       "group_by": {
-                        "func": "max",
+                        "func": "last",
                         "duration": "1d"
                       }
                     },
                     {
                       "entity": "sensor.energyhub_daily_solar_surplus_estimated",
-                      "name": "Solar Surplus Est.",
+                      "name": "EV Potential Est.",
                       "type": "column",
                       "color": "#f39c12",
                       "yaxis_id": "energy",
@@ -234,13 +366,13 @@
                         "in_header": false
                       },
                       "group_by": {
-                        "func": "max",
+                        "func": "last",
                         "duration": "1d"
                       }
                     },
                     {
                       "entity": "sensor.energyhub_daily_grid_import_estimated",
-                      "name": "Grid Import Today",
+                      "name": "Grid Import Est.",
                       "type": "column",
                       "color": "#8e44ad",
                       "yaxis_id": "energy",
@@ -249,13 +381,13 @@
                         "in_header": false
                       },
                       "group_by": {
-                        "func": "max",
+                        "func": "last",
                         "duration": "1d"
                       }
                     },
                     {
                       "entity": "sensor.powmr_10_2m_daily_house_consumption",
-                      "name": "Consumption Today",
+                      "name": "Consumption",
                       "color": "#3498db",
                       "float_precision": 1,
                       "show": {
@@ -265,7 +397,7 @@
                     },
                     {
                       "entity": "sensor.solcast_pv_forecast_forecast_today",
-                      "name": "Solar Today",
+                      "name": "Forecast Today",
                       "color": "#f39c12",
                       "float_precision": 1,
                       "show": {
@@ -275,7 +407,7 @@
                     },
                     {
                       "entity": "sensor.solcast_pv_forecast_forecast_tomorrow",
-                      "name": "Solar Tomorrow",
+                      "name": "Forecast Tomorrow",
                       "color": "#f1c40f",
                       "float_precision": 1,
                       "show": {
@@ -487,6 +619,63 @@
                           }
                         }
                       ]
+                    },
+                    {
+                      "type": "heading",
+                      "heading": "Adaptive Hybrid Reserve",
+                      "heading_style": "subtitle",
+                      "icon": "mdi:battery-lock"
+                    },
+                    {
+                      "type": "grid",
+                      "columns": 3,
+                      "square": false,
+                      "cards": [
+                        {
+                          "type": "button",
+                          "name": "Decrease 5%",
+                          "icon": "mdi:battery-minus-outline",
+                          "tap_action": {
+                            "action": "perform-action",
+                            "perform_action": "input_number.decrement",
+                            "target": {
+                              "entity_id": "input_number.ahm_minimum_soc"
+                            },
+                            "confirmation": {
+                              "text": "Decrease the AHM protective reserve by 5%?"
+                            }
+                          },
+                          "hold_action": {
+                            "action": "none"
+                          }
+                        },
+                        {
+                          "type": "markdown",
+                          "content": "{% set reserve = states('input_number.ahm_minimum_soc') | int(20) %}\n{% set marker = '🟢' if reserve <= 20 else '🟡' if reserve <= 30 else '🟠' if reserve <= 40 else '🔴' %}\n# {{ marker }} {{ reserve }}%\n**ACTIVE RESERVE**"
+                        },
+                        {
+                          "type": "button",
+                          "name": "Increase 5%",
+                          "icon": "mdi:battery-plus-outline",
+                          "tap_action": {
+                            "action": "perform-action",
+                            "perform_action": "input_number.increment",
+                            "target": {
+                              "entity_id": "input_number.ahm_minimum_soc"
+                            },
+                            "confirmation": {
+                              "text": "Increase the AHM protective reserve by 5%?"
+                            }
+                          },
+                          "hold_action": {
+                            "action": "none"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "markdown",
+                      "content": "{% set reserve = states('input_number.ahm_minimum_soc') | int(20) %}\n{% set confidence = states('sensor.energyhub_grid_confidence') | lower %}\n{% set profile = 'Economy' if reserve == 20 else 'Balanced' if reserve == 30 else 'Conservative' if reserve == 40 else 'Very conservative · suited to highly unreliable grid' if reserve == 50 else 'Custom reserve' %}\n{% set grid_suggested = {'normal': 20, 'unstable': 30, 'risk': 40, 'panic': 50}.get(confidence) %}\n{% set status = states('sensor.energyhub_ahm_reserve_advice') | lower %}\n{% set current = states('sensor.energyhub_ahm_reserve_advice_current_soc') | float(0) | int %}\n{% set advised = states('sensor.energyhub_ahm_reserve_advice_suggested_soc') | float(0) | int %}\n{% set samples = states('sensor.energyhub_ahm_reserve_advice_sample_count') | int(0) %}\n{% set reason = states('sensor.energyhub_ahm_reserve_advice_reason') %}\n### Reserve policy\n**{{ profile }}.** Adaptive Hybrid plans to retain at least **{{ reserve }}%** when effective solar support begins. Grid Confidence is **{{ confidence | upper }}**{% if grid_suggested is not none %}; its informational reference is **{{ grid_suggested }}%**{% endif %}. Panic keeps separate targets.\n\n---\n\n### 🧭 Recommendation for the current {{ reserve }}% setting\n{% if status == 'increase' %}\n🔋 Protective reserve: **{{ current }}% → {{ advised }}%**\n\n{{ reason }}. Recommendation only; use the confirmed controls above.\n{% elif status == 'decrease' %}\n🔋 Protective reserve: **{{ advised }}% ← {{ current }}%**\n\n{{ reason }}. Recommendation only; use the confirmed controls above.\n{% elif status == 'keep' %}\nKeep **{{ current }}%**. {{ reason }}.\n{% else %}\nLearning: **{{ samples }}/3** completed mornings at this reserve.\n{% endif %}"
                     }
                   ]
                 }
@@ -618,7 +807,7 @@
                     {
                       "type": "markdown",
                       "title": "EnergyHub Decision Logic",
-                      "content": "{% set confidence = states('sensor.energyhub_grid_confidence') | lower %} {% set mode = states('sensor.energyhub_operating_mode') | lower %} {% set hybrid = states('sensor.energyhub_hybrid_decision') | lower %}\n{% set confidence_icon = {\n  'normal': '🟢',\n  'unstable': '🟡',\n  'risk': '🟠',\n  'panic': '🔴',\n  'unknown': '⚪'\n}.get(confidence, '⚪') %}\n{% set mode_icon = {\n  'solar': '☀️',\n  'hybrid_charging': '🌙',\n  'hybrid_grid_hold': '🔌',\n  'panic': '🚨',\n  'panic_grid_hold': '🛡️',\n  'transitioning': '🔄',\n  'transition_failed': '❌',\n  'unknown': '❓'\n}.get(mode, '❓') %}\n{% set hybrid_icon = {\n  'solar': '☀️',\n  'hybrid': '🌙',\n  'charge': '🌙',\n  'charging_required': '🌙',\n  'not_evaluated': '⏳',\n  'skipped': '⚪'\n}.get(hybrid, 'ℹ️') %}\n**Grid Confidence:** {{ confidence_icon }} **{{ confidence | upper }}**\n**Current Mode:** {{ mode_icon }} **{{ mode | replace('_', ' ') | upper }}**\n**Night Plan:** {{ hybrid_icon }} **{{ hybrid | replace('_', ' ') | upper }}**"
+                      "content": "{% set confidence = states('sensor.energyhub_grid_confidence') | lower %} {% set mode = states('sensor.energyhub_operating_mode') | lower %} {% set hybrid = states('sensor.energyhub_hybrid_decision') | lower %}\n{% set confidence_icon = {\n  'normal': '🟢',\n  'unstable': '🟡',\n  'risk': '🟠',\n  'panic': '🔴',\n  'unknown': '⚪'\n}.get(confidence, '⚪') %}\n{% set mode_icon = {\n  'solar': '☀️',\n  'hybrid_charging': '🌙',\n  'hybrid_grid_hold': '🔌',\n  'panic': '🚨',\n  'panic_grid_hold': '🛡️',\n  'transitioning': '🔄',\n  'transition_failed': '❌',\n  'unknown': '❓'\n}.get(mode, '❓') %}\n{% set hybrid_icon = {\n  'solar': '☀️',\n  'hybrid': '🌙',\n  'charge': '🌙',\n  'charging_required': '🌙',\n  'not_evaluated': '⏳',\n  'awaiting_evaluation': '⏳',\n  'skipped': '⚪'\n}.get(hybrid, 'ℹ️') %}\n{% set hybrid_name = {'awaiting_evaluation': 'AWAITING EVALUATION'}.get(hybrid, hybrid | replace('_', ' ') | upper) %}\n**Grid Confidence:** {{ confidence_icon }} **{{ confidence | upper }}**\n**Current Mode:** {{ mode_icon }} **{{ mode | replace('_', ' ') | upper }}**\n**Night Plan:** {{ hybrid_icon }} **{{ hybrid_name }}**"
                     },
                     {
                       "type": "entities",
@@ -674,9 +863,74 @@
                           "icon": "mdi:weather-sunset-up"
                         },
                         {
-                          "entity": "sensor.energyhub_hybrid_morning_hours",
-                          "name": "Morning Gap after 07:00",
+                          "entity": "sensor.energyhub_hybrid_ramp_start_power_w",
+                          "name": "Ramp Start Forecast",
+                          "icon": "mdi:solar-power"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_ramp_next_power_w",
+                          "name": "Following-Hour Forecast",
+                          "icon": "mdi:chart-line"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_ramp_confirmed",
+                          "name": "300 W → 600 W Ramp Confirmed",
+                          "icon": "mdi:check-decagram-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_raw_morning_hours",
+                          "name": "Raw Morning Gap",
                           "icon": "mdi:timeline-clock-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_ramp_credit_hours",
+                          "name": "Ramp Credit",
+                          "icon": "mdi:clock-minus-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_effective_solar_start",
+                          "name": "Effective Solar Support",
+                          "icon": "mdi:weather-sunset-up"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_hours",
+                          "name": "Effective Morning Gap",
+                          "icon": "mdi:timeline-clock-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_minimum_soc",
+                          "name": "Selected Minimum SOC",
+                          "icon": "mdi:battery-lock"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_model_source",
+                          "name": "Morning Model",
+                          "icon": "mdi:chart-bell-curve-cumulative"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_model_reason",
+                          "name": "Morning Model Reason",
+                          "icon": "mdi:text-box-search-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_model_samples",
+                          "name": "Learned Samples per Hour",
+                          "icon": "mdi:database-clock-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_expected_load_kwh",
+                          "name": "Expected Essential Load (after 3/3)",
+                          "icon": "mdi:home-lightning-bolt-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_forecast_solar_kwh",
+                          "name": "Morning Forecast Solar (after 3/3)",
+                          "icon": "mdi:solar-power"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_morning_net_deficit_kwh",
+                          "name": "Morning Net Deficit (after 3/3)",
+                          "icon": "mdi:battery-minus-outline"
                         },
                         {
                           "entity": "sensor.energyhub_hybrid_morning_reserve_soc",
@@ -717,6 +971,35 @@
                           "entity": "sensor.energyhub_hybrid_forecast_fallback",
                           "name": "Forecast Fallback Used",
                           "icon": "mdi:weather-cloudy-alert"
+                        },
+                        {
+                          "type": "section",
+                          "label": "Early Solar handover"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_early_solar_check",
+                          "name": "Early Solar Check",
+                          "icon": "mdi:weather-sunset-up"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_early_solar_reason",
+                          "name": "Early Solar Reason",
+                          "icon": "mdi:text-box-search-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_early_solar_evaluated_at",
+                          "name": "Checked At",
+                          "icon": "mdi:clock-check-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_early_solar_live_power_w",
+                          "name": "Live Total Solar at Check",
+                          "icon": "mdi:solar-power"
+                        },
+                        {
+                          "entity": "sensor.energyhub_hybrid_early_solar_forecast_kwh",
+                          "name": "Forecast 06:00–07:00",
+                          "icon": "mdi:weather-sunny-clock"
                         },
                         {
                           "type": "section",
@@ -762,6 +1045,451 @@
                   ]
                 }
               ]
+            }
+          ]
+        },
+        {
+          "title": "Solar",
+          "path": "solar",
+          "icon": "mdi:solar-power",
+          "type": "sections",
+          "max_columns": 3,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "PV Generation — 7 days",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "7d",
+                  "span": {
+                    "end": "day"
+                  },
+                  "update_interval": "60s",
+                  "apex_config": {
+                    "chart": {
+                      "height": 350,
+                      "toolbar": {
+                        "show": false
+                      }
+                    },
+                    "dataLabels": {
+                      "enabled": false
+                    },
+                    "plotOptions": {
+                      "bar": {
+                        "columnWidth": "70%",
+                        "borderRadius": 2
+                      }
+                    },
+                    "legend": {
+                      "show": true,
+                      "showForZeroSeries": false,
+                      "position": "bottom",
+                      "horizontalAlign": "center"
+                    },
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false,
+                      "enabledOnSeries": [
+                        0,
+                        1
+                      ]
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "tickAmount": 7,
+                      "labels": {
+                        "datetimeUTC": false,
+                        "format": "dd.MM",
+                        "rotate": 0,
+                        "hideOverlappingLabels": false
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.energyhub_pv1_energy_total",
+                      "name": "PV1 Generated",
+                      "type": "column",
+                      "color": "#0d47a1",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "day",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_energy_total",
+                      "name": "PV2 Generated",
+                      "type": "column",
+                      "color": "#4fc3f7",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "day",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv1_energy_total",
+                      "name": "Daily interval anchors",
+                      "type": "line",
+                      "color": "rgba(0,0,0,0)",
+                      "stroke_width": 0,
+                      "data_generator": "const points = []; for (let t = start.getTime(); t <= end.getTime(); t += 86400000) points.push([t, 0]); return points;",
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv1_generated_this_week",
+                      "name": "PV1 This Week",
+                      "color": "#0d47a1",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv2_generated_this_week",
+                      "name": "PV2 This Week",
+                      "color": "#4fc3f7",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.total_solar_generated_this_week",
+                      "name": "Total This Week",
+                      "color": "#f39c12",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "energy",
+                      "min": 0,
+                      "decimals": 1,
+                      "apex_config": {
+                        "title": {
+                          "text": "Energy (kWh)"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "column_span": 1
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "PV Generation — 7 weeks",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "49d",
+                  "span": {
+                    "end": "week"
+                  },
+                  "update_interval": "60s",
+                  "apex_config": {
+                    "chart": {
+                      "height": 350,
+                      "toolbar": {
+                        "show": false
+                      }
+                    },
+                    "dataLabels": {
+                      "enabled": false
+                    },
+                    "plotOptions": {
+                      "bar": {
+                        "columnWidth": "70%",
+                        "borderRadius": 2
+                      }
+                    },
+                    "legend": {
+                      "show": true,
+                      "showForZeroSeries": false,
+                      "position": "bottom",
+                      "horizontalAlign": "center"
+                    },
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false,
+                      "enabledOnSeries": [
+                        0,
+                        1
+                      ]
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "tickAmount": 7,
+                      "labels": {
+                        "datetimeUTC": false,
+                        "format": "dd.MM",
+                        "rotate": 0,
+                        "hideOverlappingLabels": false
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.energyhub_pv1_energy_total",
+                      "name": "PV1 Generated",
+                      "type": "column",
+                      "color": "#0d47a1",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "week",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_energy_total",
+                      "name": "PV2 Generated",
+                      "type": "column",
+                      "color": "#4fc3f7",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "week",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv1_energy_total",
+                      "name": "Weekly interval anchors",
+                      "type": "line",
+                      "color": "rgba(0,0,0,0)",
+                      "stroke_width": 0,
+                      "data_generator": "const points = []; for (let t = start.getTime(); t <= end.getTime(); t += 604800000) points.push([t, 0]); return points;",
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv1_generated_this_month",
+                      "name": "PV1 This Month",
+                      "color": "#0d47a1",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv2_generated_this_month",
+                      "name": "PV2 This Month",
+                      "color": "#4fc3f7",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.total_solar_generated_this_month",
+                      "name": "Total This Month",
+                      "color": "#f39c12",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "energy",
+                      "min": 0,
+                      "decimals": 1,
+                      "apex_config": {
+                        "title": {
+                          "text": "Energy (kWh)"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "column_span": 1
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "PV Generation — 12 months",
+                    "show_states": true,
+                    "colorize_states": true
+                  },
+                  "graph_span": "365d",
+                  "span": {
+                    "end": "month"
+                  },
+                  "update_interval": "60s",
+                  "apex_config": {
+                    "chart": {
+                      "height": 350,
+                      "toolbar": {
+                        "show": false
+                      }
+                    },
+                    "dataLabels": {
+                      "enabled": false
+                    },
+                    "plotOptions": {
+                      "bar": {
+                        "columnWidth": "70%",
+                        "borderRadius": 2
+                      }
+                    },
+                    "legend": {
+                      "show": true,
+                      "position": "bottom",
+                      "horizontalAlign": "center"
+                    },
+                    "tooltip": {
+                      "shared": true,
+                      "intersect": false
+                    },
+                    "xaxis": {
+                      "type": "datetime",
+                      "tickAmount": 12,
+                      "labels": {
+                        "datetimeUTC": false,
+                        "format": "MMM",
+                        "rotate": 0,
+                        "hideOverlappingLabels": false
+                      }
+                    }
+                  },
+                  "series": [
+                    {
+                      "entity": "sensor.energyhub_pv1_energy_total",
+                      "name": "PV1 Generated",
+                      "type": "column",
+                      "color": "#0d47a1",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "month",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_energy_total",
+                      "name": "PV2 Generated",
+                      "type": "column",
+                      "color": "#4fc3f7",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "month",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv1_generated_this_year",
+                      "name": "PV1 This Year",
+                      "color": "#0d47a1",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.pv2_generated_this_year",
+                      "name": "PV2 This Year",
+                      "color": "#4fc3f7",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    },
+                    {
+                      "entity": "sensor.total_solar_generated_this_year",
+                      "name": "Total This Year",
+                      "color": "#f39c12",
+                      "float_precision": 1,
+                      "show": {
+                        "in_chart": false,
+                        "in_header": true
+                      }
+                    }
+                  ],
+                  "yaxis": [
+                    {
+                      "id": "energy",
+                      "min": 0,
+                      "decimals": 1,
+                      "apex_config": {
+                        "title": {
+                          "text": "Energy (kWh)"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "column_span": 1
             }
           ]
         },

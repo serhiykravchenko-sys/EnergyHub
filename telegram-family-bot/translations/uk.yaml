@@ -1,0 +1,94 @@
+configuration:
+  bot_token:
+    name: Токен Telegram-бота
+    description: Секретний токен від BotFather. Не публікуйте та не зберігайте його в Git.
+  destination_chat_id:
+    name: ID сімейної групи
+    description: Від'ємний ID Telegram-групи. Зберігайте справжній ID лише в конфігурації застосунку.
+  weather_entity:
+    name: Погодна сутність
+    description: Значення auto вибере weather.forecast_home або першу доступну сутність; також можна ввести конкретний ID.
+  send_time:
+    name: Час ранкового повідомлення
+    description: Місцевий час щоденного сімейного звіту.
+  soc_snapshot_time:
+    name: Час фіксації SOC
+    description: Місцевий час фіксації фактичного SOC та цілі EnergyHub.
+  night_start_time:
+    name: Початок нічного тарифу
+    description: Початок інтервалу розрахунку нічного імпорту.
+  timezone:
+    name: Часовий пояс
+    description: Часовий пояс IANA для розкладу та прогнозу.
+  useful_solar_threshold_w:
+    name: Поріг корисної генерації
+    description: Прогнозована потужність PV у ватах, яка вважається корисною генерацією.
+  strong_wind_threshold_ms:
+    name: Поріг сильного вітру
+    description: Швидкість вітру або поривів у м/с для попередження про негоду.
+  test_mode:
+    name: Тестовий режим
+    description: Надсилає один попередній перегляд для кожної версії та позначає щоденні звіти як тестові.
+  battery_soc_entity:
+    name: Сутність SOC батареї
+    description: Сутність Home Assistant із фактичним SOC батареї.
+  target_soc_entity:
+    name: Сутність цільового SOC
+    description: Цільовий SOC Adaptive Hybrid від EnergyHub.
+  ahm_minimum_soc_entity:
+    name: Сутність мінімального SOC AHM
+    description: Вибраний користувачем залишковий запас Adaptive Hybrid.
+  reserve_advice_entity:
+    name: Сутність поради щодо запасу AHM
+    description: Стан порадника EnergyHub за трьома завершеними ранками.
+  reserve_advice_current_soc_entity:
+    name: Поточний SOC порадника AHM
+    description: Поточний запас, який оцінює порадник.
+  reserve_advice_suggested_soc_entity:
+    name: Рекомендований SOC порадника AHM
+    description: Інформаційний запас, рекомендований порадником.
+  reserve_advice_sample_count_entity:
+    name: Кількість ранків для порадника AHM
+    description: Порівнювані завершені ранки з поточним запасом.
+  operating_mode_entity:
+    name: Сутність режиму EnergyHub
+    description: Використовується для підсумку нічного режиму.
+  yesterday_consumption_entity:
+    name: Споживання вчора
+    description: Завершений добовий знімок споживання будинку від EnergyHub.
+  solar_forecast_entity:
+    name: Прогноз Solcast на сьогодні
+    description: Сутність Solcast зі станом у kWh та атрибутом detailedHourly.
+  sun_entity:
+    name: Сутність Сонця
+    description: Сутність Sun для часу сходу та заходу сонця сьогодні.
+  moon_entity:
+    name: Сутність Місяця
+    description: Фаза Місяця; у звіті показуються лише молодик і повня.
+  daily_grid_import_entity:
+    name: Поточний добовий імпорт
+    description: Оцінка імпорту EnergyHub, що скидається опівночі.
+  yesterday_grid_import_entity:
+    name: Імпорт за вчора
+    description: Завершена оцінка імпорту EnergyHub за попередній день.
+  grid_voltage_entity:
+    name: Сутність напруги мережі
+    description: Вхідна напруга інвертора для визначення зникнення та відновлення зовнішньої мережі.
+  grid_confidence_entity:
+    name: Сутність Grid Confidence
+    description: Оцінка надійності EnergyHub для повідомлень про зміну денної цілі резерву.
+  telemetry_freshness_entity:
+    name: Сутність свіжості телеметрії
+    description: Стан свіжості EnergyHub для визначення, хто керує тепловими насосами.
+  heat_pump_active_threshold_w:
+    name: Поріг роботи теплового насоса
+    description: Мінімальна потужність у ватах, вище якої тепловий насос вважається працюючим для попереджень про резерв SOC.
+  heat_pump_floor_1_power_entity:
+    name: Потужність теплового насоса 1-го поверху
+    description: Сутність поточної потужності теплового насоса першого поверху.
+  heat_pump_floor_2_power_entity:
+    name: Потужність теплового насоса 2-го поверху
+    description: Сутність поточної потужності теплового насоса другого поверху.
+  heat_pump_floor_3_power_entity:
+    name: Потужність теплового насоса 3-го поверху
+    description: Сутність поточної потужності теплового насоса третього поверху.

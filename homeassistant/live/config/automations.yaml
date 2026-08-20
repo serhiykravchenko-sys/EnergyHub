@@ -203,7 +203,7 @@
     trigger: time
   actions:
   - target:
-      entity_id: input_number.energyhub_daily_solar_surplus_estimated
+      entity_id: input_number.daily_solar_surplus_estimated
     data:
       value: '{{ surplus }}'
     action: input_number.set_value
@@ -455,15 +455,23 @@
     id: final_daily_snapshot
   conditions: []
   actions:
+  - variables:
+      daily_house_consumption: '{{ states(''sensor.powmr_10_2m_daily_house_consumption'')
+        | float(0) }}'
+      solar_forecast_today: '{{ states(''sensor.solcast_pv_forecast_forecast_today'')
+        | float(0) }}'
+  - variables:
+      daily_solar_surplus_estimated: '{{ [0, solar_forecast_today - daily_house_consumption]
+        | max | round(1) }}'
   - action: mqtt.publish
     data:
       topic: energyhub/input/ha/daily_house_consumption
-      payload: '{{ states(''sensor.powmr_10_2m_daily_house_consumption'') }}'
+      payload: '{{ daily_house_consumption }}'
       retain: true
   - action: mqtt.publish
     data:
       topic: energyhub/input/ha/solar_forecast_today
-      payload: '{{ states(''sensor.solcast_pv_forecast_forecast_today'') }}'
+      payload: '{{ solar_forecast_today }}'
       retain: true
   - action: mqtt.publish
     data:
@@ -479,32 +487,82 @@
           'detailedHourly') or [] %}
         {% set morning_start = today_at('07:00') + timedelta(days=1) %}
         {% set day_end = morning_start + timedelta(hours=17) %}
-        {% set ns = namespace(useful_solar_start=none, solar_after_07=0) %}
+        {% set learning_end = morning_start + timedelta(hours=5) %}
+        {% set ns = namespace(
+          useful_solar_start=none,
+          ramp_start_power=none,
+          ramp_next_power=none,
+          ramp_confirmed=false,
+          hourly_solar=[],
+          solar_after_07=0) %}
         {% for item in hourly %}
           {% set period = as_local(as_datetime(item.period_start)) %}
+          {% set power = item.pv_estimate | float(0) %}
           {% if period >= morning_start and period < day_end %}
             {% set ns.solar_after_07 = ns.solar_after_07
-              + (item.pv_estimate | float(0)) %}
+              + power %}
           {% endif %}
-          {% if ns.useful_solar_start is none
-            and item.pv_estimate | float(0) >= 0.3 %}
+          {% if period >= morning_start and period < learning_end %}
+            {% set ns.hourly_solar = ns.hourly_solar + [{
+              'hour': period.hour,
+              'power_w': (power * 1000) | round(1)
+            }] %}
+          {% endif %}
+          {% if period >= morning_start and period < day_end
+            and ns.useful_solar_start is none
+            and power >= 0.3 %}
             {% set ns.useful_solar_start = period %}
+            {% set ns.ramp_start_power = power %}
+          {% elif period >= morning_start and period < day_end
+            and ns.useful_solar_start is not none
+            and ns.ramp_next_power is none
+            and period > ns.useful_solar_start %}
+            {% set ns.ramp_next_power = power %}
+            {% set interval_seconds = as_timestamp(period)
+              - as_timestamp(ns.useful_solar_start) %}
+            {% set ns.ramp_confirmed = power >= 0.6
+              and interval_seconds >= 3500
+              and interval_seconds <= 3700 %}
           {% endif %}
         {% endfor %}
         {% if ns.useful_solar_start is not none %}
-          {% set morning_hours = [0,
+          {% set raw_morning_hours = [0,
             (as_timestamp(ns.useful_solar_start)
             - as_timestamp(morning_start)) / 3600] | max %}
+          {% set ramp_credit_hours = 1
+            if ns.ramp_confirmed and raw_morning_hours >= 1 else 0 %}
+          {% set morning_hours = [0,
+            raw_morning_hours - ramp_credit_hours] | max %}
+          {% set effective_solar_start = ns.useful_solar_start
+            - timedelta(hours=ramp_credit_hours) %}
           {{ {
+            'raw_morning_hours': raw_morning_hours | round(2),
             'morning_hours': morning_hours | round(2),
             'useful_solar_start':
               ns.useful_solar_start.strftime('%H:%M'),
+            'effective_solar_start':
+              effective_solar_start.strftime('%H:%M'),
+            'ramp_confirmed': ns.ramp_confirmed,
+            'ramp_credit_hours': ramp_credit_hours,
+            'ramp_start_power_w':
+              (ns.ramp_start_power * 1000) | round(1),
+            'ramp_next_power_w':
+              ((ns.ramp_next_power * 1000) | round(1))
+              if ns.ramp_next_power is not none else none,
+            'hourly_solar': ns.hourly_solar,
             'solar_after_07_kwh': ns.solar_after_07 | round(2)
           } | tojson }}
         {% else %}
           {{ {
+            'raw_morning_hours': 5,
             'morning_hours': 5,
             'useful_solar_start': 'fallback 12:00',
+            'effective_solar_start': 'fallback 12:00',
+            'ramp_confirmed': false,
+            'ramp_credit_hours': 0,
+            'ramp_start_power_w': none,
+            'ramp_next_power_w': none,
+            'hourly_solar': ns.hourly_solar,
             'solar_after_07_kwh': ns.solar_after_07 | round(2)
           } | tojson }}
         {% endif %}
@@ -512,8 +570,7 @@
   - action: mqtt.publish
     data:
       topic: energyhub/input/ha/daily_solar_surplus_estimated
-      payload: '{{ states(''input_number.energyhub_daily_solar_surplus_estimated'')
-        }}'
+      payload: '{{ daily_solar_surplus_estimated }}'
       retain: true
   - choose:
     - conditions:
@@ -524,10 +581,10 @@
         data:
           topic: energyhub/input/ha/daily_summary_snapshot
           payload: "{{ {\n  'date': now().strftime('%Y-%m-%d'),\n  'timestamp': as_timestamp(now())
-            | int,\n  'daily_house_consumption': states('sensor.powmr_10_2m_daily_house_consumption'),\n
-            \ 'solar_forecast_today': states('sensor.solcast_pv_forecast_forecast_today'),\n
+            | int,\n  'daily_house_consumption': daily_house_consumption,\n  'solar_forecast_today':
+            \ solar_forecast_today,\n
             \ 'solar_forecast_tomorrow': states('sensor.solcast_pv_forecast_forecast_tomorrow'),\n
-            \ 'daily_solar_surplus_estimated': states('input_number.energyhub_daily_solar_surplus_estimated')\n}
+            \ 'daily_solar_surplus_estimated': daily_solar_surplus_estimated\n}
             | tojson }}"
           retain: true
   mode: single
@@ -565,32 +622,82 @@
           'detailedHourly') or [] %}
         {% set morning_start = today_at('07:00') + timedelta(days=1) %}
         {% set day_end = morning_start + timedelta(hours=17) %}
-        {% set ns = namespace(useful_solar_start=none, solar_after_07=0) %}
+        {% set learning_end = morning_start + timedelta(hours=5) %}
+        {% set ns = namespace(
+          useful_solar_start=none,
+          ramp_start_power=none,
+          ramp_next_power=none,
+          ramp_confirmed=false,
+          hourly_solar=[],
+          solar_after_07=0) %}
         {% for item in hourly %}
           {% set period = as_local(as_datetime(item.period_start)) %}
+          {% set power = item.pv_estimate | float(0) %}
           {% if period >= morning_start and period < day_end %}
             {% set ns.solar_after_07 = ns.solar_after_07
-              + (item.pv_estimate | float(0)) %}
+              + power %}
           {% endif %}
-          {% if ns.useful_solar_start is none
-            and item.pv_estimate | float(0) >= 0.3 %}
+          {% if period >= morning_start and period < learning_end %}
+            {% set ns.hourly_solar = ns.hourly_solar + [{
+              'hour': period.hour,
+              'power_w': (power * 1000) | round(1)
+            }] %}
+          {% endif %}
+          {% if period >= morning_start and period < day_end
+            and ns.useful_solar_start is none
+            and power >= 0.3 %}
             {% set ns.useful_solar_start = period %}
+            {% set ns.ramp_start_power = power %}
+          {% elif period >= morning_start and period < day_end
+            and ns.useful_solar_start is not none
+            and ns.ramp_next_power is none
+            and period > ns.useful_solar_start %}
+            {% set ns.ramp_next_power = power %}
+            {% set interval_seconds = as_timestamp(period)
+              - as_timestamp(ns.useful_solar_start) %}
+            {% set ns.ramp_confirmed = power >= 0.6
+              and interval_seconds >= 3500
+              and interval_seconds <= 3700 %}
           {% endif %}
         {% endfor %}
         {% if ns.useful_solar_start is not none %}
-          {% set morning_hours = [0,
+          {% set raw_morning_hours = [0,
             (as_timestamp(ns.useful_solar_start)
             - as_timestamp(morning_start)) / 3600] | max %}
+          {% set ramp_credit_hours = 1
+            if ns.ramp_confirmed and raw_morning_hours >= 1 else 0 %}
+          {% set morning_hours = [0,
+            raw_morning_hours - ramp_credit_hours] | max %}
+          {% set effective_solar_start = ns.useful_solar_start
+            - timedelta(hours=ramp_credit_hours) %}
           {{ {
+            'raw_morning_hours': raw_morning_hours | round(2),
             'morning_hours': morning_hours | round(2),
             'useful_solar_start':
               ns.useful_solar_start.strftime('%H:%M'),
+            'effective_solar_start':
+              effective_solar_start.strftime('%H:%M'),
+            'ramp_confirmed': ns.ramp_confirmed,
+            'ramp_credit_hours': ramp_credit_hours,
+            'ramp_start_power_w':
+              (ns.ramp_start_power * 1000) | round(1),
+            'ramp_next_power_w':
+              ((ns.ramp_next_power * 1000) | round(1))
+              if ns.ramp_next_power is not none else none,
+            'hourly_solar': ns.hourly_solar,
             'solar_after_07_kwh': ns.solar_after_07 | round(2)
           } | tojson }}
         {% else %}
           {{ {
+            'raw_morning_hours': 5,
             'morning_hours': 5,
             'useful_solar_start': 'fallback 12:00',
+            'effective_solar_start': 'fallback 12:00',
+            'ramp_confirmed': false,
+            'ramp_credit_hours': 0,
+            'ramp_start_power_w': none,
+            'ramp_next_power_w': none,
+            'hourly_solar': ns.hourly_solar,
             'solar_after_07_kwh': ns.solar_after_07 | round(2)
           } | tojson }}
         {% endif %}
@@ -614,19 +721,208 @@
       payload: '{{ states(''input_boolean.energyhub_autopilot'') }}'
       retain: true
   mode: restart
+- id: '1786500000001'
+  alias: EnergyHub - Publish AHM Minimum SOC
+  description: Publishes the selected Adaptive Hybrid minimum reserve to EnergyHub.
+  triggers:
+  - trigger: state
+    entity_id: input_number.ahm_minimum_soc
+  - trigger: homeassistant
+    event: start
+  conditions: []
+  actions:
+  - delay:
+      seconds: 5
+  - action: mqtt.publish
+    data:
+      topic: energyhub/input/ha/ahm_minimum_soc
+      payload: '{{ states(''input_number.ahm_minimum_soc'') }}'
+      retain: true
+  mode: restart
+- id: '1786500000002'
+  alias: EnergyHub - Capture Essential Morning Load
+  description: Publishes hourly 07:00-12:00 house and heat-pump energy snapshots so EnergyHub can learn the essential morning load.
+  triggers:
+  - trigger: time
+    at:
+    - 07:00:00
+    - 08:00:00
+    - 09:00:00
+    - '10:00:00'
+    - '11:00:00'
+    - '12:00:00'
+  conditions: []
+  actions:
+  - delay:
+      seconds: 30
+  - action: mqtt.publish
+    data:
+      topic: energyhub/input/ha/morning_load_snapshot
+      payload: >-
+        {% set house =
+          states('sensor.powmr_10_2m_daily_house_consumption')
+          | float(none) %}
+        {% set hp1 =
+          states('sensor.first_floor_heat_pump_plug_energy')
+          | float(none) %}
+        {% set hp2 =
+          states('sensor.second_floor_heat_pump_plug_energy')
+          | float(none) %}
+        {% set hp3 =
+          states('sensor.third_floor_heat_pump_energy_calculated')
+          | float(none) %}
+        {% set heat_pump = hp1 + hp2 + hp3
+          if hp1 is not none and hp2 is not none and hp3 is not none
+          else none %}
+        {{ {
+          'captured_at': now().isoformat(),
+          'date': now().strftime('%Y-%m-%d'),
+          'hour': now().hour,
+          'house_kwh': house,
+          'heat_pump_kwh': heat_pump
+        } | tojson }}
+      retain: false
+  mode: single
+- id: '1786500000003'
+  alias: EnergyHub - Observe AHM Morning Reserve
+  description: Tracks the lowest 07:00-12:00 SOC and publishes one completed morning to the three-day AHM reserve advisor.
+  triggers:
+  - trigger: time
+    at: 07:00:00
+    id: initialize
+  - trigger: state
+    entity_id: sensor.powmr_10_2m_battery_soc
+    id: update_minimum
+  - trigger: time
+    at: '12:05:00'
+    id: publish
+  - trigger: homeassistant
+    event: start
+    id: invalidate_after_restart
+  conditions: []
+  actions:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: initialize
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+      - condition: template
+        value_template: >-
+          {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(none) %}
+          {{ soc is not none and 0 <= soc <= 100 }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.ahm_morning_minimum_soc
+        data:
+          value: '{{ states(''sensor.powmr_10_2m_battery_soc'') | float }}'
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+    - conditions:
+      - condition: trigger
+        id: invalidate_after_restart
+      - condition: time
+        after: 07:00:00
+        before: '12:05:01'
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+    - conditions:
+      - condition: trigger
+        id: update_minimum
+      - condition: time
+        after: 07:00:00
+        before: '12:00:01'
+      - condition: state
+        entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+        state: 'on'
+      - condition: template
+        value_template: >-
+          {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(none) %}
+          {% set minimum = states('input_number.ahm_morning_minimum_soc') | float(none) %}
+          {{ soc is not none and 0 <= soc <= 100
+             and minimum is not none
+             and soc < minimum }}
+      sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.ahm_morning_minimum_soc
+        data:
+          value: '{{ states(''sensor.powmr_10_2m_battery_soc'') | float(0) }}'
+    - conditions:
+      - condition: trigger
+        id: publish
+      - condition: state
+        entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+        state: 'on'
+      - condition: template
+        value_template: >-
+          {% set minimum = states('input_number.ahm_morning_minimum_soc') | float(none) %}
+          {% set selected = states('input_number.ahm_minimum_soc') | float(none) %}
+          {{ minimum is not none and 0 <= minimum <= 100
+             and selected is not none and 20 <= selected <= 50 }}
+      sequence:
+      - action: mqtt.publish
+        data:
+          topic: energyhub/input/ha/ahm_reserve_observation
+          payload: >-
+            {{ {
+              'date': now().strftime('%Y-%m-%d'),
+              'minimum_soc': states('input_number.ahm_morning_minimum_soc') | float,
+              'selected_soc': states('input_number.ahm_minimum_soc') | float
+            } | tojson }}
+          retain: false
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.energyhub_ahm_morning_observation_valid
+  mode: queued
 - id: '1783705009942'
   alias: EnergyHub - Hybrid Schedule
-  description: Evaluates Hybrid at 23:50 and restores Solar at 07:00.
+  description: Evaluates Hybrid at 23:50, requests one guarded early-Solar check
+    at 06:05, and restores Solar at 07:00.
   triggers:
   - trigger: time
     at: '23:50:00'
     id: evaluate_hybrid
+  - trigger: time
+    at: 06:05:00
+    id: early_solar_check
   - trigger: time
     at: 07:00:00
     id: restore_solar
   conditions: []
   actions:
   - choose:
+    - conditions:
+      - condition: trigger
+        id:
+        - early_solar_check
+      sequence:
+      - action: mqtt.publish
+        data:
+          topic: energyhub/input/ha/early_solar_check
+          payload: >-
+            {% set hourly =
+              state_attr('sensor.solcast_pv_forecast_forecast_today',
+              'detailedHourly') or [] %}
+            {% set interval_start = today_at('06:00') %}
+            {% set interval_end = today_at('07:00') %}
+            {% set ns = namespace(forecast_kwh=none) %}
+            {% for item in hourly %}
+              {% set period = as_local(as_datetime(item.period_start)) %}
+              {% if period >= interval_start and period < interval_end %}
+                {% set ns.forecast_kwh = item.pv_estimate | float(0) %}
+              {% endif %}
+            {% endfor %}
+            {{ {
+              'date': now().strftime('%Y-%m-%d'),
+              'forecast_kwh': ns.forecast_kwh
+            } | tojson }}
+          retain: false
     - conditions:
       - condition: trigger
         id:
@@ -694,7 +990,28 @@
 
             Useful solar starts: {{ event.useful_solar_start }}
 
-            Morning gap: {{ event.morning_hours }} hour(s)
+            Forecast ramp: {{ event.ramp_start_power_w | default(''unknown'') }} W
+            → {{ event.ramp_next_power_w | default(''unknown'') }} W
+
+            Ramp confirmed: {{ event.ramp_confirmed | default(false) }};
+            credit: {{ event.ramp_credit_hours | default(0) }} hour(s)
+
+            Effective solar support: {{ event.effective_solar_start }}
+
+            Raw/effective morning gap: {{ event.raw_morning_hours }} /
+            {{ event.morning_hours }} hour(s)
+
+            Selected minimum SOC: {{ event.minimum_soc }}%
+
+            Morning model: {{ event.morning_model_source }}
+            ({{ event.morning_model_reason }})
+
+            Learned samples/hour: {{ event.morning_model_samples }}
+
+            Essential load / solar / net deficit:
+            {{ event.morning_expected_load_kwh | default(''unknown'') }} /
+            {{ event.morning_forecast_solar_kwh | default(''unknown'') }} /
+            {{ event.morning_net_deficit_kwh | default(''unknown'') }} kWh
 
             Expected consumption after 07:00:
             {{ event.expected_consumption_after_07 | default(''unknown'') }} kWh
@@ -707,7 +1024,8 @@
 
             Target SOC: {{ target_soc }}%
 
-            EnergyHub will keep the house on the night grid until 07:00.
+            EnergyHub will keep the house on the night grid until a guarded
+            early-Solar handover succeeds or the normal 07:00 fallback.
 
             Reason: {{ reason }}'
     - conditions:
@@ -723,6 +1041,33 @@
             AHM took ownership from daytime Panic at 23:50 and restored Solar.
             Battery SOC: {{ soc }}%. Target SOC: {{ target_soc }}%.
             Reason: {{ reason }}
+    - conditions:
+      - condition: template
+        value_template: '{{ event_type == ''automatic_mode_activation'' and mode ==
+          ''early_solar'' }}'
+      sequence:
+      - action: persistent_notification.create
+        data:
+          title: "☀️ EnergyHub: Early Solar handover"
+          notification_id: energyhub_early_solar
+          message: >-
+            Hybrid Grid Hold ended early. Battery SOC: {{ soc }}%.
+            Adaptive Hybrid target: {{ target_soc }}%. Live Total Solar:
+            {{ event.live_solar_w }} W. Forecast 06:00–07:00:
+            {{ event.forecast_energy_kwh }} kWh. Reason: {{ reason }}
+    - conditions:
+      - condition: template
+        value_template: '{{ event_type == ''automatic_mode_activation_failed'' and
+          mode == ''early_solar'' }}'
+      sequence:
+      - action: persistent_notification.create
+        data:
+          title: '⚠️ EnergyHub: Early Solar handover failed'
+          notification_id: energyhub_early_solar
+          message: >-
+            EnergyHub kept the confirmed inverter state. Battery SOC:
+            {{ soc }}%. Target: {{ target_soc }}%. Error: {{ error }}.
+            Current mode: {{ current_mode }}. Reason: {{ reason }}
     - conditions:
       - condition: template
         value_template: '{{ event_type == ''automatic_mode_activation'' and mode ==
@@ -935,72 +1280,30 @@
   mode: restart
 - id: '1786023000011'
   alias: EnergyHub - Heat Pump Reserve Shed
-  description: In the conservative grid policy, requests all running heat-pump
-    plugs OFF once when fresh battery SOC reaches 80% or the grid becomes untrusted.
-    Fully trusted grid operation and confirmed grid-backed Hybrid/Panic permission skip
-    this action.
+  description: When the grid is not trusted, requests all running heat-pump plugs
+    OFF once at the selected AHM minimum plus 30 percentage points. Manual override
+    remains available until the mandatory lockout threshold.
   triggers:
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 81
-    id: soc_at_80
-  - trigger: state
-    entity_id: sensor.energyhub_grid_confidence
-    id: confidence_changed
-  - trigger: numeric_state
-    entity_id: sensor.energyhub_grid_availability_24h
-    below: 100
-    id: availability_24h_degraded
-  - trigger: numeric_state
-    entity_id: sensor.energyhub_grid_available_48h
-    below: 48
-    id: availability_48h_degraded
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_grid_voltage
-    below: 50
-    id: current_grid_lost
-  - trigger: state
-    entity_id: sensor.energyhub_operating_mode
-    id: operating_mode_changed
+  - trigger: template
+    value_template: >-
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {% set trusted_grid =
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+        and states('sensor.energyhub_telemetry_freshness') == 'fresh'
+      %}
+      {{ soc >= 0 and reserve >= 0 and not trusted_grid
+         and soc <= reserve + 30 }}
   conditions:
   - condition: state
     entity_id: sensor.energyhub_telemetry_freshness
     state: fresh
-  - condition: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 81
   - condition: template
     value_template: >-
-      {% if trigger.id == 'soc_at_80' %}
-        {{ trigger.from_state is not none
-           and trigger.from_state.state | float(-1) > 80 }}
-      {% elif trigger.id == 'operating_mode_changed' %}
-        {{ trigger.from_state is not none
-           and trigger.to_state is not none
-           and trigger.from_state.state | lower in
-             ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
-           and trigger.to_state.state | lower not in
-             ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold'] }}
-      {% else %}
-        {{ trigger.from_state is not none
-           and trigger.from_state.state not in ['unknown', 'unavailable'] }}
-      {% endif %}
-  - condition: template
-    value_template: >-
-      {% set hybrid_grid_permission =
-        states('sensor.energyhub_operating_mode') | lower in
-          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      %}
-      {{ not hybrid_grid_permission }}
-  - condition: template
-    value_template: >-
-      {{ not (
-        states('sensor.energyhub_grid_confidence') | lower == 'normal'
-        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
-        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      ) }}
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {{ soc >= 0 and reserve >= 0 and soc <= reserve + 30 }}
   actions:
   - if:
     - condition: state
@@ -1036,7 +1339,10 @@
       title: EnergyHub - Heat-pump reserve shed
       notification_id: energyhub_heat_pump_reserve_shed
       message: >-
+        {% set reserve = states('input_number.ahm_minimum_soc') | float(20) %}
         Battery SOC reached {{ states('sensor.powmr_10_2m_battery_soc') }}%.
+        The reserve-shed threshold is {{ reserve + 30 }}% from the selected
+        {{ reserve }}% AHM minimum.
         Grid Confidence is {{ states('sensor.energyhub_grid_confidence') }} with
         {{ states('sensor.energyhub_grid_availability_24h') }}% availability over
         24 hours and {{ states('sensor.energyhub_grid_available_48h') }} available
@@ -1045,142 +1351,38 @@
         {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
         {{ states('switch.second_floor_heat_pump_plug') }}, floor 3
         {{ states('switch.chuangmi_212a01_ea40_switch') }}. Manual overrides remain
-        possible above the staged thresholds and the 50% global lockout.
+        possible until the mandatory {{ reserve + 20 }}% lockout.
   mode: single
-- id: '1786023000012'
-  alias: EnergyHub - Heat Pump Manual Override Sheds
-  description: Sheds the floor-2 manual override at 70% and floor-1 manual override
-    at 60%. Floor 3 is protected until the 50% global lockout.
-  triggers:
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 71
-    id: floor_2_at_70
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 61
-    id: floor_1_at_60
-  conditions:
-  - condition: state
-    entity_id: sensor.energyhub_telemetry_freshness
-    state: fresh
-  - condition: template
-    value_template: >-
-      {% set hybrid_grid_permission =
-        states('sensor.energyhub_operating_mode') | lower in
-          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      %}
-      {{ not hybrid_grid_permission }}
-  - condition: template
-    value_template: >-
-      {{ not (
-        states('sensor.energyhub_grid_confidence') | lower == 'normal'
-        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
-        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      ) }}
-  - condition: template
-    value_template: >-
-      {% if trigger.id == 'floor_2_at_70' %}
-        {{ trigger.from_state is not none
-           and trigger.from_state.state | float(-1) > 70 }}
-      {% else %}
-        {{ trigger.from_state is not none
-           and trigger.from_state.state | float(-1) > 60 }}
-      {% endif %}
-  actions:
-  - choose:
-    - conditions:
-      - condition: trigger
-        id: floor_2_at_70
-      - condition: state
-        entity_id: switch.second_floor_heat_pump_plug
-        state: 'on'
-      sequence:
-      - action: switch.turn_off
-        continue_on_error: true
-        target:
-          entity_id: switch.second_floor_heat_pump_plug
-      - delay:
-          seconds: 3
-      - action: persistent_notification.create
-        data:
-          title: EnergyHub - Floor 2 heat pump shed
-          notification_id: energyhub_heat_pump_floor_2_shed
-          message: >-
-            Battery SOC reached
-            {{ states('sensor.powmr_10_2m_battery_soc') }}%. EnergyHub requested
-            the floor 2 heat pump OFF. Observed state:
-            {{ states('switch.second_floor_heat_pump_plug') }}. Another manual ON
-            request remains possible above the 50% global lockout.
-    - conditions:
-      - condition: trigger
-        id: floor_1_at_60
-      - condition: state
-        entity_id: switch.first_floor_heat_pump_plug
-        state: 'on'
-      sequence:
-      - action: switch.turn_off
-        continue_on_error: true
-        target:
-          entity_id: switch.first_floor_heat_pump_plug
-      - delay:
-          seconds: 3
-      - action: persistent_notification.create
-        data:
-          title: EnergyHub - Floor 1 heat pump shed
-          notification_id: energyhub_heat_pump_floor_1_shed
-          message: >-
-            Battery SOC reached
-            {{ states('sensor.powmr_10_2m_battery_soc') }}%. EnergyHub requested
-            the floor 1 heat pump OFF. Observed state:
-            {{ states('switch.first_floor_heat_pump_plug') }}. Another manual ON
-            request remains possible above the 50% global lockout.
-  mode: queued
-  max: 2
 - id: '1786023000013'
   alias: EnergyHub - Heat Pump Critical SOC Lockout
-  description: At 50% fresh SOC, latches the global heat-pump lockout and requests
-    every running heat-pump plug OFF unless confirmed Hybrid is currently carrying
-    the house from a present grid. The latch remains remembered during that temporary
-    manual-use permission.
+  description: When the grid is not trusted, latches the global heat-pump lockout
+    at the selected AHM minimum plus 20 percentage points and requests every running
+    heat-pump plug OFF.
   triggers:
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 51
-    id: critical_soc
-  - trigger: state
-    entity_id: sensor.energyhub_telemetry_freshness
-    to: fresh
-    id: telemetry_recovered
-  - trigger: homeassistant
-    event: start
-    id: startup
+  - trigger: template
+    value_template: >-
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {% set trusted_grid =
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
+        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+        and states('sensor.energyhub_telemetry_freshness') == 'fresh'
+      %}
+      {{ soc >= 0 and reserve >= 0 and not trusted_grid
+         and states('sensor.energyhub_telemetry_freshness') == 'fresh'
+         and soc <= reserve + 20 }}
   actions:
-  - if:
-    - condition: trigger
-      id: startup
-    then:
-    - delay:
-        seconds: 10
   - condition: state
     entity_id: sensor.energyhub_telemetry_freshness
     state: fresh
-  - condition: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    below: 51
+  - condition: template
+    value_template: >-
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {{ soc >= 0 and reserve >= 0 and soc <= reserve + 20 }}
   - action: input_boolean.turn_on
     target:
       entity_id: input_boolean.energyhub_heat_pump_soc_lockout
-  - condition: template
-    value_template: >-
-      {% set hybrid_grid_permission =
-        states('sensor.energyhub_operating_mode') | lower in
-          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      %}
-      {{ not hybrid_grid_permission }}
   - if:
     - condition: state
       entity_id: switch.first_floor_heat_pump_plug
@@ -1215,17 +1417,12 @@
       title: EnergyHub - Heat pumps locked
       notification_id: energyhub_heat_pump_soc_lockout
       message: >-
-        {% set trusted_grid =
-          states('sensor.energyhub_grid_confidence') | lower == 'normal'
-          and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
-          and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
-          and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-        %}
-        {% set recovery_soc = 60 if trusted_grid else 90 %}
+        {% set reserve = states('input_number.ahm_minimum_soc') | float(20) %}
+        {% set recovery_soc = reserve + 40 %}
         Battery SOC is {{ states('sensor.powmr_10_2m_battery_soc') }}%.
         All heat pumps are locked OFF until fresh SOC reaches
-        {{ recovery_soc }}% under the current
-        {{ 'fully trusted' if trusted_grid else 'conservative' }} grid policy.
+        {{ recovery_soc }}%. The mandatory threshold is {{ reserve + 20 }}%
+        from the selected {{ reserve }}% AHM minimum.
         Observed states: floor 1
         {{ states('switch.first_floor_heat_pump_plug') }}, floor 2
         {{ states('switch.second_floor_heat_pump_plug') }}, floor 3
@@ -1233,10 +1430,9 @@
   mode: restart
 - id: '1786023000014'
   alias: EnergyHub - Enforce Heat Pump SOC Lockout
-  description: Rejects any heat-pump ON request while the 50% global lockout is
-    latched and EnergyHub telemetry is fresh, except for temporary manual permission
-    during confirmed grid-backed Hybrid/Panic. A mode or grid change re-enforces the
-    remembered latch without automatically starting any heat pump.
+  description: Rejects heat-pump ON requests while the reserve-relative lockout is
+    latched and the grid is not trusted. A trusted present grid temporarily restores
+    family control without clearing the remembered latch.
   triggers:
   - trigger: state
     entity_id: switch.first_floor_heat_pump_plug
@@ -1257,6 +1453,12 @@
   - trigger: state
     entity_id: sensor.energyhub_operating_mode
     id: operating_mode_changed
+  - trigger: state
+    entity_id: sensor.energyhub_grid_confidence
+    id: confidence_changed
+  - trigger: state
+    entity_id: input_number.ahm_minimum_soc
+    id: reserve_changed
   - trigger: numeric_state
     entity_id: sensor.powmr_10_2m_grid_voltage
     below: 50
@@ -1274,12 +1476,12 @@
     state: fresh
   - condition: template
     value_template: >-
-      {% set hybrid_grid_permission =
-        states('sensor.energyhub_operating_mode') | lower in
-          ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+      {% set trusted_grid =
+        states('sensor.energyhub_grid_confidence') | lower == 'normal'
         and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
+        and states('sensor.energyhub_telemetry_freshness') == 'fresh'
       %}
-      {{ not hybrid_grid_permission }}
+      {{ not trusted_grid }}
   actions:
   - if:
     - condition: state
@@ -1320,19 +1522,14 @@
         {% endif %}
       notification_id: energyhub_heat_pump_soc_lockout
       message: >-
-        {% set trusted_grid =
-          states('sensor.energyhub_grid_confidence') | lower == 'normal'
-          and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
-          and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
-          and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-        %}
-        {% set recovery_soc = 60 if trusted_grid else 90 %}
+        {% set reserve = states('input_number.ahm_minimum_soc') | float(20) %}
+        {% set recovery_soc = reserve + 40 %}
         {% if trigger.id in ['floor_1', 'floor_2', 'floor_3'] %}
           A heat-pump ON request was rejected because the remembered SOC lockout
           is active.
         {% else %}
-          Temporary grid-backed Hybrid/Panic permission ended. EnergyHub requested every
-          running heat pump OFF because the remembered SOC lockout is active.
+          Trusted-grid manual permission ended. EnergyHub requested every running
+          heat pump OFF because the remembered SOC lockout is active.
         {% endif %}
         Battery SOC is
         {{ states('sensor.powmr_10_2m_battery_soc') }}%; unlock currently requires
@@ -1343,59 +1540,25 @@
   mode: restart
 - id: '1786023000015'
   alias: EnergyHub - Clear Heat Pump SOC Lockout
-  description: Clears the heat-pump lockout at 60% SOC with a fully trusted grid,
-    or at 90% under the conservative policy, without turning any heat pump on.
+  description: Clears the heat-pump lockout at the selected AHM minimum plus 40
+    percentage points, without turning any heat pump on.
   triggers:
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    above: 59
-    id: recovered_soc_60
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_battery_soc
-    above: 89
-    id: recovered_soc_90
-  - trigger: state
-    entity_id: sensor.energyhub_grid_confidence
-    id: confidence_changed
-  - trigger: numeric_state
-    entity_id: sensor.energyhub_grid_availability_24h
-    above: 99.9
-    id: availability_24h_recovered
-  - trigger: numeric_state
-    entity_id: sensor.energyhub_grid_available_48h
-    above: 47.99
-    id: availability_48h_recovered
-  - trigger: numeric_state
-    entity_id: sensor.powmr_10_2m_grid_voltage
-    above: 50
-    id: current_grid_recovered
-  - trigger: state
-    entity_id: sensor.energyhub_telemetry_freshness
-    to: fresh
-    id: telemetry_recovered
-  - trigger: homeassistant
-    event: start
-    id: startup
+  - trigger: template
+    value_template: >-
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {{ is_state('input_boolean.energyhub_heat_pump_soc_lockout', 'on')
+         and states('sensor.energyhub_telemetry_freshness') == 'fresh'
+         and soc >= 0 and reserve >= 0 and soc >= reserve + 40 }}
   actions:
-  - if:
-    - condition: trigger
-      id: startup
-    then:
-    - delay:
-        seconds: 10
   - condition: state
     entity_id: sensor.energyhub_telemetry_freshness
     state: fresh
   - condition: template
     value_template: >-
-      {% set trusted_grid =
-        states('sensor.energyhub_grid_confidence') | lower == 'normal'
-        and states('sensor.energyhub_grid_availability_24h') | float(-1) >= 100
-        and states('sensor.energyhub_grid_available_48h') | float(-1) >= 48
-        and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50
-      %}
-      {% set recovery_soc = 60 if trusted_grid else 90 %}
-      {{ states('sensor.powmr_10_2m_battery_soc') | float(-1) >= recovery_soc }}
+      {% set soc = states('sensor.powmr_10_2m_battery_soc') | float(-1) %}
+      {% set reserve = states('input_number.ahm_minimum_soc') | float(-1) %}
+      {{ soc >= 0 and reserve >= 0 and soc >= reserve + 40 }}
   - action: input_boolean.turn_off
     target:
       entity_id: input_boolean.energyhub_heat_pump_soc_lockout
@@ -1405,22 +1568,16 @@
   - action: persistent_notification.dismiss
     data:
       notification_id: energyhub_heat_pump_reserve_shed
-  - action: persistent_notification.dismiss
-    data:
-      notification_id: energyhub_heat_pump_floor_2_shed
-  - action: persistent_notification.dismiss
-    data:
-      notification_id: energyhub_heat_pump_floor_1_shed
   mode: restart
 - id: '1786023000016'
-  alias: EnergyHub - Hybrid Heat Pump Manual Permission
-  description: While confirmed Hybrid or Panic is carrying the house from a present grid
-    with fresh telemetry, allows manual heat-pump plug requests without clearing
-    the remembered SOC lockout and without turning any heat pump on.
+  alias: EnergyHub - Trusted Grid Heat Pump Manual Permission
+  description: While Grid Confidence is Normal, the grid is present, and telemetry
+    is fresh, allows family heat-pump control without clearing a remembered SOC
+    lockout and without turning any heat pump on.
   triggers:
   - trigger: state
-    entity_id: sensor.energyhub_operating_mode
-    id: operating_mode_changed
+    entity_id: sensor.energyhub_grid_confidence
+    id: confidence_changed
   - trigger: numeric_state
     entity_id: sensor.powmr_10_2m_grid_voltage
     above: 50
@@ -1435,8 +1592,7 @@
     state: fresh
   - condition: template
     value_template: >-
-      {{ states('sensor.energyhub_operating_mode') | lower in
-           ['hybrid_charging', 'hybrid_grid_hold', 'panic', 'panic_grid_hold']
+      {{ states('sensor.energyhub_grid_confidence') | lower == 'normal'
          and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 50 }}
   actions:
   - action: persistent_notification.dismiss
@@ -1445,10 +1601,4 @@
   - action: persistent_notification.dismiss
     data:
       notification_id: energyhub_heat_pump_reserve_shed
-  - action: persistent_notification.dismiss
-    data:
-      notification_id: energyhub_heat_pump_floor_2_shed
-  - action: persistent_notification.dismiss
-    data:
-      notification_id: energyhub_heat_pump_floor_1_shed
   mode: restart

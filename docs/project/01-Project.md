@@ -66,23 +66,23 @@ EnergyHub 1.3 controls one PowMr inverter and integrates one Home Assistant inst
 - Panic Charging;
 - Panic Grid Hold.
 
-Adaptive Hybrid owns the overnight plan and calculates a 30–95% target from the morning gap and aligned post-07:00 consumption/solar balance. Conservative Panic owns daytime reserve protection and uses the higher of the applicable Grid Confidence target or a genuinely missed morning target.
+Adaptive Hybrid owns the overnight plan and calculates a configurable target from the selected 20–50% minimum SOC, an effective forecast-ramp-aware morning gap, and the aligned post-07:00 consumption/solar balance. Conservative Panic owns daytime reserve protection and uses the higher of the applicable Grid Confidence target or a genuinely missed morning target.
 
 The former Away Mode prototype has been removed. EnergyHub includes reserve-only smart-plug OFF protection but never starts a thermal load in 1.3. Automatic **Smart Thermal Energy** and EV charging remain future milestones.
 
 ## Current status
 
-Status as of 2026-08-09:
+Status as of 2026-08-12:
 
 - EnergyHub 1.0.2 tagged, released, and tested;
-- EnergyHub 1.3.0 implementation included in this release candidate and under final supervised validation;
+- EnergyHub 1.3.0 released and validated; 1.3.1 added the dashboard-selected AHM reserve and solar-ramp refinement; the 1.3.2 learned morning-net-energy and reserve-advisor increment is in private monitoring before public promotion;
 - Adaptive Hybrid and Conservative Panic coordinated with explicit 07:00 and 23:50 ownership handoffs;
 - hourly post-07:00 forecast alignment, adaptive target persistence, offline Panic waiting, and Panic Grid Hold implemented;
 - Zigbee2MQTT and two paired heat-pump plugs validated for manual monitoring/control;
 - dedicated Heat Pumps and Water Systems dashboards deployed and observed;
 - matching three-floor auto-off controls and local consumption history added;
 - reserve-only boiler and heat-pump OFF guards implemented without automatic starts;
-- automatic Smart Thermal starts remain deferred to 1.5.
+- automatic Smart Thermal starts remain deferred to 1.4.
 
 ## Product pillars
 

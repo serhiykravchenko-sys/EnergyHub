@@ -1,10 +1,10 @@
 # EnergyHub Installation and Upgrade
 
-This document covers EnergyHub 1.3.0.
+This document covers EnergyHub 1.3.2.
 
 ## Supported environment
 
-EnergyHub 1.3.0 requires:
+EnergyHub 1.3.2 requires:
 
 - Home Assistant OS with Supervisor/Apps;
 - `aarch64` hardware;
@@ -99,15 +99,19 @@ A healthy startup includes lines similar to:
 
 ```text
 [Energy Hub] Starting...
-[Energy Hub] Version 1.3.0
+[Energy Hub] Version 1.3.8
 Serial: /dev/serial/by-id/usb-FTDI_...
 MQTT connected
 OK | SOC=... | PV1=... | Load=... | Grid=online | Published=17
+PV2 OK | Voltage=...V | Power=...W | Total=...W
 Inverter settings updated: Menu 01=SBU, Menu 16=OSO
 Startup strategy reconstructed: mode=solar, Menu 01=SBU, Menu 16=OSO
 Startup reconstruction accepted without inverter writes: mode=solar
 EnergyHub health: Communication starting -> online
 ```
+
+The `PV2 OK` line appears only when optional PV2 polling is enabled and the
+fixed read returns a valid sample.
 
 The exact operating mode may differ if EnergyHub was intentionally stopped during Hybrid or Panic.
 
@@ -124,6 +128,10 @@ The repository includes synchronized examples from the reference installation, b
 Review the files before copying them to another Home Assistant installation. The architectural boundary and current entity set are documented in [12-HomeAssistant-Configuration.md](12-HomeAssistant-Configuration.md).
 
 ## Local development deployment
+
+Release validation evidence is summarized in the root README and versioned
+release notes. Private development and publication procedures are not part of
+the distribution package.
 
 The reference add-on development workflow uses:
 
@@ -153,14 +161,14 @@ Settings → System → Logs
 Select **Supervisor** as the source. A successful rebuild ends with:
 
 ```text
-Build local/aarch64-addon-energy_hub:1.3.0 done
+Build local/aarch64-addon-energy_hub:1.3.8 done
 App 'local_energy_hub' successfully rebuilt
 ```
 
 The test stage contains:
 
 ```text
-Ran 24 tests in ...
+Ran 93 tests in ...
 OK
 ```
 
@@ -171,10 +179,13 @@ OK
 3. Replace the app files while preserving the `addon/` directory structure.
 4. Keep the existing Home Assistant app options unless a migration explicitly requires a change.
 5. Confirm that `serial_port` uses the persistent FTDI `by-id` path.
-6. Reload the App store when `config.yaml` changed.
-7. Rebuild Energy Hub.
-8. Start it and verify MQTT, telemetry, operating mode, and health.
-9. Perform a Home Assistant host restart when validating USB persistence.
+6. For the independently verified POW-HVM10.2M, set
+   `pv2_modbus_enabled: true` and keep `pv2_poll_interval: 30`. Leave PV2
+   disabled on unverified hardware or firmware.
+7. Reload the App store when `config.yaml` changed.
+8. Rebuild Energy Hub.
+9. Start it and verify MQTT, telemetry, operating mode, and health.
+10. Perform a Home Assistant host restart when validating USB persistence.
 
 The app's `/data` directory is managed by Home Assistant and is not part of the source-code replacement. Do not delete it during a normal upgrade.
 

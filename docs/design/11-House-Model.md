@@ -18,7 +18,9 @@ Decision Policy = rules for using those capabilities
 - Field 2: 8 × 490 W = 3.92 kWp, tilt 65°;
 - approximate azimuth: 130°;
 - modeled total of the two documented fields: 7.35 kWp;
-- PI30MAX exposes reliable PV1 telemetry only;
+- PI30MAX exposes reliable PV1 telemetry; the installed inverter also exposes
+  live-verified PV2 voltage and power through separate read-only Modbus
+  registers 4563 and 4564, with production integration still pending;
 - Solcast supplies whole-system Today and Tomorrow forecasts.
 
 ### Inverter
@@ -123,14 +125,15 @@ Menu 16 = OSO
 ```text
 Menu 01 = SUB
 Menu 16 = SNU
-Target SOC = adaptive 30-95%
+Target SOC = configurable adaptive target, capped at 95%
 ```
 
 At 23:50, Adaptive Night Hybrid projects SOC at 07:00 using a conservative
 15-point overnight allowance. It finds the first tomorrow Solcast hourly
-estimate at or above 300 W and adds 10 SOC points for each hour from 07:00
-to that useful-solar time. The target is a 20% protected reserve plus that
-morning gap plus a 10% forecast/ramp margin, capped at 95%.
+estimate at or above 300 W. If the following hour is at least 600 W, one
+hour is credited from the morning gap after the add-on verifies both values.
+The target is the selected 20–50% minimum reserve plus the larger of the
+effective morning gap or aligned daytime-deficit SOC, capped at 95%.
 
 If projected SOC already covers the target, EnergyHub remains in Solar. If
 current SOC covers the target but the projection does not, it enters Hybrid
@@ -159,18 +162,25 @@ The old Away Mode first-floor heat-pump automation and helpers are not part of 1
 
 ## Future Smart Thermal Energy
 
-EnergyHub 1.5 introduces the first automatic Smart Thermal controller. EnergyHub 1.1 provides device, dashboard, measurement, and reserve-protection groundwork only.
+EnergyHub 1.4 introduces the first automatic Smart Thermal controller. EnergyHub 1.1 provides device, dashboard, measurement, and reserve-protection groundwork only.
 
 Smart Thermal will model thermal loads as capabilities:
 
+- explicit participation in automatic Smart Thermal control, independently
+  selectable for each heat pump; the first-floor heat pump is the proposed
+  default participant, while the second and third floors remain opt-in;
 - controllable plug;
 - measured or expected power;
+- appliance and smart-plug ratings plus inrush/start behavior;
 - room temperature/humidity;
 - heating/cooling role;
 - comfort band;
-- minimum runtime and cooldown;
+- criticality and explicit load-shedding eligibility;
+- minimum runtime, minimum off-time, cooldown, and maximum temporary off-time;
 - ownership state;
-- load priority.
+- shedding priority and restoration priority;
+- command/state confirmation and restart behavior;
+- restoration permission and remembered pre-shed state.
 
 It may use:
 
@@ -180,6 +190,31 @@ It may use:
 - forecast;
 - Grid Confidence;
 - seasonal comfort goals.
+
+Smart Thermal and Adaptive Hybrid must share one planned-energy boundary.
+Before 07:00, a participating heat pump may use cheap grid energy without
+being charged against the post-07:00 battery bridge. After 07:00, AHM must add
+the expected net energy of only the selected Smart Thermal participants until
+forecast solar can support them. The calculation must use the planned run
+interval or duty cycle and subtract aligned forecast solar rather than assume
+that every selected heat pump runs continuously at maximum power.
+
+Current provisional planning inputs are up to 1.5 kWh per running hour for
+each of the first- and second-floor heat pumps and 0.8 kWh per running hour for
+the third-floor heat pump. These values are not reference measurements or
+approved fixed coefficients; Smart Thermal implementation must validate them
+against measured operation before they become authoritative AHM inputs. Panic
+remains the conservative recovery layer when actual thermal demand, household
+demand, or solar production differs materially from the plan.
+
+Peak Load Guard is a future Smart Thermal function. It may temporarily pause
+explicitly opted-in flexible loads when sustained total house power exceeds an
+approved limit, then restore only loads that it actually paused after sustained
+demand recovery and appliance-safe delays. Current discussion inputs are a
+6.0 kW trigger, a 5.0 kW release level, and the provisional order boiler,
+second-floor heat pump, first-floor heat pump, third-floor heat pump. These are
+not implemented or approved thresholds. The basement water pump remains
+critical and non-sheddable.
 
 ## Flexible-load candidates
 
@@ -197,6 +232,8 @@ It may use:
 - output power/load;
 - battery SOC/voltage/current;
 - PV1 power/voltage/current;
+- PV2 power/voltage through a live-verified read-only Modbus probe; not yet
+  published by EnergyHub 1.3.4;
 - inverter temperature;
 - floor temperatures/humidity;
 - selected smart-plug power.

@@ -17,7 +17,8 @@ The infographic is an implementation-level map of the current 1.0 release candid
 - `mpp-solar` command-line adapter;
 - default telemetry poll every 10 seconds;
 - QPIWS and QPIRI reads every 60 seconds;
-- one serial lock prevents concurrent `mpp-solar` processes.
+- optional read-only Modbus RTU PV2 polling at a default 30-second interval;
+- one adapter-owned serial lock prevents any overlap between `mpp-solar` and direct Modbus access.
 
 ### Home Assistant
 
@@ -37,14 +38,15 @@ Home Assistant publishes live Today and Tomorrow forecasts to EnergyHub. Schedul
 
 ### 1. Adapter layer
 
-`app/adapters/powmr.py` converts local command execution into four adapter operations:
+`app/adapters/powmr.py` converts local serial execution into five bounded adapter operations:
 
 - read telemetry;
 - read warnings;
 - read settings;
+- read the fixed PV2 holding-register pair;
 - write output/charger source priority.
 
-The adapter does not decide strategies.
+The PV2 operation is fixed to slave 5, function 03, and registers 4563-4564. It validates address, function, byte count, CRC, byte-swapped values, and ranges. There is no generic Modbus register API or write path. The adapter does not decide strategies.
 
 ### 2. Telemetry and state
 
@@ -54,6 +56,14 @@ The adapter does not decide strategies.
 - publishes raw inverter sensors;
 - creates a normalized `InverterState`;
 - persists the latest valid raw snapshot at most once per minute.
+
+`PV2TelemetryService`:
+
+- schedules optional conservative PV2 reads only after valid PI30MAX samples;
+- isolates timeout, CRC, malformed, unsupported, exception, and invalid-value failures from the existing PI30MAX loop;
+- retains last-known measurements while marking them stale through dedicated availability;
+- derives Total PV only when PV1 and PV2 samples are no more than 15 seconds apart and both remain fresh;
+- starts in `awaiting_sample` after every restart and never reconstructs a retained value as fresh.
 
 `GridMonitor` derives current grid availability from normalized inverter state.
 
@@ -136,6 +146,20 @@ PowMr QPIGS
 → Home Assistant
 ```
 
+### PV2 and Total PV telemetry
+
+```text
+successful PI30MAX PV1 sample
+-> same adapter-owned serial lock
+-> fixed Modbus function-03 read of registers 4563-4564
+-> frame/range validation and freshness service
+-> PV2 voltage + PV2 power
+-> aligned fresh PV1 + PV2 only
+-> Total PV
+-> dedicated MQTT availability
+-> Home Assistant
+```
+
 ### Home Assistant inputs
 
 ```text
@@ -165,7 +189,7 @@ Decision result or manual request
 |---|---|---|---|
 | Solar | SBU | OSO | default |
 | Hybrid Charging | SUB | SNU | adaptive SOC target, currently 30-95% |
-| Hybrid Grid Hold | SUB | OSO | 07:00 Solar request |
+| Hybrid Grid Hold | SUB | OSO | confirmed guarded early-Solar or 07:00 Solar request |
 | Panic Charging | SUB | SNU | SOC reaches the 20/60/80/95% effective target |
 | Panic Grid Hold | SUB | OSO | AHM takeover at 23:50 |
 
@@ -263,7 +287,7 @@ actual Menu 01
 + persisted ACK-confirmed Menu 16
 + persisted confirmed mode
 + persisted Panic target
-+ persisted AHM target and dated morning debt
++ persisted AHM target, dated night enforcement, and dated morning debt
 ```
 
 Recognized combinations:
@@ -292,6 +316,8 @@ Known limitations:
 - **1.1:** add Zigbee2MQTT-backed smart-plug monitoring, focused dashboards, manual auto-off controls, and Home Assistant reserve-only OFF guards. Zigbee2MQTT owns coordinator/device communication; Home Assistant owns user controls and the narrow reserve automations; the EnergyHub inverter runtime remains unchanged.
 - **1.2:** move strategy values into validated configuration.
 - **1.3:** formalize recovery ownership and external watchdog behavior.
-- **1.4:** add secure remote operations and Telegram.
-- **1.5:** introduce a capability-based Smart Thermal controller for tested automatic multi-load operation.
-- **2.x:** separate policy from vendor adapters more completely.
+- **1.3.5:** add optional read-only PV2 and Total PV telemetry.
+- **1.4:** introduce a capability-based Smart Thermal controller for tested automatic multi-load operation.
+- **2.0:** add Telegram-first text/voice intents through the safe EnergyHub control boundary.
+- **2.x:** generalize fixed tariff scheduling.
+- **3.0:** separate policy from additional validated vendor adapters and add optional economic/export planning.

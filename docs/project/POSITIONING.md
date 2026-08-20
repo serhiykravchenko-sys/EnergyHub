@@ -12,7 +12,9 @@ EnergyHub 1.3 is validated for one reference hardware and installation architect
 
 ### Adaptive solar planning
 
-Adaptive Hybrid Mode uses tomorrow's hourly forecast rather than only a daily total. It aligns expected post-07:00 consumption and solar, accounts for the morning gap before useful solar, and calculates a conservative 30–95% target.
+Adaptive Hybrid Mode uses tomorrow's hourly forecast rather than only a daily total. It aligns expected post-07:00 consumption and solar, applies an independently verified solar-ramp credit to the morning gap, and combines that need with a user-selected 20–50% minimum reserve.
+
+The homeowner chooses the protective reserve. EnergyHub learns the household's essential 07:00–12:00 net energy, then recommends the next safer or more economical setting from comparable completed mornings. It shows the evidence but never changes the preference automatically.
 
 ### Smart tariff use
 
@@ -49,6 +51,8 @@ Home Assistant remains the UI, schedule, integration, and notification layer. En
 - hardware-specific read-back and acknowledgement boundaries.
 
 Future voice or messenger control should submit a time-bounded request to EnergyHub. A conversational assistant must not decide safety. The deterministic override evaluator may allow, shorten, delay, or deny the request according to fresh telemetry, projected reserve, grid availability, load energy, and immutable emergency limits.
+
+The optional Telegram Family Assistant already provides outbound morning plans, grid events, Grid Confidence changes, and AHM reserve advice. This is a useful product surface and a foundation for future interaction, but the current version does not receive or execute commands. Future Telegram text/voice and Home Assistant Assist adapters must translate input into the same authenticated, expiring, auditable intent contract before EnergyHub evaluates it.
 
 ## Evidence for public claims
 

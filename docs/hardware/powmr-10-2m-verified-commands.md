@@ -7,7 +7,7 @@
 - Transport: USB-RS232
 - Tool: `mpp-solar`
 
-This file records commands verified on the installed inverter. It is not a universal PI30MAX specification.
+This file records PI30MAX commands verified on the installed inverter. It is not a universal PI30MAX specification. A separate read-only Modbus RTU capability is documented in [PowMr 10.2M Modbus Telemetry](powmr-10-2m-modbus-telemetry.md).
 
 ## Read commands
 
@@ -123,7 +123,12 @@ Tests found no usable support for:
 - QET;
 - QLT;
 - QED;
-- reliable PV2/output2/lifetime counters through the current path.
+- reliable PV2/output2/lifetime counters through PI30MAX.
+
+`QPIGS2` returning `NAK` does not mean the inverter lacks every equivalent
+telemetry source. On 2026-08-14, read-only Modbus holding registers 4563 and
+4564 returned plausible PV2 voltage and power on the installed inverter. This
+is verified hardware research, not part of the EnergyHub 1.3.4 polling path.
 
 ## Terminology
 

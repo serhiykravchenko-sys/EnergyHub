@@ -46,6 +46,110 @@ sensor:
     round: 3
     max_sub_interval:
       minutes: 5
+  - platform: integration
+    source: sensor.powmr_10_2m_pv1_power
+    name: EnergyHub PV1 Energy Total
+    unique_id: energyhub_pv1_energy_total
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+    round: 3
+    max_sub_interval:
+      minutes: 5
+  - platform: integration
+    source: sensor.powmr_10_2m_pv2_power
+    name: EnergyHub PV2 Energy Total
+    unique_id: energyhub_pv2_energy_total
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+    round: 3
+    max_sub_interval:
+      minutes: 5
+  - platform: integration
+    source: sensor.powmr_10_2m_total_pv_power
+    name: EnergyHub Total Solar Energy
+    unique_id: energyhub_total_solar_energy
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+    round: 3
+    max_sub_interval:
+      minutes: 5
+
+utility_meter:
+  energyhub_pv1_generation_daily:
+    source: sensor.energyhub_pv1_energy_total
+    name: PV1 Generated Today
+    unique_id: energyhub_pv1_generation_daily
+    cycle: daily
+    periodically_resetting: false
+  energyhub_pv2_generation_daily:
+    source: sensor.energyhub_pv2_energy_total
+    name: PV2 Generated Today
+    unique_id: energyhub_pv2_generation_daily
+    cycle: daily
+    periodically_resetting: false
+  energyhub_total_solar_generation_daily:
+    source: sensor.energyhub_total_solar_energy
+    name: Total Solar Generated Today
+    unique_id: energyhub_total_solar_generation_daily
+    cycle: daily
+    periodically_resetting: false
+  energyhub_pv1_generation_weekly:
+    source: sensor.energyhub_pv1_energy_total
+    name: PV1 Generated This Week
+    unique_id: energyhub_pv1_generation_weekly
+    cycle: weekly
+    periodically_resetting: false
+  energyhub_pv2_generation_weekly:
+    source: sensor.energyhub_pv2_energy_total
+    name: PV2 Generated This Week
+    unique_id: energyhub_pv2_generation_weekly
+    cycle: weekly
+    periodically_resetting: false
+  energyhub_total_solar_generation_weekly:
+    source: sensor.energyhub_total_solar_energy
+    name: Total Solar Generated This Week
+    unique_id: energyhub_total_solar_generation_weekly
+    cycle: weekly
+    periodically_resetting: false
+  energyhub_pv1_generation_monthly:
+    source: sensor.energyhub_pv1_energy_total
+    name: PV1 Generated This Month
+    unique_id: energyhub_pv1_generation_monthly
+    cycle: monthly
+    periodically_resetting: false
+  energyhub_pv2_generation_monthly:
+    source: sensor.energyhub_pv2_energy_total
+    name: PV2 Generated This Month
+    unique_id: energyhub_pv2_generation_monthly
+    cycle: monthly
+    periodically_resetting: false
+  energyhub_total_solar_generation_monthly:
+    source: sensor.energyhub_total_solar_energy
+    name: Total Solar Generated This Month
+    unique_id: energyhub_total_solar_generation_monthly
+    cycle: monthly
+    periodically_resetting: false
+  energyhub_pv1_generation_yearly:
+    source: sensor.energyhub_pv1_energy_total
+    name: PV1 Generated This Year
+    unique_id: energyhub_pv1_generation_yearly
+    cycle: yearly
+    periodically_resetting: false
+  energyhub_pv2_generation_yearly:
+    source: sensor.energyhub_pv2_energy_total
+    name: PV2 Generated This Year
+    unique_id: energyhub_pv2_generation_yearly
+    cycle: yearly
+    periodically_resetting: false
+  energyhub_total_solar_generation_yearly:
+    source: sensor.energyhub_total_solar_energy
+    name: Total Solar Generated This Year
+    unique_id: energyhub_total_solar_generation_yearly
+    cycle: yearly
+    periodically_resetting: false
 
 template:
   - sensor:

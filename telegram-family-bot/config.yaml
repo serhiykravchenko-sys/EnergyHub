@@ -1,0 +1,77 @@
+name: Telegram Family Assistant
+version: "0.1.9"
+slug: telegram_family_assistant
+description: Sends a Ukrainian morning weather and EnergyHub summary to the family Telegram group
+url: https://github.com/serhiykravchenko-sys/EnergyHub
+
+arch:
+  - aarch64
+  - amd64
+
+startup: services
+boot: auto
+init: false
+host_network: false
+homeassistant_api: true
+
+options:
+  bot_token: null
+  destination_chat_id: null
+  weather_entity: auto
+  send_time: "08:00"
+  soc_snapshot_time: "07:00"
+  night_start_time: "23:00"
+  timezone: Europe/Kyiv
+  useful_solar_threshold_w: 300
+  strong_wind_threshold_ms: 15
+  test_mode: true
+  battery_soc_entity: sensor.powmr_10_2m_battery_soc
+  target_soc_entity: sensor.energyhub_hybrid_target_soc
+  ahm_minimum_soc_entity: input_number.ahm_minimum_soc
+  reserve_advice_entity: sensor.energyhub_ahm_reserve_advice
+  reserve_advice_current_soc_entity: sensor.energyhub_ahm_reserve_advice_current_soc
+  reserve_advice_suggested_soc_entity: sensor.energyhub_ahm_reserve_advice_suggested_soc
+  reserve_advice_sample_count_entity: sensor.energyhub_ahm_reserve_advice_sample_count
+  operating_mode_entity: sensor.energyhub_operating_mode
+  yesterday_consumption_entity: sensor.energyhub_daily_house_consumption
+  solar_forecast_entity: sensor.solcast_pv_forecast_forecast_today
+  sun_entity: sun.sun
+  moon_entity: moon.moon
+  daily_grid_import_entity: sensor.energyhub_daily_grid_import_estimated
+  yesterday_grid_import_entity: sensor.energyhub_grid_import_yesterday_estimated
+  grid_voltage_entity: sensor.powmr_10_2m_grid_voltage
+  grid_confidence_entity: sensor.energyhub_grid_confidence
+  telemetry_freshness_entity: sensor.energyhub_telemetry_freshness
+
+schema:
+  bot_token: password
+  destination_chat_id: "str?"
+  weather_entity: str
+  send_time: str
+  soc_snapshot_time: str
+  night_start_time: str
+  timezone: str
+  useful_solar_threshold_w: "int(50,5000)"
+  strong_wind_threshold_ms: "float(5,40)"
+  test_mode: bool
+  battery_soc_entity: str
+  target_soc_entity: str
+  ahm_minimum_soc_entity: str
+  reserve_advice_entity: str
+  reserve_advice_current_soc_entity: str
+  reserve_advice_suggested_soc_entity: str
+  reserve_advice_sample_count_entity: str
+  operating_mode_entity: str
+  yesterday_consumption_entity: str
+  solar_forecast_entity: str
+  sun_entity: str
+  moon_entity: str
+  daily_grid_import_entity: str
+  yesterday_grid_import_entity: str
+  grid_voltage_entity: str
+  grid_confidence_entity: str
+  telemetry_freshness_entity: str
+  heat_pump_active_threshold_w: "float?"
+  heat_pump_floor_1_power_entity: "str?"
+  heat_pump_floor_2_power_entity: "str?"
+  heat_pump_floor_3_power_entity: "str?"

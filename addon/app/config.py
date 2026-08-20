@@ -16,6 +16,8 @@ INVERTER_AVAILABILITY_TOPIC = f"{BASE_TOPIC}/status"
 # use this topic so they remain available during inverter communication
 # failures and can explain the failure.
 ENERGYHUB_AVAILABILITY_TOPIC = "energyhub/status"
+PV2_AVAILABILITY_TOPIC = f"{BASE_TOPIC}/pv2/status"
+TOTAL_PV_AVAILABILITY_TOPIC = f"{BASE_TOPIC}/total_pv/status"
 
 
 SENSORS = {

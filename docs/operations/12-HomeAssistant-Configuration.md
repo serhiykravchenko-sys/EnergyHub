@@ -49,6 +49,7 @@ Home Assistant currently owns:
 EnergyHub currently owns:
 
 - inverter telemetry processing;
+- optional PV2 telemetry validation, freshness, and aligned Total PV;
 - Grid Availability history;
 - Grid Confidence;
 - Daily Summary history;
@@ -73,7 +74,8 @@ Current EnergyHub-specific Home Assistant helpers include:
 input_boolean.energyhub_autopilot
 input_boolean.energyhub_water_boiler_soc_lockout
 input_boolean.energyhub_heat_pump_soc_lockout
-input_number.energyhub_daily_solar_surplus_estimated
+input_number.daily_solar_surplus_estimated
+input_number.ahm_minimum_soc
 input_number.input_number_floor1_heat_pump_timer_hours
 input_number.input_number_floor2_heat_pump_timer_hours
 input_number.input_number_floor3_heat_pump_timer_hours
@@ -113,11 +115,41 @@ Disabling Autopilot does not disable monitoring, telemetry, history, or health e
 
 ---
 
+# AHM Minimum SOC Helper
+
+Entity:
+
+```text
+input_number.ahm_minimum_soc
+```
+
+The helper selects the minimum reserve used by Adaptive Hybrid Mode. It ranges from 20% to 50% in 5% steps and is published through retained MQTT. Suggested interpretations are 20% economy, 30% balanced, 40% conservative, and 50% very conservative. The value is advisory and manual; Grid Confidence does not change it automatically. Panic retains its independent 20/60/80/95% targets.
+
+## Morning essential-load learning
+
+`EnergyHub - Capture Essential Morning Load` publishes non-retained cumulative
+energy snapshots at 07:00–12:00 hourly boundaries from:
+
+```text
+sensor.powmr_10_2m_daily_house_consumption
+sensor.first_floor_heat_pump_plug_energy
+sensor.second_floor_heat_pump_plug_energy
+sensor.third_floor_heat_pump_energy_calculated
+```
+
+EnergyHub subtracts the combined heat-pump delta from the total-house delta,
+retains 21 days, and learns the 75th percentile for each interval. Every
+interval needs three samples before the flexible model can replace the verified
+300 W → 600 W fallback. Missing/unavailable inputs skip the sample rather than
+manufacturing zero consumption.
+
+---
+
 # Smart Load Boundary
 
 The original EnergyHub 1.0 Away Mode helpers and automation were removed from the active 1.0 architecture.
 
-EnergyHub 1.1 adds manual smart-plug controls, per-floor auto-off timers, and reserve-only OFF guards as Home Assistant household automation. It never turns the boiler or a heat pump on. Automatic Smart Thermal ownership and starts remain deferred to 1.5.
+EnergyHub 1.1 adds manual smart-plug controls, per-floor auto-off timers, and reserve-only OFF guards as Home Assistant household automation. It never turns the boiler or a heat pump on. Automatic Smart Thermal ownership and starts remain deferred to 1.4.
 
 The ownership principle remains valid:
 
@@ -130,12 +162,14 @@ The ownership principle remains valid:
 Entity:
 
 ```text
-input_number.energyhub_daily_solar_surplus_estimated
+input_number.daily_solar_surplus_estimated
 ```
 
 Purpose:
 
-Stores the estimated daily solar energy that was probably not used.
+Stores the estimated daily solar energy that was probably not used. The helper
+is retained for compatibility, but the atomic Daily Summary no longer depends
+on its availability.
 
 Current formula:
 
@@ -149,6 +183,10 @@ Source entities:
 sensor.solcast_pv_forecast_forecast_today
 sensor.powmr_10_2m_daily_house_consumption
 ```
+
+The 23:49/23:51 Daily Summary publishing automation calculates the same value
+directly from the live source entities and includes it in the atomic snapshot.
+This prevents an unavailable helper from blocking all daily history updates.
 
 The calculation intentionally uses Solcast forecast rather than inverter PV generation.
 
@@ -333,6 +371,36 @@ Live current-day information may continue to use the appropriate source entities
 
 ---
 
+# PV2 and Total PV Entities
+
+EnergyHub 1.3.5 publishes the following MQTT Discovery entities when the app is
+running, whether optional Modbus polling is enabled or disabled:
+
+```text
+sensor.powmr_10_2m_pv1_voltage
+sensor.powmr_10_2m_pv1_power
+sensor.powmr_10_2m_pv2_voltage
+sensor.powmr_10_2m_pv2_power
+sensor.powmr_10_2m_total_pv_power
+sensor.energyhub_pv2_telemetry_status
+sensor.energyhub_pv2_telemetry_freshness
+sensor.energyhub_pv2_sample_age_seconds
+```
+
+PV1 remains the existing PI30MAX telemetry. PV2 uses optional read-only Modbus.
+Total PV is a derived measurement and is available only when the component
+samples are within 15 seconds and both remain fresh. Dedicated
+`powmr/pv2/status` and `powmr/total_pv/status` topics mask retained last-known
+values when disabled, failed, stale, or awaiting the first post-restart sample.
+
+PV2 status remains visible through `energyhub/status` so Home Assistant can
+distinguish `disabled`, `awaiting_sample`, `fresh`, `stale`, `timeout`,
+`crc_error`, `malformed_response`, `invalid_value`, `unsupported`,
+`modbus_exception`, and `error` without treating the diagnostic itself as
+inverter production.
+
+---
+
 # Operating Mode Integration
 
 Current EnergyHub Operating Mode entities:
@@ -415,11 +483,18 @@ Hybrid Grid Hold
 Solar
 ```
 
-Adaptive Night Hybrid evaluates once at 23:50. EnergyHub calculates:
+Adaptive Night Hybrid calculates its target once at 23:50:
 
     projected_soc_at_07 = current_soc - 15
     morning_gap_soc = hours_from_07_to_first_300W_forecast × 10
     target_soc = min(95, 20 + morning_gap_soc + 10)
+
+EnergyHub 1.3.8 persists the date through which that target is authoritative.
+Until a confirmed morning Solar handover, each fresh telemetry cycle keeps
+Solar above target, selects Hybrid Grid Hold at exact target, and selects or
+resumes Hybrid Charging below target. An offline grid or stale SOC causes no
+command. This is continuous enforcement of the existing AHM plan, not a new
+operating mode or repeated target calculation.
 
 The three outcomes are:
 
@@ -459,22 +534,40 @@ sensor.energyhub_hybrid_battery_refill_required
 sensor.energyhub_hybrid_total_energy_required
 sensor.energyhub_hybrid_evaluated_forecast
 sensor.energyhub_hybrid_projected_soc_at_07
+sensor.energyhub_hybrid_minimum_soc
+sensor.energyhub_hybrid_raw_morning_hours
 sensor.energyhub_hybrid_morning_hours
 sensor.energyhub_hybrid_useful_solar_start
+sensor.energyhub_hybrid_effective_solar_start
+sensor.energyhub_hybrid_ramp_confirmed
+sensor.energyhub_hybrid_ramp_credit_hours
+sensor.energyhub_hybrid_ramp_start_power_w
+sensor.energyhub_hybrid_ramp_next_power_w
 sensor.energyhub_hybrid_morning_reserve_soc
 sensor.energyhub_hybrid_target_soc
 sensor.energyhub_hybrid_target_capped
 sensor.energyhub_hybrid_forecast_fallback
+sensor.energyhub_hybrid_early_solar_check
+sensor.energyhub_hybrid_early_solar_reason
+sensor.energyhub_hybrid_early_solar_evaluated_at
+sensor.energyhub_hybrid_early_solar_live_power_w
+sensor.energyhub_hybrid_early_solar_forecast_kwh
 ```
 
 These entities allow Home Assistant to show both the final decision and the exact values used during the most recent Hybrid evaluation.
 
+The five Early Solar entities show the separate 06:05 Grid Hold release check,
+including its final transition result, reason, live aligned Total Solar, and
+the current-day 06:00–07:00 Solcast interval supplied by Home Assistant.
+
 Home Assistant displays these values but does not duplicate the Hybrid decision formula.
 
-The complete 23:50 evaluation is retained in MQTT until the next nightly
-evaluation replaces it. EnergyHub startup publishes discovery but does not
-replace that retained snapshot with `not_evaluated`, so restarting Home
-Assistant or the add-on does not erase the explanation shown on the dashboard.
+The detailed 23:50 values are retained in MQTT until a later evaluation
+replaces them. EnergyHub startup deliberately replaces only the decision and
+reason presentation with `awaiting_evaluation`, because those detailed values
+were not calculated by the new process. If a target was restored, the reason
+states that it was retained while the detailed night plan is unavailable. A
+Home Assistant-only restart restores these retained presentation values.
 
 ---
 
@@ -484,7 +577,7 @@ Away Mode is not part of the final EnergyHub 1.0 architecture.
 
 The original implementation was deferred after design review showed that occupancy, comfort, solar surplus, cheap-tariff use, and battery reserve should be handled through a broader Smart Heating / flexible-load architecture.
 
-EnergyHub 1.1 provides the monitored-device, dashboard, timer, and reserve-guard foundation. Automatic Smart Thermal control remains deferred to 1.5.
+EnergyHub 1.1 provides the monitored-device, dashboard, timer, and reserve-guard foundation. Automatic Smart Thermal control remains deferred to 1.4.
 
 ---
 
@@ -610,7 +703,7 @@ On 2026-08-06, Home Assistant Repairs reported that Tuya authentication had expi
 
 Current EnergyHub System Health covers the EnergyHub process and inverter-facing communication, battery, telemetry freshness, and inverter warning inputs. It does not yet aggregate Home Assistant Repairs, Tuya authentication, Zigbee2MQTT app/bridge availability, or command-to-observed-device confirmation. Those dependencies must be represented separately so a retained or stale entity value cannot be mistaken for healthy end-to-end telemetry. Reauthentication remains an attended action; EnergyHub must alert but must not attempt to automate cloud-account login.
 
-The working-tree Zigbee reliability increment adds `binary_sensor.zigbee2mqtt_bridge_connectivity` from the retained `zigbee2mqtt/bridge/state` MQTT topic. If it remains offline for two minutes, Home Assistant creates one persistent notification stating that readings may be stale and that no restart or relay action was attempted. An online transition dismisses that alert and creates a recovery notice that requires individual-device availability and fresh post-recovery reports to be checked. This is bridge transport monitoring only: it does not prove that the Zigbee2MQTT app is healthy, that a device is reachable, or that any retained measurement is fresh.
+The working-tree Zigbee reliability increment uses Zigbee2MQTT's Home Assistant-discovered `binary_sensor.zigbee2mqtt_bridge_connection_state`, which reads the retained `zigbee2mqtt/bridge/state` MQTT topic. If it remains offline for two minutes, Home Assistant creates one persistent notification stating that readings may be stale and that no restart or relay action was attempted. An online transition dismisses that alert and creates a recovery notice that requires individual-device availability and fresh post-recovery reports to be checked. This is bridge transport monitoring only: it does not prove that the Zigbee2MQTT app is healthy, that a device is reachable, or that any retained measurement is fresh.
 
 ---
 
@@ -631,6 +724,7 @@ What is happening now?
 Current information includes:
 
 - Autopilot;
+- AHM Minimum SOC with profile and Grid Confidence guidance;
 - Operating Mode;
 - Operating Mode reason;
 - Output Source Priority;
@@ -664,8 +758,9 @@ Mission Control intentionally omits these floor sections after the dedicated vie
 
 ![Smart-plug reserve protection logic](../Images/Infographic%233_smart_plug_reserve_logic.png)
 
-The working-tree dashboard has three explicit tabs: **Mission Control**, **Heat Pumps**, and **Water Systems**. The two focused manual/observational views are:
+The working-tree dashboard has four explicit tabs: **Mission Control**, **Solar**, **Heat Pumps**, and **Water Systems**. The focused observational/manual views are:
 
+- **Solar** — side-by-side PV1/PV2 generation for 7 days, 7 weeks, and 12 months, with current daily, weekly, or yearly PV1/PV2/Total Solar values in each chart header;
 - **Heat Pumps** — separate first-, second-, and third-floor sections with switch, live power, auto-off duration, absolute turn-off time, plus daily consumption for 7 days, weekly consumption for 6 weeks, and monthly consumption for 12 months;
 - **Water Systems** — separate 2nd-floor boiler and basement-pump sections with switch and live power, plus the same daily/weekly/monthly history periods.
 
@@ -675,13 +770,31 @@ The local Integral sensors persist across Home Assistant restarts but begin accu
 
 The water-boiler plug now has a deliberately narrow reserve policy. With fresh EnergyHub telemetry, reaching 50% SOC requests boiler OFF once. An ON request between 41% and 50% remains allowed; Home Assistant cannot reliably distinguish a physical/app action from the existing Xiaomi motion automation. At 40%, `input_boolean.energyhub_water_boiler_soc_lockout` latches, the boiler is requested OFF, and later ON requests are rejected. Fresh SOC of at least 60% clears the latch but never turns the boiler on automatically. The homeowner or Xiaomi demand automation remains responsible for restoration.
 
-Heat pumps use a separate grid-confidence-aware reserve-only policy. EnergyHub exposes four categorical Grid Confidence states (`normal`, `unstable`, `risk`, and `panic`), so the relaxed case is intentionally stricter than `normal`: Grid Confidence must be `normal`, 24-hour availability must equal 100%, 48-hour available time must equal 48 hours, the grid must currently be present, and EnergyHub telemetry must be fresh. In that fully trusted state, only fresh SOC reaching 50% latches the all-floor lockout and requests every running heat pump OFF. Fresh SOC of at least 60% clears it.
+Heat pumps use a separate grid-confidence-aware reserve-only policy. The family
+retains manual control when Grid Confidence is `normal`, current inverter grid
+voltage is above 50 V, and EnergyHub telemetry is `fresh`. A remembered lockout
+may remain latched underneath that permission so protection can return
+immediately if the trust gate is lost. Manual permission never starts a heat
+pump.
 
-Every missing, stale, unavailable, or degraded grid-confidence input selects the conservative policy. With fresh telemetry, reaching 80% SOC requests every running heat-pump plug OFF once. Manual overrides remain possible: floor 2 is shed again at 70%, floor 1 at 60%, and floor 3 is protected until 50%. At 50%, `input_boolean.energyhub_heat_pump_soc_lockout` latches, every running heat pump is requested OFF, and any later ON request is rejected. Fresh SOC of at least 90% clears the conservative lockout. Neither policy turns a heat pump on. Smart Thermal automatic starts remain deferred.
+When the grid is not trusted, the selected AHM minimum `S` defines the
+heat-pump bands. At `S+30`, Home Assistant requests all running participating
+heat pumps OFF once; a later manual override remains possible. At `S+20`,
+`input_boolean.energyhub_heat_pump_soc_lockout` latches, all running heat pumps
+are requested OFF, and later ON requests are rejected. Fresh SOC at `S+40`
+clears the latch without restarting any load. For `S=20%`, the thresholds are
+50% shed, 40% lockout, and 60% recovery. For `S=50%`, they are 80%, 70%, and
+90%.
 
-Confirmed `hybrid_charging`, `hybrid_grid_hold`, `panic`, or `panic_grid_hold` with fresh EnergyHub telemetry and current inverter grid voltage above 50 V temporarily permits manual heat-pump plug requests because the house is grid-backed. The underlying SOC lockout remains latched rather than being cleared. If strategy confirmation or present grid power is lost, the remembered lockout is immediately effective again on fresh telemetry and running heat pumps are requested OFF. The permission never turns a heat pump on; automatic Smart Thermal ownership and starts remain deferred.
-
-No command is issued from stale EnergyHub telemetry. The lockouts are best effort: Home Assistant cannot physically prevent a local, Zigbee, or cloud command while Core, Zigbee2MQTT, the Xiaomi integration, the network, or a plug is unavailable. Persistent notifications show requested actions and observed plug states so failed commands are visible. Intermediate 80%/70%/60% shedding is not reconstructed blindly after restart or availability recovery; the 50% safety lockout is re-evaluated when trustworthy telemetry returns. A transition from the fully trusted grid state to a degraded state while SOC is already at or below 80% applies the conservative all-floor shed. The basement pump remains outside both policies. Local integration and long-term-statistics rendering require supervised validation after deployment. Power and calculated energy remain operational trend data rather than electrical-protection inputs.
+Template triggers evaluate SOC, Grid Confidence, present grid, telemetry
+freshness, and AHM minimum together. A transition from trusted to untrusted
+conditions therefore applies the appropriate current band even if SOC crossed
+it earlier. No command is issued from stale EnergyHub telemetry. Lockouts are
+best effort: Home Assistant cannot physically prevent a local, Zigbee, or
+cloud command while Core, Zigbee2MQTT, the Xiaomi integration, the network, or
+a plug is unavailable. Persistent notifications show requested actions and
+observed plug states. The basement pump remains outside this policy, and
+automatic Smart Thermal starts remain deferred.
 
 ## EnergyHub Decision Logic
 
@@ -709,6 +822,12 @@ Current sections include:
 - Solar Forecast Tomorrow;
 - Decision Reason.
 
+The following Early Solar handover subsection shows the 06:05 check result,
+reason, evaluation time, live Total Solar, and forecast energy for
+06:00–07:00. The main controls use the user-facing title **Adaptive Hybrid
+Reserve** and **Active reserve** rather than requiring the homeowner to know
+the internal `AHM` abbreviation.
+
 ### Panic Decision
 
 - Panic Decision;
@@ -721,23 +840,40 @@ Current sections include:
 
 The main decision lines are visually emphasized while detailed evaluation inputs remain available below them.
 
+## Mission Control Solar Charts
+
+The working-tree Mission Control view uses two complementary 24-hour power charts:
+
+- **Energy Flow** compares `sensor.powmr_10_2m_total_pv_power` with house load and Battery SOC. The live W series is labelled **Total Solar Now**.
+- **PV Power** shows only PV1 and PV2 power so neither array is obscured by a Total Solar line. Its header shows PV1 Today, PV2 Today, and **Total Solar Today** energy in kWh.
+
+Total Solar uses an orange two-pixel line in Energy Flow. PV1 uses a dark-blue two-pixel line and PV2 uses a light-blue two-pixel line in PV Power. House Load remains blue and Battery SOC remains green.
+
+Both charts use five-minute aggregation and a 24-hour `HH:mm` time axis. Total PV follows the add-on's conservative availability contract: it is unavailable instead of silently falling back to PV1 when the PV2 sample is missing, stale, invalid, or not sufficiently aligned with PV1.
+
+The dashboard does not yet present house load as a stacked grid-versus-solar/battery split. Grid import is estimated, and the available telemetry does not provide a signed battery-power measurement suitable for an honest solar-versus-battery decomposition.
+
+The Solar view is backed by three repository-managed Integral sensors: `sensor.energyhub_pv1_energy_total`, `sensor.energyhub_pv2_energy_total`, and `sensor.energyhub_total_solar_energy`. The Total Solar energy sensor integrates Total PV Power directly; it is not calculated by adding independently rounded period values. All three use the trapezoidal method, kWh units, three-decimal precision, and a five-minute maximum sub-interval. Daily, weekly, monthly, and yearly Utility Meter sensors provide progressively broader chart-header totals: today above the 24-hour chart, this week above the 7-day chart, this month above the 7-week chart, and this year above the 12-month chart. Home Assistant derives their entity IDs from the configured display names: `sensor.pv1_generated_today`, `sensor.pv2_generated_today`, `sensor.total_solar_generated_today`, with matching `*_this_week`, `*_this_month`, and `*_this_year` forms. Chart columns use Recorder long-term-statistics change values over day, week, and month periods.
+
+These energy entities begin accumulating only after deployment and cannot reconstruct earlier PV2 history automatically. The pre-existing UI helper `sensor.powmr_10_2m_pv_energy_total` and its Daily/Weekly/Monthly PV Generation helpers are not used because the live audit proved that their source is PV1 Power only despite the ambiguous Total/PV naming. They remain untouched pending supervised cleanup after the replacement entities are validated.
+
 ## Energy Balance Chart
 
 The current 7-day chart displays:
 
 - House Consumption;
-- Solar Surplus Estimated;
-- Grid Import;
-- Grid Availability.
+- EV Potential Estimated;
+- Grid Import Estimated.
 
 Live header values include:
 
 - Consumption Today;
-- Grid Import Today;
-- Forecast Today;
-- Forecast Tomorrow.
+- Solar Forecast Today;
+- Solar Forecast Tomorrow.
 
 Daily Summary history uses `sensor.energyhub_daily_summary_grid_import`.
+
+`EV Potential Est.` is the existing Daily Solar Surplus Estimated value under a clearer dashboard label. It is a planning estimate based on forecast solar minus house consumption, not measured curtailed or lost solar. It excludes charging and inverter losses and must not be treated as guaranteed EV charging energy or an automatic-control input.
 
 Further chart and dashboard refinement may continue during 1.1 without changing the 1.0 operating architecture.
 

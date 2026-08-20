@@ -203,7 +203,11 @@ class PanicDecisionEngine:
         optional_values = {
             "panic_target_soc": self.target_soc,
             "panic_grid_target_soc": self.grid_target_soc,
-            "panic_ahm_target_soc": self.ahm_target_soc,
+            "panic_ahm_target_soc": (
+                self.ahm_target_soc
+                if self.ahm_target_soc is not None
+                else "None"
+            ),
             "panic_target_source": self.target_source,
         }
 

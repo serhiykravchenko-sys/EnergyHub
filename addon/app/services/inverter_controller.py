@@ -30,7 +30,7 @@ MENU_01_VERIFY_DELAY_SECONDS = 1
 
 MODE_SETTLE_DELAY_SECONDS = 2
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 DEFAULT_STATE_PATH = "/data/inverter_controller_state.json"
 
 VALID_CONFIRMED_MODES = {
@@ -62,6 +62,7 @@ class InverterController:
         self.known_charger_priority = "unknown"
         self.panic_target_soc = None
         self.hybrid_target_soc = None
+        self.hybrid_enforcement_until_date = None
         self.ahm_debt_date = None
         self.ahm_debt_target_soc = None
         self.last_error = None
@@ -134,7 +135,7 @@ class InverterController:
             return
 
         stored_schema_version = data.get("schema_version", 1)
-        if stored_schema_version not in {1, STATE_SCHEMA_VERSION}:
+        if stored_schema_version not in {1, 2, STATE_SCHEMA_VERSION}:
             log(
                 "Ignore unsupported inverter controller state schema: "
                 f"{data.get('schema_version')}"
@@ -172,6 +173,12 @@ class InverterController:
             if not 1 <= hybrid_target_soc <= 100:
                 hybrid_target_soc = None
 
+        hybrid_enforcement_until_date = data.get(
+            "hybrid_enforcement_until_date"
+        )
+        if not isinstance(hybrid_enforcement_until_date, str):
+            hybrid_enforcement_until_date = None
+
         ahm_debt_date = data.get("ahm_debt_date")
         if not isinstance(ahm_debt_date, str):
             ahm_debt_date = None
@@ -190,6 +197,9 @@ class InverterController:
         self.known_charger_priority = charger_priority
         self.panic_target_soc = panic_target_soc
         self.hybrid_target_soc = hybrid_target_soc
+        self.hybrid_enforcement_until_date = (
+            hybrid_enforcement_until_date
+        )
         self.ahm_debt_date = ahm_debt_date
         self.ahm_debt_target_soc = ahm_debt_target_soc
 
@@ -199,6 +209,8 @@ class InverterController:
             f"Menu 16={self.known_charger_priority}, "
             f"panic_target={self.panic_target_soc}, "
             f"hybrid_target={self.hybrid_target_soc}, "
+            "hybrid_enforcement_until="
+            f"{self.hybrid_enforcement_until_date}, "
             f"ahm_debt={self.ahm_debt_target_soc} "
             f"for {self.ahm_debt_date}"
         )
@@ -213,6 +225,9 @@ class InverterController:
             "known_charger_priority": self.known_charger_priority,
             "panic_target_soc": self.panic_target_soc,
             "hybrid_target_soc": self.hybrid_target_soc,
+            "hybrid_enforcement_until_date": (
+                self.hybrid_enforcement_until_date
+            ),
             "ahm_debt_date": self.ahm_debt_date,
             "ahm_debt_target_soc": self.ahm_debt_target_soc,
             "updated_at": datetime.now().astimezone().isoformat(),
@@ -271,6 +286,14 @@ class InverterController:
             return False
 
         self.hybrid_target_soc = round(target_soc, 2)
+        self._persist_state()
+        return True
+
+    def set_hybrid_enforcement_until_date(self, value):
+        if value is not None and not isinstance(value, str):
+            return False
+
+        self.hybrid_enforcement_until_date = value
         self._persist_state()
         return True
 

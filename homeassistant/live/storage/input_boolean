@@ -7,6 +7,10 @@
       {
         "id": "energyhub_autopilot",
         "name": "EnergyHub Autopilot"
+      },
+      {
+        "id": "energyhub_ahm_morning_observation_valid",
+        "name": "AHM Morning Observation Valid"
       }
     ]
   }

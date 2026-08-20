@@ -48,6 +48,7 @@ app/
     inverter_controller.py
     inverter_health.py
     panic_decision.py
+    pv2_telemetry.py
     system_health.py
     telemetry.py
     telemetry_freshness.py
@@ -73,7 +74,11 @@ Properties:
 
 - 25-second subprocess timeout;
 - JSON output;
-- one `threading.Lock` around serial command execution;
+- one `threading.Lock` shared by PI30MAX command execution and direct Modbus;
+- one fixed read-only Modbus operation for slave 5, function 03, registers
+  4563-4564 at 2400 baud/8N1;
+- strict response address, function, byte-count, CRC, byte-order, and range
+  validation;
 - adapter methods return protocol-level data or ACK booleans.
 
 ## Normalized state
@@ -129,6 +134,7 @@ Current inputs:
 | Task | Cadence |
 |---|---|
 | QPIGS telemetry | configured, default 10 seconds |
+| optional PV2 Modbus | configured, default 30 seconds; bounded failure backoff |
 | QPIWS warnings | 60 seconds |
 | QPIRI settings | 60 seconds |
 | automatic Panic evaluation | 5 minutes, plus grid/mode reevaluation events |
@@ -173,6 +179,13 @@ An invalid sample:
 - increments Communication Watchdog errors;
 - publishes raw inverter availability offline;
 - leaves EnergyHub diagnostics available.
+
+After a valid PI30MAX sample, `PV2TelemetryService` may schedule one serialized
+PV2 read. Successful samples publish PV2 and an aligned Total PV. Failures are
+caught inside the service, marked stale, and backed off without entering the
+PI30MAX watchdog failure path. An unsupported-register exception suppresses
+further Modbus attempts until process restart. Retained PV2 measurements are
+masked by dedicated availability after failure, expiry, or restart.
 
 ## Health services
 
@@ -271,6 +284,8 @@ Preserve the Panic target/context, keep/verify SUB, and ACK-confirm OSO. Resume 
 ### Hybrid
 
 Pure input/output service. See [Decision Engine](DECISION_ENGINE.md).
+The companion night-enforcement evaluator reuses the persisted target and
+dated ownership context; it does not recalculate the target or write hardware.
 
 ### Panic
 
@@ -281,6 +296,9 @@ Pure input/output service with 07:00–23:50 time-window checks. It maps Grid Co
 The main loop monitors confirmed modes:
 
 - Hybrid Charging + SOC ≥ adaptive target → enter Hybrid Grid Hold;
+- active dated AHM plan + Solar + SOC = target → enter Hybrid Grid Hold;
+- active dated AHM plan + Solar/Grid Hold + SOC < target → enter or resume
+  Hybrid Charging when fresh telemetry and grid are available;
 - Panic Charging + SOC ≥ target → enter Panic Grid Hold;
 - Panic Grid Hold + SOC < target → resume Panic Charging;
 - AHM at 23:50 overtakes either Panic mode.
@@ -343,7 +361,7 @@ Existing HA registry IDs are not automatically renamed by `default_entity_id`; m
 ## Known technical debt
 
 - `main.py` is large;
-- no executable test suite;
+- release test coverage remains concentrated in standard-library unit suites;
 - dependencies are unpinned;
 - graceful shutdown is implicit;
 - constants are duplicated across services;

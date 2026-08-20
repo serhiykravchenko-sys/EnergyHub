@@ -1,0 +1,94 @@
+configuration:
+  bot_token:
+    name: Telegram bot token
+    description: Secret token issued by BotFather. Never commit or share it.
+  destination_chat_id:
+    name: Family group chat ID
+    description: Negative Telegram group ID. Keep the real destination ID only in the app configuration.
+  weather_entity:
+    name: Weather entity
+    description: Use auto to select weather.forecast_home or the first available weather entity, or enter an explicit entity ID.
+  send_time:
+    name: Morning delivery time
+    description: Local time for the daily family report.
+  soc_snapshot_time:
+    name: SOC snapshot time
+    description: Local time at which actual battery SOC and the EnergyHub target are captured.
+  night_start_time:
+    name: Night tariff start
+    description: Start of the night grid-import calculation.
+  timezone:
+    name: Time zone
+    description: IANA time zone used for scheduling and forecast periods.
+  useful_solar_threshold_w:
+    name: Useful solar threshold
+    description: Forecast PV power in watts considered useful generation.
+  strong_wind_threshold_ms:
+    name: Strong wind threshold
+    description: Wind or gust speed in m/s that adds a bad-weather warning.
+  test_mode:
+    name: Test mode
+    description: Sends one preview per app version and labels daily reports as tests.
+  battery_soc_entity:
+    name: Battery SOC entity
+    description: Home Assistant entity containing actual battery SOC.
+  target_soc_entity:
+    name: Target SOC entity
+    description: EnergyHub Adaptive Hybrid target SOC entity.
+  ahm_minimum_soc_entity:
+    name: AHM minimum SOC entity
+    description: User-selected Adaptive Hybrid residual reserve.
+  reserve_advice_entity:
+    name: AHM reserve advice entity
+    description: EnergyHub three-morning reserve-advisor status.
+  reserve_advice_current_soc_entity:
+    name: AHM advice current SOC entity
+    description: Current reserve evaluated by the advisor.
+  reserve_advice_suggested_soc_entity:
+    name: AHM advice suggested SOC entity
+    description: Informational reserve suggested by the advisor.
+  reserve_advice_sample_count_entity:
+    name: AHM advice sample count entity
+    description: Comparable completed mornings at the current reserve.
+  operating_mode_entity:
+    name: EnergyHub mode entity
+    description: Entity used to summarize the observed night mode.
+  yesterday_consumption_entity:
+    name: Yesterday consumption entity
+    description: EnergyHub completed daily house-consumption snapshot.
+  solar_forecast_entity:
+    name: Solcast today entity
+    description: Solcast entity with today's kWh state and detailedHourly attribute.
+  sun_entity:
+    name: Sun entity
+    description: Home Assistant Sun entity used for today's sunrise and sunset.
+  moon_entity:
+    name: Moon entity
+    description: Moon phase entity; only new moon and full moon are shown.
+  daily_grid_import_entity:
+    name: Current daily grid import
+    description: EnergyHub grid-import estimate that resets at midnight.
+  yesterday_grid_import_entity:
+    name: Yesterday grid import
+    description: EnergyHub completed previous-day grid-import estimate.
+  grid_voltage_entity:
+    name: Grid voltage entity
+    description: Inverter AC-input voltage used to detect external-grid loss and recovery.
+  grid_confidence_entity:
+    name: Grid Confidence entity
+    description: EnergyHub reliability classification used for daytime reserve-target notifications.
+  telemetry_freshness_entity:
+    name: Telemetry freshness entity
+    description: EnergyHub freshness state used before describing heat-pump management ownership.
+  heat_pump_active_threshold_w:
+    name: Heat-pump active threshold
+    description: Minimum observed power in watts above which a heat pump is treated as running for SOC reserve warnings.
+  heat_pump_floor_1_power_entity:
+    name: First-floor heat-pump power entity
+    description: Live power entity used to determine whether the first-floor heat pump is running.
+  heat_pump_floor_2_power_entity:
+    name: Second-floor heat-pump power entity
+    description: Live power entity used to determine whether the second-floor heat pump is running.
+  heat_pump_floor_3_power_entity:
+    name: Third-floor heat-pump power entity
+    description: Live power entity used to determine whether the third-floor heat pump is running.
