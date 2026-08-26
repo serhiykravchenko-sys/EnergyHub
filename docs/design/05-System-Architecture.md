@@ -6,7 +6,10 @@ EnergyHub connects the physical energy system, Home Assistant, MQTT, decision se
 
 ![EnergyHub technical overview](../Images/Infographic%E2%84%962_details.png)
 
-The infographic is an implementation-level map of the current 1.0 release candidate. It should be read together with [Developer Architecture](10-Developer-Architecture.md) for file-by-file responsibilities and extension guidance.
+The infographic is a release-neutral implementation map of the architecture
+validated through EnergyHub 1.3.14. It should be read together with
+[Developer Architecture](10-Developer-Architecture.md) for file-by-file
+responsibilities and extension guidance.
 
 ## External systems
 
@@ -188,10 +191,10 @@ Decision result or manual request
 | Mode | Menu 01 | Menu 16 | Exit |
 |---|---|---|---|
 | Solar | SBU | OSO | default |
-| Hybrid Charging | SUB | SNU | adaptive SOC target, currently 30-95% |
-| Hybrid Grid Hold | SUB | OSO | confirmed guarded early-Solar or 07:00 Solar request |
+| Hybrid Charging | SUB | SNU | adaptive SOC target, currently 20-95% |
+| Hybrid Grid Hold | SUB | OSO | confirmed guarded early Solar or 07:00 Panic handoff |
 | Panic Charging | SUB | SNU | SOC reaches the 20/60/80/95% effective target |
-| Panic Grid Hold | SUB | OSO | AHM takeover at 23:50 |
+| Panic Grid Hold | SUB | OSO | Normal SOC reaches 30%, or AHM takeover at 23:50 |
 
 ## Autopilot behavior
 

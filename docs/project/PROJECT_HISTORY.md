@@ -352,7 +352,11 @@ Architectural goal:
 
 ---
 
-# Future — EnergyHub 2.x
+# Historical future plan — EnergyHub 2.x (superseded)
+
+This section preserves the original project direction. The active roadmap now
+assigns Fault-Aware Smart Thermal to 2.0, Conversational EnergyHub to 3.0,
+Tariff Scheduling to 4.0, and the Hardware & Economic Ecosystem to 5.0.
 
 EnergyHub will evolve into a multi-vendor energy optimization platform.
 
@@ -480,10 +484,9 @@ Architectural result:
 
 # August 2026 — EnergyHub 1.x Development Start
 
-EnergyHub 1.0.2 was tagged, released, and tested. Feature development then
-moved to a separate private engineering repository while the stable public
-distribution repository remained unchanged until the monitored 1.3 series was
-ready for promotion.
+EnergyHub 1.0.2 was tagged, released, and tested. Development then continued in
+a private repository while the stable public distribution repository remained
+unchanged.
 
 The initial 1.1 sequence was agreed as:
 

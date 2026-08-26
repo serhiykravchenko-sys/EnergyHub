@@ -17,7 +17,13 @@ from .events import (
     valid_confidence,
 )
 from .home_assistant import HomeAssistantClient, HomeAssistantError
-from .report import build_report, number, solar_peak, sun_moon_lines, useful_solar_window, weather_summary
+from .device_health import (
+    DeviceHealthMonitor,
+    acknowledge_health_report,
+    doorbell_report_line,
+    environment_report_lines,
+)
+from .report import build_report, inverter_report_lines, number, solar_peak, sun_moon_lines, useful_solar_window, weather_summary
 from .state import StateStore
 from .telegram import TelegramClient, TelegramError
 
@@ -476,6 +482,39 @@ def create_report(config: Config, client: HomeAssistantClient, state: dict[str, 
     snapshot = {} if preview else state.setdefault("soc_snapshots", {}).get(key, {})
     night_import = None if preview else number(state.setdefault("night_imports", {}).get(key))
     consumption = numeric_entity(client, config.yesterday_consumption_entity)
+    tariff_import = (
+        {}
+        if preview
+        else {
+            "yesterday_night_kwh": numeric_entity(
+                client, config.yesterday_night_grid_import_entity
+            ),
+            "yesterday_normal_kwh": numeric_entity(
+                client, config.yesterday_normal_grid_import_entity
+            ),
+            "yesterday_cost_uah": numeric_entity(
+                client, config.yesterday_grid_import_cost_entity
+            ),
+            "month_night_kwh": numeric_entity(
+                client, config.month_night_grid_import_entity
+            ),
+            "month_normal_kwh": numeric_entity(
+                client, config.month_normal_grid_import_entity
+            ),
+            "month_total_kwh": numeric_entity(
+                client, config.month_grid_import_entity
+            ),
+            "month_cost_uah": numeric_entity(
+                client, config.month_grid_import_cost_entity
+            ),
+            "night_price": numeric_entity(
+                client, config.night_grid_import_price_entity
+            ),
+            "normal_price": numeric_entity(
+                client, config.normal_grid_import_price_entity
+            ),
+        }
+    )
     reserve_advice = {
         "status": entity_value(client, config.reserve_advice_entity),
         "current_soc": numeric_entity(
@@ -488,6 +527,23 @@ def create_report(config: Config, client: HomeAssistantClient, state: dict[str, 
             client, config.reserve_advice_sample_count_entity
         ),
     }
+    device_health_lines = environment_report_lines(state, now)
+    inverter_lines = inverter_report_lines(
+        [
+            entity
+            for entity_id in config.inverter_message_entities
+            if (entity := client.state(entity_id)) is not None
+        ],
+        now.date() - timedelta(days=1),
+        timezone,
+    )
+    try:
+        doorbell_line = doorbell_report_line(config, client, now)
+    except HomeAssistantError as exc:
+        LOGGER.warning("Doorbell battery check omitted: %s", exc)
+        doorbell_line = None
+    if doorbell_line:
+        device_health_lines.append(doorbell_line)
     return build_report(
         weather_lines=weather_lines,
         astronomy_lines=astronomy,
@@ -498,6 +554,7 @@ def create_report(config: Config, client: HomeAssistantClient, state: dict[str, 
         consumption=consumption,
         snapshot=snapshot,
         night_import=night_import,
+        tariff_import=tariff_import,
         test_mode=config.test_mode,
         reserve_advice=reserve_advice,
         ahm_minimum_soc=numeric_entity(client, config.ahm_minimum_soc_entity),
@@ -513,11 +570,36 @@ def create_report(config: Config, client: HomeAssistantClient, state: dict[str, 
                 config.ahm_minimum_soc_entity,
             ),
         ),
+        device_health_lines=device_health_lines,
+        inverter_lines=inverter_lines,
     )
 
 
 def due_for_report(config: Config, state: dict[str, Any], now: datetime) -> bool:
     return now.hour * 60 + now.minute >= time_minutes(config.send_time) and state.get("last_report_date") != now.date().isoformat()
+
+
+def prepare_morning_report_outbox(
+    config: Config,
+    client: HomeAssistantClient,
+    state: dict[str, Any],
+    now: datetime,
+) -> bool:
+    report_date = now.date().isoformat()
+    outbox = state.get("morning_report_outbox")
+    if (
+        isinstance(outbox, dict)
+        and outbox.get("date") == report_date
+        and isinstance(outbox.get("message"), str)
+        and outbox["message"]
+    ):
+        return False
+
+    state["morning_report_outbox"] = {
+        "date": report_date,
+        "message": create_report(config, client, state, now),
+    }
+    return True
 
 
 def clean_old_state(state: dict[str, Any], now: datetime) -> None:
@@ -540,6 +622,7 @@ def run() -> None:
     state = store.load()
     client = HomeAssistantClient()
     telegram = TelegramClient(config.bot_token)
+    device_health = DeviceHealthMonitor(config)
     LOGGER.info("Morning report scheduled for %s; SOC snapshot at %s", config.send_time, config.soc_snapshot_time)
 
     started_at = datetime.now(timezone)
@@ -552,6 +635,15 @@ def run() -> None:
 
     if config.test_mode and state.get("test_message_version") != VERSION:
         try:
+            try:
+                device_health.observe(
+                    client,
+                    state,
+                    datetime.now(timezone),
+                    force=True,
+                )
+            except HomeAssistantError as exc:
+                LOGGER.warning("Device-health preview omitted: %s", exc)
             telegram.send_message(config.destination_chat_id, create_report(config, client, state, datetime.now(timezone), preview=True))
         except (HomeAssistantError, TelegramError) as exc:
             LOGGER.warning("Test preview not delivered; will retry: %s", exc)
@@ -570,10 +662,32 @@ def run() -> None:
             changed |= observe_night_mode(config, client, state, now)
             changed |= capture_night_baseline(config, client, state, now)
             changed |= capture_seven_snapshot(config, client, state, now)
-            if due_for_report(config, state, now):
-                message = create_report(config, client, state, now)
+            report_due = due_for_report(config, state, now)
+            try:
+                changed |= device_health.observe(
+                    client,
+                    state,
+                    now,
+                    force=report_due,
+                )
+            except HomeAssistantError as exc:
+                LOGGER.warning("Device-health check omitted: %s", exc)
+            if report_due:
+                if prepare_morning_report_outbox(
+                    config,
+                    client,
+                    state,
+                    now,
+                ):
+                    # Persist the exact logical report before the network call.
+                    # Telegram has no idempotency key, so a crash after its API
+                    # accepts the message can still cause a rare retry duplicate.
+                    store.save(state)
+                message = state["morning_report_outbox"]["message"]
                 telegram.send_message(config.destination_chat_id, message)
                 state["last_report_date"] = now.date().isoformat()
+                state["morning_report_outbox"] = None
+                acknowledge_health_report(state)
                 LOGGER.info("Morning report delivered for %s", state["last_report_date"])
                 changed = True
             if changed:

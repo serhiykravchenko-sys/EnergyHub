@@ -97,6 +97,16 @@ class EventFormattingTests(unittest.TestCase):
         self.assertIn("ОЧІКУВАННЯ", waiting)
         self.assertIn("не надсилає нових команд", waiting)
 
+    def test_grid_voltage_must_exceed_inverter_presence_threshold(self):
+        message = heat_pump_management_message(
+            confidence="normal",
+            voltage=120,
+            freshness="fresh",
+            minimum_soc=20,
+        )
+
+        self.assertIn("ЗАХИСТ ENERGYHUB", message)
+
     def test_reserve_warning_explains_manual_or_protected_policy(self):
         manual = reserve_warning_message(
             soc=50,

@@ -36,7 +36,14 @@ from app.mqtt.publisher import (
     publish_early_solar_handover_discovery,
     publish_hybrid_decision,
     publish_hybrid_decision_discovery,
+    publish_grid_import_discovery,
+    publish_inverter_fault_journal,
+    publish_inverter_fault_journal_discovery,
+    publish_soc_anomaly_journal,
+    publish_soc_anomaly_journal_discovery,
 )
+from app.services.soc_anomaly_journal import SocAnomalyJournal
+from app.services.inverter_fault_journal import InverterFaultJournal
 
 
 class FixedAvailabilityHistory:
@@ -153,15 +160,25 @@ class FakeInverter:
         "POP02": "Solar Battery Utility",
     }
 
-    def __init__(self, failed_charger_commands=None):
+    def __init__(
+        self,
+        failed_charger_commands=None,
+        failed_output_commands=None,
+    ):
         self.failed_charger_commands = set(
             failed_charger_commands or []
+        )
+        self.failed_output_commands = set(
+            failed_output_commands or []
         )
         self.output_priority_raw = "Solar Battery Utility"
         self.calls = []
 
     def set_output_source_priority(self, command):
         self.calls.append(("menu_01", command))
+
+        if command in self.failed_output_commands:
+            return False
 
         raw_value = self.OUTPUT_PRIORITY_VALUES.get(command)
         if raw_value is None:
@@ -202,6 +219,7 @@ class MqttDiscoveryMetadataTests(unittest.TestCase):
         publish_daily_summary_discovery(client)
         publish_hybrid_decision_discovery(client)
         publish_early_solar_handover_discovery(client)
+        publish_grid_import_discovery(client)
 
         for topic, payload in client.discovery_payloads().items():
             if payload.get("device_class") != "energy":
@@ -212,6 +230,20 @@ class MqttDiscoveryMetadataTests(unittest.TestCase):
                 "measurement",
                 topic,
             )
+
+    def test_tariff_totals_are_long_term_statistics_sources(self):
+        client = FakeMqttClient()
+        publish_grid_import_discovery(client)
+        discovery = client.discovery_payloads()
+
+        for key in (
+            "grid_import_night_total_estimated",
+            "grid_import_normal_total_estimated",
+        ):
+            payload = discovery[f"homeassistant/sensor/energyhub_{key}/config"]
+            self.assertEqual("energy", payload["device_class"])
+            self.assertEqual("total_increasing", payload["state_class"])
+            self.assertEqual("kWh", payload["unit_of_measurement"])
 
     def test_initial_hybrid_publish_replaces_retained_legacy_reason(self):
         client = FakeMqttClient()
@@ -236,9 +268,75 @@ class MqttDiscoveryMetadataTests(unittest.TestCase):
             "EnergyHub started; next scheduled evaluation is 23:50",
         )
         self.assertEqual(status, "awaiting_evaluation")
-        self.assertTrue(status_retained)
         self.assertTrue(retained)
+        self.assertTrue(status_retained)
         self.assertLessEqual(len(reason), 255)
+
+    def test_soc_anomaly_discovery_and_attributes_are_retained(self):
+        client = FakeMqttClient()
+        journal = SocAnomalyJournal(path=None)
+
+        publish_soc_anomaly_journal_discovery(client)
+        publish_soc_anomaly_journal(client, journal)
+
+        discovery = client.discovery_payloads()
+        latest = discovery[
+            "homeassistant/sensor/energyhub_soc_anomaly_latest/config"
+        ]
+        self.assertEqual("timestamp", latest["device_class"])
+        self.assertEqual(
+            "powmr/soc_anomaly_latest/attributes",
+            latest["json_attributes_topic"],
+        )
+        published = {
+            topic: (payload, retained)
+            for topic, payload, retained in client.published
+        }
+        attributes, retained = published[
+            "powmr/soc_anomaly_latest/attributes"
+        ]
+        self.assertTrue(retained)
+        self.assertEqual(0, json.loads(attributes)["event_count"])
+
+    def test_inverter_fault_discovery_publishes_current_and_three_recent(self):
+        client = FakeMqttClient()
+        journal = InverterFaultJournal(path=None)
+
+        publish_inverter_fault_journal_discovery(client)
+        publish_inverter_fault_journal(client, journal)
+
+        discovery = client.discovery_payloads()
+        self.assertIn(
+            "homeassistant/sensor/energyhub_inverter_fault_current/config",
+            discovery,
+        )
+        for position in range(1, 4):
+            key = f"inverter_fault_recent_{position}"
+            payload = discovery[
+                f"homeassistant/sensor/energyhub_{key}/config"
+            ]
+            self.assertEqual(
+                f"sensor.energyhub_{key}", payload["default_entity_id"]
+            )
+            self.assertEqual(
+                f"powmr/{key}/attributes", payload["json_attributes_topic"]
+            )
+
+    def test_inverter_fault_states_respect_home_assistant_limit(self):
+        client = FakeMqttClient()
+        journal = InverterFaultJournal(path=None)
+        journal.current_state = lambda: "C" * 400
+        journal.event_state = lambda _position: "E" * 400
+
+        publish_inverter_fault_journal(client, journal)
+
+        state_payloads = [
+            payload
+            for topic, payload, _retained in client.published
+            if topic.endswith("/state")
+        ]
+        self.assertTrue(state_payloads)
+        self.assertTrue(all(len(payload) == 255 for payload in state_payloads))
 
     def test_initial_hybrid_publish_explains_retained_target(self):
         client = FakeMqttClient()
@@ -880,6 +978,167 @@ class PanicDecisionTests(unittest.TestCase):
         self.assertEqual(result["target_soc"], 20)
         self.assertEqual(result["request"], "panic")
 
+    def test_normal_grid_enters_hold_at_exactly_20_percent(self):
+        result = self.evaluate(
+            grid_confidence="normal",
+            battery_soc=20,
+        )
+
+        self.assertEqual(result["status"], "trigger_grid_hold")
+        self.assertEqual(result["request"], "panic_grid_hold")
+        self.assertEqual(result["release_soc"], 30)
+
+    def test_normal_grid_floor_requests_immediate_evaluation(self):
+        self.assertTrue(
+            self.engine.requires_immediate_evaluation(
+                operating_mode="solar",
+                grid_confidence="normal",
+                battery_soc=20,
+                grid_available=True,
+                now=datetime(2026, 8, 1, 13, 0),
+            )
+        )
+
+    def test_normal_grid_floor_waits_without_transition_while_grid_is_offline(self):
+        result = self.evaluate(
+            grid_confidence="normal",
+            battery_soc=20,
+            grid_available=False,
+        )
+
+        self.assertEqual(result["status"], "waiting_for_grid")
+        self.assertIsNone(result["request"])
+        self.assertEqual(result["phase"], "waiting_for_grid")
+
+        self.assertFalse(
+            self.engine.requires_immediate_evaluation(
+                operating_mode="solar",
+                grid_confidence="normal",
+                battery_soc=20,
+                grid_available=False,
+                now=datetime(2026, 8, 1, 13, 0),
+            )
+        )
+
+    def test_normal_grid_below_floor_stays_solar_while_grid_is_offline(self):
+        result = self.evaluate(
+            grid_confidence="normal",
+            battery_soc=15,
+            grid_available=False,
+        )
+
+        self.assertEqual(result["status"], "waiting_for_grid")
+        self.assertIsNone(result["request"])
+        self.assertEqual(result["phase"], "waiting_for_grid")
+
+    def test_normal_grid_hold_releases_solar_at_30_percent(self):
+        result = self.evaluate(
+            operating_mode="panic_grid_hold",
+            grid_confidence="normal",
+            battery_soc=30,
+        )
+
+        self.assertEqual(result["status"], "release_solar")
+        self.assertEqual(result["request"], "solar")
+
+    def test_normal_grid_release_requests_immediate_evaluation(self):
+        self.assertTrue(
+            self.engine.requires_immediate_evaluation(
+                operating_mode="panic_grid_hold",
+                grid_confidence="normal",
+                battery_soc=30,
+                grid_available=True,
+                now=datetime(2026, 8, 1, 13, 0),
+            )
+        )
+
+    def test_immediate_release_requires_grid_and_daytime_window(self):
+        self.assertFalse(
+            self.engine.requires_immediate_evaluation(
+                operating_mode="panic_grid_hold",
+                grid_confidence="normal",
+                battery_soc=30,
+                grid_available=False,
+                now=datetime(2026, 8, 1, 13, 0),
+            )
+        )
+        self.assertFalse(
+            self.engine.requires_immediate_evaluation(
+                operating_mode="solar",
+                grid_confidence="normal",
+                battery_soc=20,
+                grid_available=True,
+                now=datetime(2026, 8, 1, 6, 59),
+            )
+        )
+
+    def test_normal_grid_hold_waits_below_30_percent(self):
+        result = self.evaluate(
+            operating_mode="panic_grid_hold",
+            grid_confidence="normal",
+            battery_soc=29,
+        )
+
+        self.assertEqual(result["status"], "grid_hold")
+        self.assertIsNone(result["request"])
+
+    def test_0700_handoff_keeps_confirmed_hold_below_30_percent(self):
+        result = self.evaluate(
+            operating_mode="hybrid_grid_hold",
+            grid_confidence="normal",
+            battery_soc=20,
+            now=datetime(2026, 8, 1, 7, 0),
+        )
+
+        self.assertEqual(result["status"], "handoff_to_grid_hold")
+        self.assertEqual(result["request"], "panic_grid_hold")
+        self.assertEqual(result["target_soc"], 20)
+
+    def test_0700_handoff_releases_solar_at_30_percent(self):
+        result = self.evaluate(
+            operating_mode="hybrid_grid_hold",
+            grid_confidence="normal",
+            battery_soc=30,
+            now=datetime(2026, 8, 1, 7, 0),
+        )
+
+        self.assertEqual(result["status"], "handoff_to_solar")
+        self.assertEqual(result["request"], "solar")
+
+    def test_normal_release_waits_while_grid_is_offline(self):
+        result = self.evaluate(
+            operating_mode="panic_grid_hold",
+            grid_confidence="normal",
+            battery_soc=30,
+            grid_available=False,
+        )
+
+        self.assertEqual(result["status"], "grid_hold")
+        self.assertIsNone(result["request"])
+
+    def test_non_normal_hold_does_not_use_30_percent_release(self):
+        result = self.evaluate(
+            operating_mode="panic_grid_hold",
+            grid_confidence="unstable",
+            battery_soc=60,
+        )
+
+        self.assertEqual(result["status"], "grid_hold")
+        self.assertIsNone(result["request"])
+        self.assertIsNone(result["release_soc"])
+
+    def test_missed_ahm_debt_disables_normal_30_percent_cycle(self):
+        result = self.evaluate(
+            operating_mode="panic_grid_hold",
+            grid_confidence="normal",
+            battery_soc=69,
+            ahm_target_soc=70,
+        )
+
+        self.assertEqual(result["status"], "trigger_charge")
+        self.assertEqual(result["request"], "panic")
+        self.assertIsNone(result["release_soc"])
+
     def test_offline_grid_arms_panic_and_waits(self):
         result = self.evaluate(
             grid_confidence="panic",
@@ -937,11 +1196,22 @@ class PanicDecisionTests(unittest.TestCase):
             )
             self.assertEqual(result["status"], "skipped")
 
-    def test_active_hybrid_strategy_is_not_interrupted(self):
+    def test_daytime_panic_takes_over_active_hybrid_charging(self):
         result = self.evaluate(
             operating_mode="hybrid_charging",
             grid_confidence="panic",
             battery_soc=10,
+        )
+
+        self.assertEqual(result["status"], "handoff_to_charging")
+        self.assertEqual(result["request"], "panic")
+
+    def test_nighttime_hybrid_strategy_is_not_interrupted(self):
+        result = self.evaluate(
+            operating_mode="hybrid_charging",
+            grid_confidence="panic",
+            battery_soc=10,
+            now=datetime(2026, 8, 1, 6, 59),
         )
 
         self.assertEqual(result["status"], "skipped")
@@ -1175,6 +1445,47 @@ class InverterControllerTests(unittest.TestCase):
         "app.services.inverter_controller.time.sleep",
         return_value=None,
     )
+    def test_enter_hybrid_clears_stale_panic_context_before_writes(
+        self,
+        _sleep,
+    ):
+        controller = self.make_controller()
+        controller.set_panic_target_soc(80)
+
+        self.assertTrue(controller.enter_hybrid())
+        self.assertIsNone(controller.panic_target_soc)
+        self.assertEqual(controller.mode, "hybrid_charging")
+
+    def test_hybrid_writes_are_blocked_if_panic_context_cannot_persist_clear(self):
+        inverter = FakeInverter()
+        controller = self.make_controller(inverter)
+        controller.panic_target_soc = 80
+        controller._persist_state = lambda: False
+
+        self.assertFalse(controller.enter_hybrid())
+        self.assertEqual("transition_failed", controller.mode)
+        self.assertEqual([], inverter.calls)
+
+    @patch(
+        "app.services.inverter_controller.time.sleep",
+        return_value=None,
+    )
+    def test_hybrid_menu_01_failure_attempts_solar_recovery(
+        self,
+        _sleep,
+    ):
+        inverter = FakeInverter(failed_output_commands={"POP01"})
+        controller = self.make_controller(inverter)
+
+        self.assertFalse(controller.enter_hybrid())
+        self.assertEqual(controller.mode, "solar")
+        self.assertIn(("menu_16", "PCP02"), inverter.calls)
+        self.assertIn(("menu_01", "POP02"), inverter.calls)
+
+    @patch(
+        "app.services.inverter_controller.time.sleep",
+        return_value=None,
+    )
     def test_partial_hybrid_failure_recovers_to_solar(
         self,
         _sleep,
@@ -1263,6 +1574,66 @@ class InverterControllerTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(controller.mode, "panic_grid_hold")
         self.assertEqual(controller.panic_target_soc, 80)
+
+    @patch(
+        "app.services.inverter_controller.time.sleep",
+        return_value=None,
+    )
+    def test_enter_panic_menu_01_failure_attempts_solar_recovery(
+        self,
+        _sleep,
+    ):
+        inverter = FakeInverter(failed_output_commands={"POP01"})
+        controller = self.make_controller(inverter)
+
+        self.assertFalse(controller.enter_panic())
+        self.assertEqual(controller.mode, "solar")
+        self.assertIsNone(controller.panic_target_soc)
+        self.assertIn(("menu_16", "PCP02"), inverter.calls)
+        self.assertIn(("menu_01", "POP02"), inverter.calls)
+
+    def test_transfers_confirmed_hybrid_hold_without_writing(self):
+        inverter = FakeInverter()
+        controller = self.make_controller(inverter)
+        controller.mode = "hybrid_grid_hold"
+        controller.confirmed_mode = "hybrid_grid_hold"
+        controller.known_charger_priority = "OSO"
+        controller.set_panic_target_soc(20)
+
+        result = controller.transfer_hybrid_hold_to_panic()
+
+        self.assertTrue(result)
+        self.assertEqual(controller.mode, "panic_grid_hold")
+        self.assertEqual(controller.panic_target_soc, 20)
+        self.assertEqual(inverter.calls, [])
+
+    def test_transfers_confirmed_hybrid_charging_without_writing(self):
+        inverter = FakeInverter()
+        controller = self.make_controller(inverter)
+        controller.mode = "hybrid_charging"
+        controller.confirmed_mode = "hybrid_charging"
+        controller.known_charger_priority = "SNU"
+        controller.set_panic_target_soc(80)
+
+        result = controller.transfer_hybrid_charging_to_panic()
+
+        self.assertTrue(result)
+        self.assertEqual(controller.mode, "panic")
+        self.assertEqual(controller.confirmed_mode, "panic")
+        self.assertEqual(controller.panic_target_soc, 80)
+        self.assertEqual(inverter.calls, [])
+
+    def test_rejects_unconfirmed_grid_hold_transfer(self):
+        controller = self.make_controller()
+        controller.mode = "hybrid_grid_hold"
+        controller.confirmed_mode = "hybrid_grid_hold"
+        controller.known_charger_priority = "SNU"
+        controller.set_panic_target_soc(20)
+
+        result = controller.transfer_hybrid_hold_to_panic()
+
+        self.assertFalse(result)
+        self.assertEqual(controller.mode, "hybrid_grid_hold")
 
 
 if __name__ == "__main__":

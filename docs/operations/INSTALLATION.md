@@ -99,7 +99,7 @@ A healthy startup includes lines similar to:
 
 ```text
 [Energy Hub] Starting...
-[Energy Hub] Version 1.3.8
+[Energy Hub] Version 1.3.9
 Serial: /dev/serial/by-id/usb-FTDI_...
 MQTT connected
 OK | SOC=... | PV1=... | Load=... | Grid=online | Published=17
@@ -128,10 +128,6 @@ The repository includes synchronized examples from the reference installation, b
 Review the files before copying them to another Home Assistant installation. The architectural boundary and current entity set are documented in [12-HomeAssistant-Configuration.md](12-HomeAssistant-Configuration.md).
 
 ## Local development deployment
-
-Release validation evidence is summarized in the root README and versioned
-release notes. Private development and publication procedures are not part of
-the distribution package.
 
 The reference add-on development workflow uses:
 

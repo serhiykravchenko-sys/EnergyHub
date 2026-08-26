@@ -1,4 +1,5 @@
 import json
+import math
 
 import paho.mqtt.client as mqtt
 
@@ -283,14 +284,19 @@ def is_valid_value(key, value):
     if value is None:
         return False
 
-    if key == "battery_capacity":
-        try:
-            soc = float(value)
-        except Exception:
-            return False
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        log(f"Skip invalid numeric value for {key}: {value!r}")
+        return False
 
-        if soc < 0 or soc > 100:
-            log(f"Skip invalid SOC: {soc}")
+    if not math.isfinite(numeric_value):
+        log(f"Skip non-finite value for {key}: {value!r}")
+        return False
+
+    if key == "battery_capacity":
+        if numeric_value < 0 or numeric_value > 100:
+            log(f"Skip invalid SOC: {numeric_value}")
             return False
 
     return True
@@ -387,6 +393,84 @@ def publish_grid_import_discovery(client):
             "Grid Import Yesterday Estimated",
             "kWh",
             "energy",
+            None,
+        ),
+        "grid_import_night_today_estimated": (
+            "Night Grid Import Today Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_normal_today_estimated": (
+            "Normal Grid Import Today Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_night_yesterday_estimated": (
+            "Night Grid Import Yesterday Estimated",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "grid_import_normal_yesterday_estimated": (
+            "Normal Grid Import Yesterday Estimated",
+            "kWh",
+            "energy",
+            None,
+        ),
+        "grid_import_cost_yesterday_estimated": (
+            "Grid Import Cost Yesterday Estimated",
+            "UAH",
+            "monetary",
+            None,
+        ),
+        "grid_import_night_total_estimated": (
+            "Night Grid Import Total Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_normal_total_estimated": (
+            "Normal Grid Import Total Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_night_month_estimated": (
+            "Night Grid Import This Month Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_normal_month_estimated": (
+            "Normal Grid Import This Month Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_month_estimated": (
+            "Grid Import This Month Estimated",
+            "kWh",
+            "energy",
+            "total_increasing",
+        ),
+        "grid_import_cost_month_estimated": (
+            "Grid Import Cost This Month Estimated",
+            "UAH",
+            "monetary",
+            "total_increasing",
+        ),
+        "grid_import_night_price": (
+            "Night Grid Import Price",
+            "UAH/kWh",
+            None,
+            None,
+        ),
+        "grid_import_normal_price": (
+            "Normal Grid Import Price",
+            "UAH/kWh",
+            None,
             None,
         ),
     }
@@ -520,6 +604,63 @@ def publish_battery_health_discovery(client):
     log("Battery Health MQTT discovery published")
 
 
+def publish_soc_anomaly_journal(client, journal):
+    values = journal.mqtt_values()
+
+    client.publish(
+        f"{BASE_TOPIC}/soc_anomaly_event_count/state",
+        str(values["soc_anomaly_event_count"]),
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/soc_anomaly_latest/state",
+        str(values["soc_anomaly_latest"]),
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/soc_anomaly_latest/attributes",
+        json.dumps(journal.latest_attributes()),
+        retain=True,
+    )
+
+
+def publish_soc_anomaly_journal_discovery(client):
+    device = _energyhub_device()
+
+    _publish_sensor_discovery(
+        client,
+        device,
+        {
+            "soc_anomaly_event_count": (
+                "SOC Anomaly Event Count",
+                "events",
+                None,
+                "total_increasing",
+            ),
+        },
+    )
+
+    latest_payload = {
+        "name": "Latest SOC Anomaly",
+        "unique_id": "energyhub_soc_anomaly_latest",
+        "default_entity_id": "sensor.energyhub_soc_anomaly_latest",
+        "state_topic": f"{BASE_TOPIC}/soc_anomaly_latest/state",
+        "json_attributes_topic": (
+            f"{BASE_TOPIC}/soc_anomaly_latest/attributes"
+        ),
+        "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC,
+        "device_class": "timestamp",
+        "device": device,
+    }
+    client.publish(
+        "homeassistant/sensor/energyhub_soc_anomaly_latest/config",
+        json.dumps(latest_payload),
+        retain=True,
+    )
+
+    log("SOC Anomaly Journal MQTT discovery published")
+
+
 def publish_telemetry_freshness(client, telemetry_freshness):
     for key, value in telemetry_freshness.mqtt_values().items():
         client.publish(
@@ -610,6 +751,60 @@ def publish_inverter_health_discovery(client):
     )
 
     log("Inverter Health MQTT discovery published")
+
+
+def publish_inverter_fault_journal(client, journal):
+    client.publish(
+        f"{BASE_TOPIC}/inverter_fault_current/state",
+        journal.current_state()[:HOME_ASSISTANT_STATE_MAX_LENGTH],
+        retain=True,
+    )
+    for position in range(1, 4):
+        key = f"inverter_fault_recent_{position}"
+        client.publish(
+            f"{BASE_TOPIC}/{key}/state",
+            journal.event_state(position)[:HOME_ASSISTANT_STATE_MAX_LENGTH],
+            retain=True,
+        )
+        client.publish(
+            f"{BASE_TOPIC}/{key}/attributes",
+            json.dumps(journal.event_attributes(position)),
+            retain=True,
+        )
+
+
+def publish_inverter_fault_journal_discovery(client):
+    device = _energyhub_device()
+    current = {
+        "name": "Current Inverter Message",
+        "unique_id": "energyhub_inverter_fault_current",
+        "default_entity_id": "sensor.energyhub_inverter_fault_current",
+        "state_topic": f"{BASE_TOPIC}/inverter_fault_current/state",
+        "icon": "mdi:alert-circle-outline",
+        "device": device,
+    }
+    client.publish(
+        "homeassistant/sensor/energyhub_inverter_fault_current/config",
+        json.dumps(current),
+        retain=True,
+    )
+    for position in range(1, 4):
+        key = f"inverter_fault_recent_{position}"
+        payload = {
+            "name": f"Recent Inverter Message {position}",
+            "unique_id": f"energyhub_{key}",
+            "default_entity_id": f"sensor.energyhub_{key}",
+            "state_topic": f"{BASE_TOPIC}/{key}/state",
+            "json_attributes_topic": f"{BASE_TOPIC}/{key}/attributes",
+            "icon": "mdi:history",
+            "device": device,
+        }
+        client.publish(
+            f"homeassistant/sensor/energyhub_{key}/config",
+            json.dumps(payload),
+            retain=True,
+        )
+    log("Inverter fault journal MQTT discovery published")
 
 
 def publish_system_health(client, system_health):

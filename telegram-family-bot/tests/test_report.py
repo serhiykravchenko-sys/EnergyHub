@@ -6,6 +6,9 @@ from zoneinfo import ZoneInfo
 
 from app.report import (
     build_report,
+    compact_number,
+    inverter_duration_text,
+    inverter_report_lines,
     reserve_advice_message,
     solar_peak,
     sun_moon_lines,
@@ -16,6 +19,11 @@ from app.report import (
 
 TZ = ZoneInfo("Europe/Kyiv")
 TODAY = date(2026, 8, 11)
+
+
+class NumberFormattingTests(unittest.TestCase):
+    def test_compact_number_accepts_integer_input(self):
+        self.assertEqual(compact_number(150), "150")
 
 
 class WeatherSummaryTests(unittest.TestCase):
@@ -139,6 +147,72 @@ class AddedMorningDetailsTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_inverter_duration_uses_requested_units(self):
+        self.assertEqual("48 с", inverter_duration_text(48.3))
+        self.assertEqual("6 хв 5 с", inverter_duration_text(365))
+        self.assertEqual("06:25:08", inverter_duration_text(23108.3))
+
+    def test_expected_pv_loss_is_omitted(self):
+        lines = inverter_report_lines(
+            [{"attributes": {"event": {
+                "started_at": "2026-08-10T20:38:00+03:00",
+                "cleared_at": "2026-08-11T03:03:08+03:00",
+                "duration_seconds": 23108.3,
+                "messages": ["pv_loss_warning"],
+            }}}],
+            date(2026, 8, 10),
+            TZ,
+        )
+        self.assertEqual([], lines)
+
+    def test_pv_loss_is_removed_from_mixed_real_warning(self):
+        lines = inverter_report_lines(
+            [{"attributes": {"event": {
+                "started_at": "2026-08-10T20:38:00+03:00",
+                "cleared_at": "2026-08-10T20:44:05+03:00",
+                "duration_seconds": 365,
+                "messages": ["pv_loss_warning", "over_load"],
+            }}}],
+            date(2026, 8, 10),
+            TZ,
+        )
+        self.assertNotIn("pv loss", lines[1])
+        self.assertIn("перевантаження", lines[1])
+        self.assertIn("6 хв 5 с", lines[1])
+
+    def test_inverter_messages_include_yesterday_context_and_recovery(self):
+        lines = inverter_report_lines(
+            [{"attributes": {"event": {
+                "started_at": "2026-08-10T21:43:00+03:00",
+                "cleared_at": "2026-08-10T21:43:48+03:00",
+                "duration_seconds": 48,
+                "messages": ["over_load"],
+                "latest_conditions": {
+                    "load_w": 9100,
+                    "load_percent": 91,
+                    "grid_available": False,
+                    "operating_mode": "solar",
+                },
+            }}}],
+            date(2026, 8, 10),
+            TZ,
+        )
+        self.assertIn("перевантаження", lines[1])
+        self.assertIn("9100 W (91%)", lines[1])
+        self.assertIn("мережа була відсутня", lines[1])
+        self.assertIn("48 с", lines[1])
+
+    def test_inverter_messages_omit_events_outside_report_day(self):
+        lines = inverter_report_lines(
+            [{"attributes": {"event": {
+                "started_at": "2026-08-09T21:43:00+03:00",
+                "messages": ["over_load"],
+            }}}],
+            date(2026, 8, 10),
+            TZ,
+        )
+        self.assertEqual([], lines)
+
     def test_complete_new_morning_details(self):
         message = build_report(
             weather_lines=[],
@@ -188,6 +262,32 @@ class ReportTests(unittest.TestCase):
         })
         self.assertIn("2/3", recommendation)
 
+    def test_superseded_inverter_message_is_not_called_cleared(self):
+        timezone = ZoneInfo("Europe/Kyiv")
+        lines = inverter_report_lines(
+            [{"attributes": {"event": {
+                "started_at": "2026-08-10T09:00:00+03:00",
+                "cleared_at": "2026-08-10T09:01:00+03:00",
+                "recovery": "superseded",
+                "messages": ["over_load"],
+            }}}],
+            date(2026, 8, 10),
+            timezone,
+        )
+
+        self.assertIn("замінено іншим набором", "\n".join(lines))
+
+    def test_current_ahm_minimum_is_not_labeled_as_recommended(self):
+        message = build_report(
+            weather_lines=[], solar_forecast=None, solar_window=None,
+            threshold_w=300, consumption=None, snapshot={},
+            night_import=None, test_mode=False, ahm_minimum_soc=20,
+            reserve_advice={"status": "learning", "sample_count": 1},
+        )
+
+        self.assertIn("Поточний мінімум AHM", message)
+        self.assertNotIn("Рекомендований мінімум AHM", message)
+
     def test_complete_message(self):
         message = build_report(
             weather_lines=["🌤 Погода <b>сьогодні</b>: сонячно, від +15 до +30 °C"],
@@ -211,6 +311,40 @@ class ReportTests(unittest.TestCase):
             test_mode=False,
         )
         self.assertEqual(message, "🌅 <b>Доброго ранку!</b>")
+
+    def test_tariff_import_summary_reports_yesterday_and_current_month(self):
+        message = build_report(
+            weather_lines=[], solar_forecast=None, solar_window=None,
+            threshold_w=300, consumption=None, snapshot={}, night_import=None,
+            test_mode=False,
+            tariff_import={
+                "yesterday_night_kwh": 4.8,
+                "yesterday_normal_kwh": 0.7,
+                "yesterday_cost_uah": 15.5,
+                "month_night_kwh": 42.3,
+                "month_normal_kwh": 11.8,
+                "month_total_kwh": 54.1,
+                "month_cost_uah": 164.75,
+                "night_price": 2.5,
+                "normal_price": 5.0,
+            },
+        )
+        self.assertIn("Оцінка імпорту з мережі за вчора", message)
+        self.assertIn("Нічний: 4.8 kWh — 12.00 UAH", message)
+        self.assertIn("Звичайний: 0.7 kWh — 3.50 UAH", message)
+        self.assertIn("Разом: 5.5 kWh — 15.50 UAH", message)
+        self.assertIn("Поточний місяць", message)
+        self.assertIn("54.1 kWh — 164.75 UAH", message)
+        self.assertIn("не дані розрахункового лічильника", message)
+
+    def test_incomplete_tariff_import_summary_is_omitted(self):
+        message = build_report(
+            weather_lines=[], solar_forecast=None, solar_window=None,
+            threshold_w=300, consumption=None, snapshot={}, night_import=None,
+            test_mode=False,
+            tariff_import={"yesterday_night_kwh": 4.8},
+        )
+        self.assertNotIn("Оцінка імпорту", message)
 
 
 if __name__ == "__main__":

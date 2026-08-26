@@ -8,6 +8,48 @@ EnergyHub is a local-first, resilience-aware Home Assistant energy controller fo
 
 EnergyHub 1.3 is validated for one reference hardware and installation architecture. It should not yet claim generic Voltronic, multi-vendor, dynamic-price, Net Billing, automatic EV charging, or full HEMS support.
 
+## Public one-sentence description
+
+> Home Assistant energy controller for PowMr solar inverters: hourly solar
+> planning, tariff-aware charging, explainable decisions, and outage-ready
+> battery reserve.
+
+## Public differentiation
+
+EnergyHub should lead with outcomes rather than protocol support:
+
+- it plans from an hourly solar curve and learned essential morning demand,
+  rather than only showing telemetry or reacting to one SOC threshold;
+- it coordinates night AHM and daytime Panic as explicit owners with persisted
+  targets, restart reconstruction, and recovery behavior;
+- it combines economy and resilience through a homeowner-selected reserve and
+  advisory model, without silently changing that preference;
+- it publishes reasons, targets, freshness, and diagnostics so a homeowner can
+  see why Grid Hold, charging, waiting, or Solar was chosen;
+- it keeps Telegram, voice, Home Assistant, and future AI outside the hardware
+  safety boundary.
+
+The current Telegram companion is useful evidence of a family-facing product,
+but it must be called **briefings and alerts**, not Mission Control. The latter
+is a future capability and should be shown in a separate roadmap panel.
+
+## GitHub landing page
+
+The public README should make the use case understandable before installation:
+
+1. outcome tagline and one-sentence description;
+2. one current dashboard screenshot and the version-neutral AHM/Panic graphic;
+3. three real scenarios: cheap-night planning, grid-outage reserve, and a
+   concise family morning briefing;
+4. current supported hardware and explicit limitations;
+5. a short **Available now / Next** comparison;
+6. installation and upgrade link;
+7. validation evidence and safety boundary.
+
+Recommended repository topics include `home-assistant`, `energy-management`,
+`solar-energy`, `solar-inverter`, `battery-storage`, `energy-optimization`,
+`outage-resilience`, `time-of-use`, `mqtt`, `powmr`, and `solcast`.
+
 ## Product pillars
 
 ### Adaptive solar planning

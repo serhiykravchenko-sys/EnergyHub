@@ -1,3 +1,6 @@
+import math
+
+
 class BatteryHealthMonitor:
     def __init__(self):
         self.previous_soc = None
@@ -14,7 +17,12 @@ class BatteryHealthMonitor:
 
         try:
             soc = float(soc)
-        except Exception:
+        except (TypeError, ValueError):
+            self.status = "warning"
+            self.reason = "soc_invalid"
+            return
+
+        if not math.isfinite(soc) or not 0 <= soc <= 100:
             self.status = "warning"
             self.reason = "soc_invalid"
             return

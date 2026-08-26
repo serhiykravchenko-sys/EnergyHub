@@ -24,6 +24,10 @@ class PV2TelemetryService:
             MINIMUM_STALE_AFTER_SECONDS,
             self.poll_interval * 2 + 10,
         )
+        self.pv1_stale_after = max(
+            PV1_STALE_AFTER_SECONDS,
+            self.poll_interval + TOTAL_PV_MAX_ALIGNMENT_SECONDS,
+        )
         self.clock = clock or time.monotonic
 
         self.last_attempt_time = None
@@ -159,7 +163,7 @@ class PV2TelemetryService:
             and self.total_pv1_sample_time is not None
             and now - self.total_sample_time < self.stale_after
             and now - self.total_pv1_sample_time
-            < PV1_STALE_AFTER_SECONDS
+            < self.pv1_stale_after
         )
 
     def mqtt_values(self, now=None):

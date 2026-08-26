@@ -2,6 +2,158 @@
 
 All notable EnergyHub changes are recorded here.
 
+## [1.3.14] - 2026-08-26
+
+### Fixed
+
+- When Grid Confidence is Normal and Solar reaches the 20% reserve floor while
+  the physical grid is absent, keep Solar unchanged and wait for grid return
+  instead of requesting an unavailable Grid Hold transition.
+- Reevaluate the same floor immediately when fresh telemetry confirms that the
+  grid has returned.
+- Transfer confirmed Hybrid Charging ownership to Panic Charging without
+  rewriting the identical `SUB` + `SNU` settings.
+- Reject non-finite PI30MAX numbers and out-of-range SOC before retained MQTT,
+  control-state construction, or battery-health classification.
+- Clear stale Panic ownership before non-Panic Hybrid writes and attempt Solar
+  recovery when Hybrid or Panic Menu 01 entry fails.
+- Close superseded inverter-message incidents consistently, preserve valid
+  journal history when optional persisted fields are malformed, and constrain
+  Home Assistant fault states to 255 characters.
+- Use the same 180 V physical-grid threshold in Telegram and smart-load
+  automations, reconcile heat-pump lockouts after startup, and preserve
+  already-latched OFF enforcement when telemetry becomes stale.
+- Persist a logical Telegram morning-report outbox before delivery, complete
+  all app-option translations, and label an unevaluated AHM value as current
+  rather than recommended.
+- Clarify Mission Control PV1/PV2 diagnostics, SOC anomaly evidence, 48-hour
+  grid availability, and non-billing-grade Grid Import; add live authority and
+  remembered-lockout cards to the smart-load views.
+
+### Safety
+
+- The correction adds no new inverter command. It prevents a transition when
+  its required energy source is unavailable and preserves all 1.3.13
+  ownership, hysteresis, missed-AHM, and non-Normal behavior.
+- Telegram Family Assistant joins the coordinated public release train at
+  1.3.14. It remains outbound-only and gains no control capability.
+- Telegram morning delivery is at-least-once because `sendMessage` provides no
+  idempotency key; the persisted outbox narrows but cannot eliminate the rare
+  crash-after-acceptance duplicate window.
+
+## [1.3.13] - 2026-08-23
+
+### Changed
+
+- Replaced the unconditional 07:00 Solar request with an immediate daytime
+  Panic ownership evaluation.
+- Added Normal-grid 20%/30% hysteresis: enter Panic Grid Hold at 20% or below,
+  preserve the battery while solar recovers it, and return to Solar at 30%.
+- Transfer confirmed Hybrid Grid Hold ownership to Panic Grid Hold without
+  rewriting the identical `SUB` + `OSO` inverter settings.
+- Give the water boiler the same temporary trusted-grid manual permission as
+  the heat pumps; remembered lockouts remain available if grid trust is lost.
+- Use routine Daytime Reserve wording for Normal-grid hold/release events.
+- Group Energy Statistics visually with blue PV1/PV2 series and pink
+  night/normal Grid Import series, keep both tariff legend entries visible,
+  center daily/weekly columns in their periods, and label the Mission Control
+  aggregate as `Total Grid Import Est.`
+
+### Safety
+
+- A genuinely missed AHM target still overrides the Normal-grid cycle until
+  recovered. Unstable/Risk/Panic targets remain 60/80/95%.
+- Solar release requires present grid and fresh evaluated SOC. Offline or
+  stale conditions never manufacture a release.
+- EnergyHub does not turn any heat pump, water boiler, or basement pump on.
+  The basement pump remains outside automatic shedding.
+
+## [1.3.12] - 2026-08-22
+
+### Fixed
+
+- Kept expected `pv_loss_warning` transitions in the persistent diagnostic
+  journal while excluding them from the current and latest-three Home
+  Assistant dashboard entities.
+- Skip PV-loss-only events when selecting the three visible incidents and
+  retain every other message from a mixed QPIWS event.
+
+### Safety
+
+- This is presentation filtering only. It does not discard diagnostic
+  evidence, change QPIWS polling, or add inverter or household-load control.
+
+## [1.3.11] - 2026-08-22
+
+### Added
+
+- Added restart-safe, timezone-aware estimated Grid Import accounting for the
+  `00:00–07:00` plus `23:00–24:00` night tariff and the `07:00–23:00`
+  normal tariff.
+- Added dedicated today, completed-yesterday, lifetime-statistics, and
+  current-month MQTT sensors, including estimated UAH cost at initial prices
+  of 2.50 UAH/kWh and 5.00 UAH/kWh.
+- Expanded the existing daily, weekly, and monthly generation charts with
+  night/normal Grid Import series and a compact current-month summary.
+- Added Telegram Family Assistant 0.2.4 completed-yesterday tariff and
+  current-month estimated import/cost reporting.
+
+### Safety
+
+- All tariff and cost results remain informational estimates. They do not
+  represent billing-grade meter readings and never enter a control decision.
+- Schema migration preserves the existing current-day total without guessing
+  a historical tariff split; the first partial tariff day is not presented as
+  a complete previous-day result.
+- Fixed a heat-pump protection recovery race: reserve shed and critical
+  lockout now require fresh telemetry and revalidate that Grid Confidence is
+  not Normal or grid power is absent immediately before any plug command.
+
+## [1.3.10] - 2026-08-21
+
+### Added
+
+- Added a persistent, bounded journal for named QPIWS active-set transitions,
+  recovery time, and the preceding five minutes of inverter telemetry.
+- Added retained Home Assistant MQTT entities for the current inverter message
+  and the latest three incidents, including their contextual attributes.
+- Added the latest three inverter messages to the EnergyHub Status dashboard.
+- Added Telegram Family Assistant 0.2.2 previous-day inverter diagnostics with
+  message name, load, operating mode, grid state, and observed clearance.
+
+### Safety
+
+- Diagnostics remain read-only and perform no inverter or household-load
+  action. A cleared QPIWS message is not described as an automatic restart.
+- Modbus register 4530 remains an unverified research lead and is not polled by
+  the release runtime.
+
+## [1.3.9] - 2026-08-20
+
+### Added
+
+- Added a bounded, persistent SOC anomaly journal for changes of at least five
+  percentage points within five minutes, retaining electrical, operating-mode,
+  freshness, restart, and communication-recovery evidence.
+- Added Home Assistant MQTT diagnostics for the latest SOC anomaly and lifetime
+  event count; the latest entity carries the full event as attributes.
+- Added Telegram Family Assistant 0.2.1 monitoring for seven Xiaomi
+  temperature/humidity sensors, same-hour previous-day and indoor-median
+  anomaly checks, recovery reporting, verified sensor batteries, and an
+  optional Xiaomi doorbell battery warning in the 08:00 report.
+- Added suspected-offline detection when both readings remain unchanged for 24
+  hours and collapsed repeated recovery history to one detailed line per
+  sensor.
+
+### Safety
+
+- SOC anomalies remain evidence only: they do not reject telemetry, inhibit a
+  decision, change inverter mode, switch a load, or send a Telegram alarm.
+- Environmental and device-battery warnings are outbound-only and never
+  become control inputs.
+- Missing, unknown, unavailable, and stale device states are never converted
+  to numeric zero or used as peer measurements.
+
 ## [1.3.8] - 2026-08-18
 
 ### Added

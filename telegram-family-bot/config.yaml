@@ -1,5 +1,5 @@
 name: Telegram Family Assistant
-version: "0.1.9"
+version: "1.3.14"
 slug: telegram_family_assistant
 description: Sends a Ukrainian morning weather and EnergyHub summary to the family Telegram group
 url: https://github.com/serhiykravchenko-sys/EnergyHub
@@ -39,9 +39,36 @@ options:
   moon_entity: moon.moon
   daily_grid_import_entity: sensor.energyhub_daily_grid_import_estimated
   yesterday_grid_import_entity: sensor.energyhub_grid_import_yesterday_estimated
+  yesterday_night_grid_import_entity: sensor.energyhub_grid_import_night_yesterday_estimated
+  yesterday_normal_grid_import_entity: sensor.energyhub_grid_import_normal_yesterday_estimated
+  yesterday_grid_import_cost_entity: sensor.energyhub_grid_import_cost_yesterday_estimated
+  month_night_grid_import_entity: sensor.energyhub_grid_import_night_month_estimated
+  month_normal_grid_import_entity: sensor.energyhub_grid_import_normal_month_estimated
+  month_grid_import_entity: sensor.energyhub_grid_import_month_estimated
+  month_grid_import_cost_entity: sensor.energyhub_grid_import_cost_month_estimated
+  night_grid_import_price_entity: sensor.energyhub_grid_import_night_price
+  normal_grid_import_price_entity: sensor.energyhub_grid_import_normal_price
   grid_voltage_entity: sensor.powmr_10_2m_grid_voltage
   grid_confidence_entity: sensor.energyhub_grid_confidence
   telemetry_freshness_entity: sensor.energyhub_telemetry_freshness
+  inverter_message_entities: >-
+    sensor.energyhub_inverter_fault_recent_1;
+    sensor.energyhub_inverter_fault_recent_2;
+    sensor.energyhub_inverter_fault_recent_3
+  environment_sensor_entities: >-
+    1st floor|sensor.energyhub_floor_1_temperature|sensor.energyhub_floor_1_humidity|indoor;
+    2nd floor Kids room|sensor.energyhub_floor_2_temperature|sensor.energyhub_floor_2_humidity|indoor;
+    3rd floor|sensor.energyhub_floor_3_temperature|sensor.energyhub_floor_3_humidity|indoor;
+    Main entrance|sensor.energyhub_entrance_temperature|sensor.energyhub_entrance_humidity|indoor;
+    1st floor bathroom|sensor.energyhub_bathroom_temperature|sensor.energyhub_bathroom_humidity|indoor||sensor.energyhub_bathroom_pressure;
+    2nd floor toilet|sensor.energyhub_utility_room_temperature|sensor.energyhub_utility_room_humidity|indoor|sensor.energyhub_utility_room_sensor_battery;
+    Basement|sensor.energyhub_basement_temperature|sensor.energyhub_basement_humidity|basement||sensor.energyhub_basement_pressure
+  environment_stale_hours: 24
+  environment_temperature_deviation_c: 5
+  environment_humidity_deviation_percent: 20
+  environment_persistence_minutes: 60
+  device_low_battery_percent: 10
+  doorbell_battery_entity: ""
 
 schema:
   bot_token: password
@@ -68,9 +95,26 @@ schema:
   moon_entity: str
   daily_grid_import_entity: str
   yesterday_grid_import_entity: str
+  yesterday_night_grid_import_entity: str
+  yesterday_normal_grid_import_entity: str
+  yesterday_grid_import_cost_entity: str
+  month_night_grid_import_entity: str
+  month_normal_grid_import_entity: str
+  month_grid_import_entity: str
+  month_grid_import_cost_entity: str
+  night_grid_import_price_entity: str
+  normal_grid_import_price_entity: str
   grid_voltage_entity: str
   grid_confidence_entity: str
   telemetry_freshness_entity: str
+  inverter_message_entities: str
+  environment_sensor_entities: str
+  environment_stale_hours: "float(1,168)"
+  environment_temperature_deviation_c: "float(0.5,20)"
+  environment_humidity_deviation_percent: "float(1,100)"
+  environment_persistence_minutes: "int(0,1440)"
+  device_low_battery_percent: "float(1,100)"
+  doorbell_battery_entity: "str?"
   heat_pump_active_threshold_w: "float?"
   heat_pump_floor_1_power_entity: "str?"
   heat_pump_floor_2_power_entity: "str?"

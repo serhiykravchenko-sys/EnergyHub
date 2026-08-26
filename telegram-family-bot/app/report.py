@@ -37,7 +37,7 @@ def number(value: Any) -> float | None:
 
 def compact_number(value: float, digits: int = 1) -> str:
     rounded = round(value, digits)
-    return str(int(rounded)) if rounded.is_integer() else f"{rounded:.{digits}f}".rstrip("0").rstrip(".")
+    return str(int(rounded)) if rounded == int(rounded) else f"{rounded:.{digits}f}".rstrip("0").rstrip(".")
 
 
 def temperature(value: float) -> str:
@@ -227,7 +227,176 @@ def reserve_advice_message(advice: dict[str, Any] | None) -> str | None:
     return None
 
 
-def build_report(*, weather_lines: list[str], solar_forecast: float | None, solar_window: str | None, threshold_w: int, consumption: float | None, snapshot: dict[str, Any], night_import: float | None, test_mode: bool, astronomy_lines: list[str] | None = None, solar_peak_value: tuple[float, str] | None = None, reserve_advice: dict[str, Any] | None = None, ahm_minimum_soc: float | None = None, heat_pump_management: str | None = None) -> str:
+INVERTER_MESSAGE_NAMES = {
+    "over_load": "перевантаження",
+    "overload": "перевантаження",
+    "battery_low": "низький заряд батареї",
+    "battery_under_shutdown": "аварійно низька напруга батареї",
+    "over_temperature": "перегрів інвертора",
+    "fan_locked": "блокування вентилятора",
+    "output_short_circuited": "коротке замикання виходу",
+    "battery_voltage_high": "висока напруга батареї",
+}
+
+IGNORED_INVERTER_REPORT_MESSAGES = {
+    "pv_loss_warning",
+}
+
+
+def _inverter_message_name(value: Any) -> str:
+    key = str(value or "unknown").strip().lower()
+    return INVERTER_MESSAGE_NAMES.get(key, key.replace("_", " "))
+
+
+def inverter_duration_text(value: Any) -> str | None:
+    seconds_value = number(value)
+    if seconds_value is None or seconds_value < 0:
+        return None
+    total_seconds = int(round(seconds_value))
+    if total_seconds < 60:
+        return f"{total_seconds} с"
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes < 60:
+        return f"{minutes} хв {seconds} с"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def inverter_report_lines(
+    entities: list[dict[str, Any]],
+    report_day,
+    timezone: ZoneInfo,
+) -> list[str]:
+    events = []
+    seen = set()
+    for entity in entities:
+        event = (entity.get("attributes") or {}).get("event")
+        if not isinstance(event, dict):
+            continue
+        started_raw = event.get("started_at")
+        try:
+            started = datetime.fromisoformat(str(started_raw))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone)
+            started = started.astimezone(timezone)
+        except (TypeError, ValueError):
+            continue
+        if started.date() != report_day or started.isoformat() in seen:
+            continue
+        messages = [
+            str(item)
+            for item in event.get("messages", [])
+            if str(item).strip().lower()
+            not in IGNORED_INVERTER_REPORT_MESSAGES
+        ]
+        if not messages:
+            continue
+        seen.add(started.isoformat())
+        report_event = dict(event)
+        report_event["messages"] = messages
+        events.append((started, report_event))
+    if not events:
+        return []
+
+    events.sort(key=lambda item: item[0])
+    lines = [
+        f"⚠️ У доступній історії за вчора повідомлень інвертора: "
+        f"<b>{len(events)}</b>."
+    ]
+    for started, event in events:
+        names = ", ".join(
+            _inverter_message_name(item)
+            for item in event.get("messages", [])
+        ) or "невідоме повідомлення"
+        conditions = event.get("latest_conditions") or {}
+        details = []
+        load_w = number(conditions.get("load_w"))
+        load_percent = number(conditions.get("load_percent"))
+        if load_w is not None:
+            load = f"навантаження {compact_number(load_w)} W"
+            if load_percent is not None:
+                load += f" ({compact_number(load_percent)}%)"
+            details.append(load)
+        mode = mode_name(conditions.get("operating_mode"))
+        if mode:
+            details.append(f"режим {mode}")
+        grid = conditions.get("grid_available")
+        if grid is True:
+            details.append("мережа була доступна")
+        elif grid is False:
+            details.append("мережа була відсутня")
+        recovered = event.get("cleared_at") is not None
+        if event.get("recovery") == "superseded":
+            recovery = "замінено іншим набором повідомлень"
+        else:
+            recovery = "повідомлення зникло" if recovered else "не закрите"
+        duration = inverter_duration_text(event.get("duration_seconds"))
+        if recovered and duration is not None:
+            recovery += f" через {duration}"
+        suffix = f"; {', '.join(details)}" if details else ""
+        lines.append(
+            f"• {started:%H:%M} — <b>{escape(names)}</b>{suffix}; {recovery}."
+        )
+    return lines
+
+
+def tariff_import_report_lines(values: dict[str, Any] | None) -> list[str]:
+    values = values or {}
+    yesterday_night = number(values.get("yesterday_night_kwh"))
+    yesterday_normal = number(values.get("yesterday_normal_kwh"))
+    yesterday_cost = number(values.get("yesterday_cost_uah"))
+    month_night = number(values.get("month_night_kwh"))
+    month_normal = number(values.get("month_normal_kwh"))
+    month_total = number(values.get("month_total_kwh"))
+    month_cost = number(values.get("month_cost_uah"))
+    night_price = number(values.get("night_price"))
+    normal_price = number(values.get("normal_price"))
+
+    required = (
+        yesterday_night,
+        yesterday_normal,
+        yesterday_cost,
+        month_night,
+        month_normal,
+        month_total,
+        month_cost,
+        night_price,
+        normal_price,
+    )
+    if any(value is None or value < 0 for value in required):
+        return []
+
+    yesterday_night_cost = yesterday_night * night_price
+    yesterday_normal_cost = yesterday_normal * normal_price
+    def money(value):
+        return f"{value:.2f}"
+    return [
+        "⚡ <b>Оцінка імпорту з мережі за вчора</b>",
+        (
+            f"🌙 Нічний: {compact_number(yesterday_night)} kWh — "
+            f"{money(yesterday_night_cost)} UAH"
+        ),
+        (
+            f"☀️ Звичайний: {compact_number(yesterday_normal)} kWh — "
+            f"{money(yesterday_normal_cost)} UAH"
+        ),
+        (
+            f"Разом: {compact_number(yesterday_night + yesterday_normal)} kWh — "
+            f"{money(yesterday_cost)} UAH"
+        ),
+        "",
+        "📅 <b>Поточний місяць</b>",
+        f"🌙 Нічний: {compact_number(month_night)} kWh",
+        f"☀️ Звичайний: {compact_number(month_normal)} kWh",
+        (
+            f"Разом: {compact_number(month_total)} kWh — "
+            f"{money(month_cost)} UAH"
+        ),
+        "ℹ️ Інформаційна оцінка, не дані розрахункового лічильника.",
+    ]
+
+
+def build_report(*, weather_lines: list[str], solar_forecast: float | None, solar_window: str | None, threshold_w: int, consumption: float | None, snapshot: dict[str, Any], night_import: float | None, test_mode: bool, astronomy_lines: list[str] | None = None, solar_peak_value: tuple[float, str] | None = None, reserve_advice: dict[str, Any] | None = None, ahm_minimum_soc: float | None = None, heat_pump_management: str | None = None, device_health_lines: list[str] | None = None, inverter_lines: list[str] | None = None, tariff_import: dict[str, Any] | None = None) -> str:
     lines = ["🌅 <b>Доброго ранку!</b>"]
     if test_mode:
         lines.append("🧪 Тестовий ранковий звіт")
@@ -265,13 +434,28 @@ def build_report(*, weather_lines: list[str], solar_forecast: float | None, sola
         energy_lines.append(soc_line)
     if energy_lines:
         lines.extend(["", *energy_lines])
+    tariff_lines = tariff_import_report_lines(tariff_import)
+    if tariff_lines:
+        lines.extend(["", *tariff_lines])
     if ahm_minimum_soc is not None:
         suggested = number((reserve_advice or {}).get("suggested_soc"))
-        displayed_minimum = suggested if suggested is not None else ahm_minimum_soc
-        lines.extend(["", f"🛡 Рекомендований мінімум AHM: <b>{compact_number(displayed_minimum)}%</b>"])
+        if suggested is not None:
+            minimum_label = "Рекомендований мінімум AHM"
+            displayed_minimum = suggested
+        else:
+            minimum_label = "Поточний мінімум AHM"
+            displayed_minimum = ahm_minimum_soc
+        lines.extend([
+            "",
+            f"🛡 {minimum_label}: <b>{compact_number(displayed_minimum)}%</b>",
+        ])
     if heat_pump_management:
         lines.extend(["", heat_pump_management])
     recommendation = reserve_advice_message(reserve_advice)
     if recommendation:
         lines.extend(["", recommendation])
+    if device_health_lines:
+        lines.extend(["", "🏠 <b>Стан домашніх датчиків</b>", *device_health_lines])
+    if inverter_lines:
+        lines.extend(["", "⚡ <b>Повідомлення інвертора</b>", *inverter_lines])
     return "\n".join(lines)

@@ -27,7 +27,7 @@ The Decision Engine converts household context into requested operating strategi
 - AHM ownership at 23:50;
 - one guarded early-Solar evaluation at 06:05;
 - Panic window from 07:00 inclusive to 23:50 exclusive;
-- Solar handover at 07:00.
+- Panic ownership evaluation at 07:00.
 
 ## Operating strategies
 
@@ -168,8 +168,10 @@ Grid Hold and SOC < target → resume Hybrid Charging
 
 Stale or unavailable SOC and an absent grid produce no inverter request. The
 date rejects a retained target from an older night after restart. A confirmed
-guarded early-Solar or ordinary 07:00 Solar handover clears the active night
-context. Daytime Panic ownership remains unchanged.
+guarded early-Solar handover clears the active night context. At 07:00, Panic
+evaluates the current Hybrid owner and takes daytime ownership; the context
+clears when a later confirmed Solar transition occurs or the next AHM
+evaluation replaces it.
 
 ### Early Solar handover
 
@@ -188,7 +190,7 @@ control decision. It requests Solar only when all of these conditions hold:
 
 Any failed, missing, stale, or unsupported condition leaves the inverter in
 Grid Hold. Hybrid Charging is never released by this check. The ordinary
-07:00 Solar handover remains authoritative fallback behavior. The transition
+07:00 Panic ownership evaluation remains authoritative fallback behavior. The transition
 result is confirmed through the existing Inverter Controller and remains
 observable if confirmation fails.
 
@@ -226,16 +228,34 @@ panic_target = max(Grid Confidence target, active AHM debt)
 
 ### Evaluation
 
-Panic evaluates every five minutes from 07:00 until 23:50 and immediately after grid transitions.
+Panic evaluates every five minutes from 07:00 until 23:50, immediately after
+grid transitions, and on the Home Assistant 07:00 ownership request.
 
 It requires:
 
 - Autopilot enabled;
-- Solar, Panic Charging, or Panic Grid Hold ownership;
+- Solar, Hybrid Charging/Grid Hold at the daytime handoff, or Panic ownership;
 - valid SOC and supported Grid Confidence;
 - no inverter transition in progress.
 
 Solar forecast and yesterday's consumption are not Panic gates.
+
+### Normal-grid hysteresis
+
+When Grid Confidence is Normal, the physical grid is present, and no missed
+AHM debt remains, Panic uses two thresholds:
+
+```text
+Solar and SOC <= 20%        → Panic Grid Hold
+SOC < 20%                   → Panic Charging until 20%
+Panic Grid Hold, SOC < 30%  → remain Grid Hold
+Panic Grid Hold, SOC >= 30% → Solar
+```
+
+The 20% floor and 30% release prevent rapid mode oscillation. Grid Hold uses
+`SUB` + `OSO`, so the grid supports the house while solar-only charging can
+raise SOC. Solar is not released while the physical grid is absent. A genuine
+AHM debt disables this Normal-grid release cycle until the debt is recovered.
 
 ### Offline waiting and recovery
 
@@ -247,20 +267,20 @@ if SOC < target and grid offline
 if SOC < target and grid online
     phase = charging
 
-if SOC >= target
+if SOC >= target and Grid Confidence is not Normal
     enter Panic Grid Hold
     preserve reserve until 23:50
 ```
 
 SUB+SNU can be configured while external grid is absent. The inverter continues to use available solar/battery and begins grid charging when electricity returns. If SOC falls below target during Panic Grid Hold, Panic Charging resumes.
 
-![AHM and Panic coordination](../Images/Infographic%235_ahm_panic_coordination.png)
+![AHM and Panic coordination](../Images/Infographic%235_ahm_panic_coordination_v2.png)
 
 ## Ownership timeline
 
 ```text
 06:05  If Hybrid Grid Hold passes every early-Solar gate, restore Solar
-07:00  Solar handover; calculate any AHM debt
+07:00  Panic evaluates and takes daytime ownership; calculate any AHM debt
 07:00–23:50  Panic owns conservative daytime recovery
 23:50  AHM always takes ownership from Panic
 23:50–07:00  AHM charges or holds using cheap night electricity

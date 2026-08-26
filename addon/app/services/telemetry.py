@@ -1,3 +1,4 @@
+import math
 import time
 
 from app.config import LAST_FILE
@@ -20,8 +21,9 @@ def _to_float(value):
     try:
         if value is None:
             return None
-        return float(value)
-    except Exception:
+        value = float(value)
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError):
         return None
 
 
@@ -32,20 +34,26 @@ class TelemetryService:
         self.last_snapshot_save_monotonic = None
 
     def create_state(self, data):
-        missing = [key for key in REQUIRED_FIELDS if data.get(key) is None]
+        required = {
+            key: _to_float(data.get(key))
+            for key in REQUIRED_FIELDS
+        }
+        valid = all(value is not None for value in required.values())
 
-        valid = len(missing) == 0
+        battery_soc = required["battery_capacity"]
+        if battery_soc is not None and not 0 <= battery_soc <= 100:
+            valid = False
 
         grid_voltage = _to_float(data.get("ac_input_voltage"))
 
         return InverterState(
             valid=valid,
             grid_available=grid_voltage is not None and grid_voltage > 180,
-            battery_soc=_to_float(data.get("battery_capacity")),
+            battery_soc=battery_soc,
             battery_voltage=_to_float(data.get("battery_voltage")),
             battery_current=_to_float(data.get("battery_discharge_current")),
-            pv_power=_to_float(data.get("pv1_charging_power")),
-            load_power=_to_float(data.get("ac_output_active_power")),
+            pv_power=required["pv1_charging_power"],
+            load_power=required["ac_output_active_power"],
             raw=data,
         )
 

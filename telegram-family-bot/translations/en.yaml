@@ -71,6 +71,33 @@ configuration:
   yesterday_grid_import_entity:
     name: Yesterday grid import
     description: EnergyHub completed previous-day grid-import estimate.
+  yesterday_night_grid_import_entity:
+    name: Yesterday night-tariff import
+    description: EnergyHub previous-day grid-import estimate assigned to the configured night tariff.
+  yesterday_normal_grid_import_entity:
+    name: Yesterday normal-tariff import
+    description: EnergyHub previous-day grid-import estimate assigned to the normal tariff.
+  yesterday_grid_import_cost_entity:
+    name: Yesterday estimated import cost
+    description: EnergyHub informational previous-day grid-import cost estimate.
+  month_night_grid_import_entity:
+    name: Month night-tariff import
+    description: EnergyHub current-month import estimate assigned to the configured night tariff.
+  month_normal_grid_import_entity:
+    name: Month normal-tariff import
+    description: EnergyHub current-month import estimate assigned to the normal tariff.
+  month_grid_import_entity:
+    name: Month total grid import
+    description: EnergyHub current-month total grid-import estimate.
+  month_grid_import_cost_entity:
+    name: Month estimated import cost
+    description: EnergyHub informational current-month grid-import cost estimate.
+  night_grid_import_price_entity:
+    name: Night import price
+    description: EnergyHub configured price per kWh for night-tariff import.
+  normal_grid_import_price_entity:
+    name: Normal import price
+    description: EnergyHub configured price per kWh for normal-tariff import.
   grid_voltage_entity:
     name: Grid voltage entity
     description: Inverter AC-input voltage used to detect external-grid loss and recovery.
@@ -80,6 +107,30 @@ configuration:
   telemetry_freshness_entity:
     name: Telemetry freshness entity
     description: EnergyHub freshness state used before describing heat-pump management ownership.
+  inverter_message_entities:
+    name: Inverter message entities
+    description: Semicolon-separated EnergyHub recent inverter-message entities used by the morning report.
+  environment_sensor_entities:
+    name: Environmental sensor registry
+    description: Semicolon-separated label, temperature entity, humidity entity, indoor/basement group, optional battery entity, and optional pressure entity records.
+  environment_stale_hours:
+    name: Sensor stale interval
+    description: Hours without a fresh report, or with both temperature and humidity unchanged, before a sensor is reported as suspected stale or offline.
+  environment_temperature_deviation_c:
+    name: Temperature deviation
+    description: Degrees Celsius from the indoor median or the same-hour previous-day reading that starts an anomaly candidate.
+  environment_humidity_deviation_percent:
+    name: Humidity deviation
+    description: Percentage points from the indoor median or the same-hour previous-day reading that starts an anomaly candidate.
+  environment_persistence_minutes:
+    name: Environmental anomaly persistence
+    description: Minutes an unusual temperature or humidity reading must persist before appearing in the morning report.
+  device_low_battery_percent:
+    name: Device low-battery threshold
+    description: Battery percentage at or below which a configured household sensor or doorbell is reported.
+  doorbell_battery_entity:
+    name: Doorbell battery entity
+    description: Optional Home Assistant battery entity for the Xiaomi doorbell; leave empty until verified.
   heat_pump_active_threshold_w:
     name: Heat-pump active threshold
     description: Minimum observed power in watts above which a heat pump is treated as running for SOC reserve warnings.

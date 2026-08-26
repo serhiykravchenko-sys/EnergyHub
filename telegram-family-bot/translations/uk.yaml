@@ -71,6 +71,33 @@ configuration:
   yesterday_grid_import_entity:
     name: Імпорт за вчора
     description: Завершена оцінка імпорту EnergyHub за попередній день.
+  yesterday_night_grid_import_entity:
+    name: Нічний імпорт за вчора
+    description: Оцінка імпорту EnergyHub за попередній день у межах налаштованого нічного тарифу.
+  yesterday_normal_grid_import_entity:
+    name: Звичайний імпорт за вчора
+    description: Оцінка імпорту EnergyHub за попередній день за звичайним тарифом.
+  yesterday_grid_import_cost_entity:
+    name: Оцінка вартості імпорту за вчора
+    description: Інформаційна оцінка вартості імпорту EnergyHub за попередній день.
+  month_night_grid_import_entity:
+    name: Нічний імпорт за місяць
+    description: Оцінка імпорту EnergyHub за поточний місяць у межах нічного тарифу.
+  month_normal_grid_import_entity:
+    name: Звичайний імпорт за місяць
+    description: Оцінка імпорту EnergyHub за поточний місяць за звичайним тарифом.
+  month_grid_import_entity:
+    name: Загальний імпорт за місяць
+    description: Загальна оцінка імпорту EnergyHub за поточний місяць.
+  month_grid_import_cost_entity:
+    name: Оцінка вартості імпорту за місяць
+    description: Інформаційна оцінка вартості імпорту EnergyHub за поточний місяць.
+  night_grid_import_price_entity:
+    name: Ціна нічного імпорту
+    description: Налаштована в EnergyHub ціна однієї kWh за нічним тарифом.
+  normal_grid_import_price_entity:
+    name: Ціна звичайного імпорту
+    description: Налаштована в EnergyHub ціна однієї kWh за звичайним тарифом.
   grid_voltage_entity:
     name: Сутність напруги мережі
     description: Вхідна напруга інвертора для визначення зникнення та відновлення зовнішньої мережі.
@@ -80,6 +107,30 @@ configuration:
   telemetry_freshness_entity:
     name: Сутність свіжості телеметрії
     description: Стан свіжості EnergyHub для визначення, хто керує тепловими насосами.
+  inverter_message_entities:
+    name: Сутності повідомлень інвертора
+    description: Розділені крапкою з комою сутності останніх повідомлень інвертора EnergyHub для ранкового звіту.
+  environment_sensor_entities:
+    name: Реєстр датчиків середовища
+    description: Записи через крапку з комою з назвою, сутностями температури й вологості, групою indoor/basement та необов'язковими сутностями батареї й тиску.
+  environment_stale_hours:
+    name: Інтервал застарівання датчика
+    description: Кількість годин без свіжого звіту або без змін температури й вологості, після якої датчик вважається ймовірно застарілим чи офлайн.
+  environment_temperature_deviation_c:
+    name: Відхилення температури
+    description: Відхилення в градусах Цельсія від медіани в будинку або показника тієї самої години попереднього дня.
+  environment_humidity_deviation_percent:
+    name: Відхилення вологості
+    description: Відхилення у відсоткових пунктах від медіани в будинку або показника тієї самої години попереднього дня.
+  environment_persistence_minutes:
+    name: Тривалість аномалії середовища
+    description: Скільки хвилин незвичні температура або вологість мають тривати до появи в ранковому звіті.
+  device_low_battery_percent:
+    name: Поріг низького заряду пристрою
+    description: Рівень батареї, за якого налаштований домашній датчик або дверний дзвінок потрапляє до звіту.
+  doorbell_battery_entity:
+    name: Сутність батареї дверного дзвінка
+    description: Необов'язкова сутність батареї Xiaomi doorbell; залиште порожньою до перевірки.
   heat_pump_active_threshold_w:
     name: Поріг роботи теплового насоса
     description: Мінімальна потужність у ватах, вище якої тепловий насос вважається працюючим для попереджень про резерв SOC.

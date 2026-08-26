@@ -17,7 +17,7 @@ input_boolean:
 
 sensor:
   - platform: integration
-    source: sensor.chuangmi_212a01_ea40_electric_power
+    source: sensor.energyhub_heat_pump_floor_3_power
     name: Third Floor Heat Pump Energy Calculated
     unique_id: energyhub_third_floor_heat_pump_energy_calculated
     unit_prefix: k
@@ -27,7 +27,7 @@ sensor:
     max_sub_interval:
       minutes: 5
   - platform: integration
-    source: sensor.chuangmi_212a01_c91f_electric_power
+    source: sensor.energyhub_water_boiler_power
     name: Water Boiler Energy Calculated
     unique_id: energyhub_water_boiler_energy_calculated
     unit_prefix: k
@@ -37,7 +37,7 @@ sensor:
     max_sub_interval:
       minutes: 5
   - platform: integration
-    source: sensor.chuangmi_212a01_ac48_electric_power
+    source: sensor.energyhub_basement_water_pump_power
     name: Basement Water Pump Energy Calculated
     unique_id: energyhub_basement_water_pump_energy_calculated
     unit_prefix: k

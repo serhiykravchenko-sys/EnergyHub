@@ -179,4 +179,6 @@ For recovery, restore the complete data set rather than reconstructing only `con
 
 ## Pairing gate
 
-Keep `permit_join` disabled except during an attended pairing window. Pair one plug at a time and complete the validation matrix in the [EnergyHub 1.x Development Plan](../roadmap/14-EnergyHub-1.x-Development.md) before any unattended automatic Smart Thermal use is considered.
+Keep `permit_join` disabled except during an attended pairing window. Pair one
+plug at a time and validate availability, restart recovery, telemetry, and
+manual control before any unattended automatic Smart Thermal use is considered.

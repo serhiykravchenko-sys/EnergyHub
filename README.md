@@ -1,20 +1,23 @@
-# EnergyHub 1.3.8 — Night Target and Heat-Pump Ownership
+# EnergyHub 1.3.14 — Grid-Available Reserve Guard
 
 **Adaptive solar planning. Smart tariff use. Outage-ready reserve.**
 
 EnergyHub is a local-first, resilience-aware Home Assistant energy controller for the PowMr 10.2M / POW-HVM10.2M hybrid inverter. It combines tomorrow's hourly solar forecast, expected household demand, battery state, a configured cheap-tariff window, and observed grid reliability to plan economical overnight charging and maintain an adaptive reserve.
 
-**EnergyHub 1.3.8 keeps the evaluated Adaptive Hybrid target authoritative throughout the night and clearly separates family heat-pump control from EnergyHub reserve protection.**
+**EnergyHub coordinates hourly solar planning, tariff-aware grid use, and an
+outage-ready battery reserve—then shows why each decision was made.**
 
-EnergyHub 1.3.8 is the current public release. Its repository, Home Assistant
-configuration, startup, MQTT, PV2/Total PV, outbound Telegram, and monitored
-deployment gates passed before publication.
+EnergyHub 1.3.14 is the current public 1.x closure release. Its
+Normal 20% reserve floor requests Grid Hold only when the grid is physically
+present, then releases Solar at 30%. It has passed repository, guarded Home
+Assistant, startup, dashboard, and monitoring gates.
 
-EnergyHub never turns the boiler or heat pumps on in 1.3.8. Automatic Smart Thermal control remains deferred.
+EnergyHub never turns the boiler or heat pumps on in 1.3.14. Automatic Smart
+Thermal control remains deferred.
 
 See [Installation and Upgrade](docs/operations/INSTALLATION.md), [System Architecture](docs/design/05-System-Architecture.md), and [Developer Architecture](docs/design/10-Developer-Architecture.md).
 
-![Adaptive Hybrid and Panic coordination](docs/Images/Infographic%235_ahm_panic_coordination.png)
+![Adaptive Hybrid and Panic coordination](docs/Images/Infographic%235_ahm_panic_coordination_v2.png)
 
 ## What EnergyHub does
 
@@ -33,21 +36,38 @@ EnergyHub:
 - estimates Grid Import during intentionally grid-prioritized SUB strategies;
 - stores restart-critical state atomically on local disk;
 - reconstructs the operating strategy after an app restart;
+- records bounded, restart-aware SOC anomaly evidence without changing any
+  decision or telemetry-acceptance path;
 - returns to Solar safely when Autopilot is disabled during an active automatic strategy.
 
-The current release uses one configured cheap-tariff window. Future tariff planning may use multiple fixed periods or day-ahead import/export prices, but EnergyHub 1.3.8 does not claim dynamic-price or Net Billing optimization.
+The current release uses one configured cheap-tariff window and separates
+estimated Grid Import into night and normal periods. Future tariff planning may
+use multiple fixed periods or day-ahead import/export prices, but EnergyHub
+1.3.14 does not claim dynamic-price or Net Billing optimization.
 
 ## Human-centered energy guidance
 
-The homeowner selects an AHM protective reserve from 20% to 50%. EnergyHub then learns how the house behaves between 07:00 and 12:00, compares essential demand with the hourly solar forecast, and recommends the next safer or more economical reserve after three comparable completed mornings. The recommendation explains its evidence and never changes the setting automatically. Panic remains a separate emergency policy with its own Grid Confidence targets.
+The homeowner selects an AHM protective reserve from 20% to 50%. EnergyHub then learns how the house behaves between 07:00 and 12:00, compares essential demand with the hourly solar forecast, and recommends the next safer or more economical reserve after three comparable completed mornings. The recommendation explains its evidence and never changes the setting automatically. Panic remains the separate daytime reserve owner with its own Grid Confidence targets.
 
-The optional **Telegram Family Assistant** turns the same data into a concise morning plan and sends grid-loss, recovery, Grid Confidence, reserve-advice, heat-pump ownership, and reserve-threshold updates to a private family group. Version 0.1.9 is outbound-only. Reserve warnings are sent only when a configured heat pump is actively drawing power, name the active floors and observed watts, and remain quiet through 08:01. It establishes the notification and identity boundary for future text and voice requests, but it cannot execute Home Assistant or inverter commands.
+The optional **Telegram Family Assistant 1.3.14** turns the same data into a
+concise morning plan and sends grid-loss, recovery, Grid Confidence,
+reserve-advice, heat-pump ownership, tariff, inverter-message, and
+reserve-threshold updates to a private family group. It is outbound-only. It
+also checks configured environmental sensors and can warn about a configured
+doorbell battery. It establishes the notification and identity boundary for
+future text and voice requests, but it cannot execute Home Assistant or
+inverter commands.
 
-Future Telegram text/voice and Home Assistant Assist input will be translated into one structured EnergyHub request. EnergyHub—not the conversational interface—will authenticate, validate, audit, and decide whether to answer, allow, shorten, delay, or deny it.
+The 3.0 roadmap introduces **safe conversational Mission Control**: Telegram
+first, messenger-neutral by design, Ukrainian/English text before confirmed
+voice. Every request will become one authenticated, expiring EnergyHub intent.
+EnergyHub—not the conversational interface—will validate, audit, and decide
+whether to answer, allow, shorten, delay, or deny it. No messenger or AI may
+send raw inverter commands.
 
 ## Supported release platform
 
-EnergyHub 1.3.8 currently targets:
+EnergyHub 1.3.14 currently targets:
 
 - Home Assistant OS with Supervisor/Apps;
 - `aarch64` hardware, validated on Raspberry Pi 4;
@@ -56,7 +76,8 @@ EnergyHub 1.3.8 currently targets:
 - Mosquitto MQTT broker;
 - Home Assistant as the UI, scheduling, integration, and notification layer.
 
-The architecture is designed to become more configurable and vendor-independent in later releases, but 1.3.8 remains intentionally installation-specific.
+The architecture is designed to become more configurable and vendor-independent
+in later releases, but 1.3.14 remains intentionally installation-specific.
 
 ## Operating strategies
 
@@ -64,9 +85,9 @@ The architecture is designed to become more configurable and vendor-independent 
 |---|---|---|---|
 | Solar | SBU | OSO | Default: use solar and battery first. |
 | Hybrid Charging | SUB | SNU | Charge from the cheap night tariff to the configurable adaptive target. |
-| Hybrid Grid Hold | SUB | OSO | Preserve the adaptive target until a guarded early-Solar release or the 07:00 handover. |
+| Hybrid Grid Hold | SUB | OSO | Preserve the adaptive target until guarded early Solar or the 07:00 Panic handoff. |
 | Panic Charging | SUB | SNU | Build daytime reserve toward the conservative 20/60/80/95% target. |
-| Panic Grid Hold | SUB | OSO | Preserve recovered reserve until AHM takes ownership at 23:50. |
+| Panic Grid Hold | SUB | OSO | Preserve reserve; Normal releases Solar at 30%, other confidence levels hold until AHM. |
 
 Menu 01 is written and independently read back through QPIRI. Menu 16 has no supported read-back command on this inverter; EnergyHub stores the last ACK-confirmed value and never describes it as independently verified.
 
@@ -99,7 +120,14 @@ The AHM minimum is selected in Home Assistant from 20% to 50% in 5% steps. Energ
 
 ![Adaptive Hybrid reserve and early Solar handover](docs/Images/Infographic%237_adaptive_hybrid_early_solar.png)
 
-AHM is authoritative at 23:50 and overtakes an active Panic strategy. If projected 07:00 SOC meets target, AHM remains or restores Solar. If current SOC meets target but the overnight projection does not, it starts Hybrid Grid Hold; current SOC below target starts Hybrid Charging. At 07:00, Home Assistant requests Solar and daytime Panic inherits only an AHM target that was genuinely missed.
+AHM is authoritative at 23:50 and overtakes an active Panic strategy. If
+projected 07:00 SOC meets target, AHM remains or restores Solar. If current SOC
+meets target but the overnight projection does not, it starts Hybrid Grid Hold;
+current SOC below target starts Hybrid Charging. At 07:00, Home Assistant
+requests a Panic evaluation instead of Solar. Confirmed Hybrid Charging or
+Grid Hold can transfer ownership to the matching Panic state without another
+inverter write, and daytime Panic inherits only an AHM target that was
+genuinely missed.
 
 EnergyHub 1.3.8 persists the date of that night plan and checks its target on
 every fresh telemetry cycle until a confirmed morning Solar handover. Solar
@@ -107,12 +135,12 @@ continues above target, exact target selects Hybrid Grid Hold, and a value
 below target selects Hybrid Charging. If the grid is absent or SOC is stale,
 the check sends no command and reevaluates later.
 
-The prepared working-tree early-Solar increment performs one additional check
-at 06:05. Only confirmed Hybrid Grid Hold is eligible. EnergyHub requires the
+EnergyHub performs one guarded early-Solar check at 06:05. Only confirmed
+Hybrid Grid Hold is eligible. EnergyHub requires the
 persisted target to be reached, fresh inverter and aligned Total Solar data,
 present grid power, at least 300 W of live Total Solar, and at least 1.6 kWh in
 the 06:00–07:00 Solcast interval. A failed gate makes no inverter change and
-the normal 07:00 handover remains the fallback.
+the normal 07:00 Panic ownership handoff remains the fallback.
 
 ### Panic
 
@@ -123,7 +151,14 @@ Between 07:00 and 23:50, EnergyHub reevaluates automatic Panic every five minute
 - Risk Grid Confidence → protect 80% SOC.
 - Panic Grid Confidence → protect 95% SOC.
 
-Panic does not use a solar-forecast gate. If grid is offline, it remains armed and waits. When grid returns, it charges immediately. At target it enters Panic Grid Hold rather than returning to Solar. AHM takes ownership at 23:50.
+Panic does not use a solar-forecast gate. With Normal Grid Confidence, present
+grid, and no active AHM debt, Solar reaching 20% or below enters Panic Grid
+Hold; values below 20% use Panic Charging until the floor is recovered. Grid
+Hold then waits for solar-only charging to raise SOC to 30% before releasing
+Solar. The 10-point band prevents mode oscillation. If the physical grid is
+absent at the 20% floor, EnergyHub remains Solar and waits for grid return.
+Unstable, Risk, and Panic confidence retain their 60/80/95% targets and hold
+recovered reserve until AHM takes ownership at 23:50.
 
 Manual Panic uses a 95% target and requires Autopilot to be enabled. When Autopilot is off, Home Assistant shows a clear notification rather than silently ignoring the request.
 
@@ -178,6 +213,20 @@ Current entities:
 - `sensor.energyhub_grid_import_yesterday_estimated` — completed previous day;
 - `sensor.energyhub_daily_summary_grid_import` — finalized Daily Summary value for charts.
 
+EnergyHub 1.3.11 additionally classifies every new estimated increment by the
+Home Assistant host's local `Europe/Kyiv` calendar time:
+
+- night tariff — `00:00–07:00` and `23:00–24:00`;
+- normal tariff — `07:00–23:00`.
+
+Dedicated sensors expose today, completed yesterday, current month, and
+monotonic night/normal totals for Home Assistant long-term statistics. Initial
+cost estimates use 2.50 UAH/kWh at night and 5.00 UAH/kWh during the normal
+period. The bounded daily tariff ledger and active-day accumulators use atomic
+persistence. An upgrade from schema v2 preserves the existing total but starts
+the tariff split at deployment rather than guessing how earlier energy should
+be classified.
+
 The result is informational and not billing-grade. Daytime simultaneous PV may affect accuracy and remains a 1.1 refinement area.
 
 ## Health and availability
@@ -193,6 +242,8 @@ Current health services:
 - Battery Health;
 - Telemetry Freshness;
 - Inverter Health from QPIWS;
+- persistent named QPIWS incidents with five minutes of bounded pre-incident
+  context and the latest three incidents exposed to Home Assistant;
 - System Health aggregation.
 
 Telemetry Freshness depends on the age of valid telemetry. An unchanged house load is retained as diagnostic information but does not create a false warning.
@@ -224,14 +275,14 @@ If reconstruction is consistent, no inverter write occurs. If it is incomplete a
 Home Assistant owns:
 
 - the Autopilot helper;
-- the 23:50 Hybrid, guarded 06:05 early-Solar, and 07:00 Solar schedule;
+- the 23:50 Hybrid, guarded 06:05 early-Solar, and 07:00 Panic-handoff schedule;
 - solar forecast input publication;
 - the atomic 23:51 Daily Summary snapshot;
 - the manual Panic script;
 - persistent notifications;
 - the EnergyHub beacon;
 - household comfort controls and matching first-, second-, and third-floor auto-off timers;
-- reserve-only water-boiler protection plus heat-pump manual/protected ownership and AHM-relative OFF bands based on fresh SOC, present grid, and Grid Confidence;
+- trusted-grid manual permission for the water boiler and heat pumps, with reserve-only OFF guards returning when trust is lost;
 - dashboards and charts.
 
 EnergyHub owns:
@@ -296,45 +347,28 @@ The Git repository is the development source of truth, including the selected Ho
 
 ## Release status
 
-EnergyHub 1.3.8 builds on the deployed 1.3.7 baseline with:
+EnergyHub 1.3.14 was deployed and started on 2026-08-24, passed the
+guarded Home Assistant configuration check and startup validation, and
+completed the agreed monitoring window through 2026-08-26 without a reported
+release blocker. It is the final planned feature release in the 1.x line.
 
-- Zigbee2MQTT/ZBDongle-E setup and two paired heat-pump plugs;
-- matching three-floor manual controls and auto-off timers;
-- dedicated Heat Pumps and Water Systems dashboards with local consumption history;
-- reserve-only water-boiler and grid-confidence-aware heat-pump OFF guards;
-- guarded repository-to-Home-Assistant deployment with backups and dry runs;
-- incident and recovery documentation for the observed Ember failures and Tuya reauthentication;
-- coordinated AHM/Panic ownership, persisted targets, morning-debt recovery, and expanded diagnostics.
-- a 20–50% dashboard-selected AHM minimum reserve and independently validated 300 W → 600 W solar-ramp credit.
-- learned essential morning net energy and a three-morning reserve advisor that never changes the slider automatically;
-- the optional outbound-only Telegram Family Assistant for morning plans, grid events, Grid Confidence changes, and reserve advice.
-- optional fixed-register, function-03 PV2 reads serialized with PI30MAX;
-- PV2 voltage/power, aligned Total PV, freshness, status, and stale-safe MQTT availability;
-- failure isolation that keeps PV2 observational and outside all control decisions.
-- startup replacement of incompatible retained Hybrid decision reasons and a
-  defensive 255-character Home Assistant state boundary.
-- one guarded 06:05 release from Hybrid Grid Hold when the retained target is
-  met, live aligned Total Solar is at least 300 W, and the dated 06:00-07:00
-  forecast interval is at least 1.6 kWh;
-- conservative no-action behavior on every missing, stale, invalid, or failed
-  Early Solar gate, with the normal 07:00 handover unchanged;
-- focused Early Solar diagnostics, clearer `awaiting_evaluation` wording, and
-  Adaptive Hybrid Reserve dashboard presentation.
-- continuous dated enforcement of the evaluated AHM target until morning
-  Solar;
-- trusted-grid family heat-pump ownership and AHM-relative protection when
-  trust is lost;
-- Telegram ownership guidance and active-heat-pump reserve warnings at
-  +30/+20/+10/+0, with overnight quiet delivery.
+Current repository evidence:
 
-EnergyHub 1.3.8 passes 103 add-on tests; Telegram Family Assistant 0.1.9 passes
-42 tests. Both Python trees compile. The reviewed add-on, companion app, and
-`automations.yaml` were synchronized to Home Assistant, `ha core check`
-succeeded, EnergyHub reconstructed Solar without an inverter write, MQTT and
-PV2/Total PV remained online, and the Telegram morning ownership preview was
-delivered. The private monitoring window completed without a reported
-regression. Paths that did not occur naturally remain covered by repository
-tests rather than claimed as live transitions.
+- 155 EnergyHub tests passed;
+- 67 Telegram Family Assistant tests passed;
+- Python compilation, tracked Home Assistant storage JSON parsing, and
+  `git diff --check` passed;
+- the physical-grid floor correction has focused regression coverage;
+- the updated AHM/Panic infographic is version-neutral and reflects the
+  07:00 ownership handoff and Normal 20%/30% cycle.
+
+Repository evidence does not replace live Home Assistant and inverter
+validation. Live startup evidence confirmed MQTT, PV1/PV2/Total PV, persisted
+state, Solar reconstruction without inverter writes, online health, the
+dashboard, Telegram 1.3.14 startup/preview, and no pending Home Assistant
+Repairs. The physical unavailable-grid floor transition was not forced during
+monitoring; focused regression coverage remains the evidence for that rare
+path.
 
 ## Roadmap
 
@@ -350,15 +384,21 @@ tests rather than claimed as live transitions.
 - **1.3.6 — Retained-State Cleanup:** replace legacy Hybrid reason state at startup and enforce the Home Assistant state-length boundary.
 - **1.3.7 — Early Solar Handover:** permit one guarded 06:05 release from Hybrid Grid Hold when reserve, live solar, forecast, grid, and telemetry gates pass.
 - **1.3.8 — Night Target & Heat-Pump Ownership:** continuously enforce the dated AHM night target, leave heat pumps under family control on a trusted grid, and apply reserve-relative protection otherwise.
-- **1.3.9 — SOC Anomaly Journal:** persist suspicious SOC jumps and oscillations with diagnostic context, without changing control decisions.
+- **1.3.9 — SOC Anomaly Journal:** persist suspicious SOC jumps and oscillations with diagnostic context without changing control decisions; the companion 0.2.0 report adds seven-sensor health and optional doorbell-battery warnings.
 - **1.3.10 — Inverter Fault Diagnostics:** preserve QPIWS faults, contextual snapshots, and bounded read-only fault-code research.
 - **1.3.11 — Tariff-Split Grid Import Accounting:** split estimated import into cheap and standard periods, retain daily/weekly/monthly totals, and report estimated cost without claiming billing-grade accuracy.
-- **1.4 — Fault-Aware Smart Thermal & Flexible Loads:** persistent inverter-fault snapshots and overload calibration first, then Dry Run, attended Peak Load Guard, ownership, priorities, and solar-first flexible energy.
-- **2.0 — Conversational EnergyHub:** Telegram-first authenticated Ukrainian/English text, followed by confirmed Ukrainian/English voice intents through the safe EnergyHub control boundary.
-- **2.x — Tariff Scheduling:** multiple fixed cheap periods and later optional day-ahead import pricing.
-- **3.0 — Hardware & Economic Ecosystem:** additional validated inverters and optional Net Billing/export planning.
+- **1.3.12 — Meaningful Inverter Messages:** retain expected PV-loss evidence while excluding routine PV-only events from dashboard incident positions.
+- **1.3.13 — Normal-Grid Reserve Hysteresis:** transfer AHM to Panic at 07:00, hold 20%, release Solar at 30%, and leave boiler/heat-pump plugs untouched while grid trust is valid.
+- **1.3.14 — Grid-Available Reserve Guard:** wait without a transition when the
+  Normal 20% floor is reached during a physical grid outage, then reevaluate
+  immediately after grid return.
+- **2.0 — Fault-Aware Smart Thermal & Flexible Loads:** persistent inverter-fault snapshots and bounded recovery research first, then overload calibration, Dry Run, attended Peak Load Guard, ownership, priorities, and solar-first flexible energy.
+- **3.0 — Conversational EnergyHub:** Telegram-first authenticated Ukrainian/English text, followed by confirmed Ukrainian/English voice intents through the safe EnergyHub control boundary.
+- **4.0 — Tariff Scheduling:** multiple fixed cheap periods and later optional day-ahead import pricing.
+- **5.0 — Hardware & Economic Ecosystem:** additional validated inverters and optional Net Billing/export planning.
 
-See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.md).
+See the public [Roadmap](docs/roadmap/06-Roadmap.md). Detailed household
+planning and the engineering backlog remain private development records.
 
 ## Safety principles
 
@@ -378,15 +418,12 @@ See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.
 - [Project Positioning](docs/project/POSITIONING.md)
 - [System Architecture](docs/design/05-System-Architecture.md)
 - [Roadmap](docs/roadmap/06-Roadmap.md)
-- [Backlog](docs/roadmap/07-Backlog.md)
 - [Decision Log](docs/design/09-Decision-Log.md)
 - [Developer Architecture](docs/design/10-Developer-Architecture.md)
 - [House Model](docs/design/11-House-Model.md)
 - [Home Assistant Configuration](docs/operations/12-HomeAssistant-Configuration.md)
 - [Recovery Strategy](docs/operations/13-Recovery-Strategy.md)
-- [EnergyHub 1.x Development Plan](docs/roadmap/14-EnergyHub-1.x-Development.md)
 - [Decision Engine](docs/design/DECISION_ENGINE.md)
-- [Current Project State](docs/project/PROJECT_STATE.md)
 - [Project History](docs/project/PROJECT_HISTORY.md)
 - [PowMr Verified Commands](docs/hardware/powmr-10-2m-verified-commands.md)
 - [PowMr 10.2M Modbus Telemetry](docs/hardware/powmr-10-2m-modbus-telemetry.md)
@@ -398,5 +435,12 @@ See [Roadmap](docs/roadmap/06-Roadmap.md) and [Backlog](docs/roadmap/07-Backlog.
 - [Release Notes 1.3.3](RELEASE_NOTES_1.3.3.md)
 - [Release Notes 1.3.4](RELEASE_NOTES_1.3.4.md)
 - [Release Notes 1.3.5](RELEASE_NOTES_1.3.5.md)
+- [Release Notes 1.3.6](RELEASE_NOTES_1.3.6.md)
 - [Release Notes 1.3.7](RELEASE_NOTES_1.3.7.md)
 - [Release Notes 1.3.8](RELEASE_NOTES_1.3.8.md)
+- [Release Notes 1.3.9](RELEASE_NOTES_1.3.9.md)
+- [Release Notes 1.3.10](RELEASE_NOTES_1.3.10.md)
+- [Release Notes 1.3.11](RELEASE_NOTES_1.3.11.md)
+- [Release Notes 1.3.12](RELEASE_NOTES_1.3.12.md)
+- [Release Notes 1.3.13](RELEASE_NOTES_1.3.13.md)
+- [Release Notes 1.3.14](RELEASE_NOTES_1.3.14.md)

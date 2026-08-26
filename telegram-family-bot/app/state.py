@@ -11,6 +11,7 @@ DEFAULT_STATE = {
     "night_baselines": {},
     "night_imports": {},
     "last_report_date": None,
+    "morning_report_outbox": None,
     "test_message_version": None,
     "initialized_at": None,
     "grid_online": None,
@@ -19,6 +20,11 @@ DEFAULT_STATE = {
     "outage_started_at": None,
     "grid_confidence": None,
     "pending_notifications": [],
+    "environment_last_check": None,
+    "environment_candidates": {},
+    "environment_active": {},
+    "environment_recoveries": [],
+    "environment_hourly_snapshots": {},
 }
 
 

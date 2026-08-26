@@ -149,7 +149,7 @@ manufacturing zero consumption.
 
 The original EnergyHub 1.0 Away Mode helpers and automation were removed from the active 1.0 architecture.
 
-EnergyHub 1.1 adds manual smart-plug controls, per-floor auto-off timers, and reserve-only OFF guards as Home Assistant household automation. It never turns the boiler or a heat pump on. Automatic Smart Thermal ownership and starts remain deferred to 1.4.
+EnergyHub 1.1 adds manual smart-plug controls, per-floor auto-off timers, and reserve-only OFF guards as Home Assistant household automation. It never turns the boiler or a heat pump on. Automatic Smart Thermal ownership and starts remain deferred to 2.0.
 
 The ownership principle remains valid:
 
@@ -250,7 +250,7 @@ Current EnergyHub integration responsibilities include:
 - publishing Autopilot state;
 - publishing Daily Summary and decision inputs;
 - requesting Hybrid evaluation at 23:50;
-- restoring Solar at 07:00 when Autopilot is enabled;
+- requesting a Panic ownership evaluation at 07:00 when Autopilot is enabled;
 - restoring / requesting mode handling after restart;
 - delivering EnergyHub notification events;
 - selected household automations such as the floor 1, 2, and 3 heat-pump auto-off controls.
@@ -502,8 +502,10 @@ The three outcomes are:
 - current SOC meets target but projected SOC does not: enter Grid Hold;
 - current SOC is below target: enter Hybrid Charging, then Grid Hold at target.
 
-The 07:00 schedule restores Solar. Grid Confidence does not change this
-cheap-tariff plan; Panic remains the separate grid-risk strategy. If hourly
+The 07:00 schedule requests a Panic evaluation rather than restoring Solar.
+Panic can transfer confirmed `SUB` + `OSO` Grid Hold ownership without another
+inverter write. Under Normal confidence with present grid and no AHM debt, it
+holds 20% and releases Solar at 30%. If hourly
 Solcast data is unavailable, EnergyHub uses a conservative five-hour morning
 gap, producing the previous 80% target as a visible fallback.
 
@@ -577,7 +579,7 @@ Away Mode is not part of the final EnergyHub 1.0 architecture.
 
 The original implementation was deferred after design review showed that occupancy, comfort, solar surplus, cheap-tariff use, and battery reserve should be handled through a broader Smart Heating / flexible-load architecture.
 
-EnergyHub 1.1 provides the monitored-device, dashboard, timer, and reserve-guard foundation. Automatic Smart Thermal control remains deferred to 1.4.
+EnergyHub 1.1 provides the monitored-device, dashboard, timer, and reserve-guard foundation. Automatic Smart Thermal control remains deferred to 2.0.
 
 ---
 
@@ -703,6 +705,37 @@ On 2026-08-06, Home Assistant Repairs reported that Tuya authentication had expi
 
 Current EnergyHub System Health covers the EnergyHub process and inverter-facing communication, battery, telemetry freshness, and inverter warning inputs. It does not yet aggregate Home Assistant Repairs, Tuya authentication, Zigbee2MQTT app/bridge availability, or command-to-observed-device confirmation. Those dependencies must be represented separately so a retained or stale entity value cannot be mistaken for healthy end-to-end telemetry. Reauthentication remains an attended action; EnergyHub must alert but must not attempt to automate cloud-account login.
 
+EnergyHub 1.3.9 adds two diagnostic MQTT entities without changing System
+Health or control:
+
+- `sensor.energyhub_soc_anomaly_event_count` — persistent lifetime count;
+- `sensor.energyhub_soc_anomaly_latest` — timestamp state with the full latest
+  event in attributes.
+
+The add-on retains only the latest 100 detailed events. A five-point SOC change
+over more than five minutes is not classified as a jump because the missing
+interval may contain legitimate battery movement.
+
+Telegram Family Assistant 1.3.14 separately reads the seven configured Xiaomi
+temperature/humidity pairs every five minutes. It prefers Home Assistant's
+`last_reported` freshness timestamp and falls back to `last_updated`. It also
+uses `last_changed` to report a pair whose temperature and humidity both stay
+unchanged for 24 hours as suspected offline, covering integrations that refresh
+cached values. The six
+indoor locations use their peer median; the basement is isolated from that
+comparison. Same-hour previous-day observations provide the per-sensor
+baseline. Unavailable/stale states, persistent 5 °C or 20-percentage-point
+outliers, per-sensor deduplicated recoveries, verified sensor batteries, and an
+optional doorbell battery appear only in the 08:00 report. They are not
+EnergyHub decision inputs.
+
+EnergyHub 1.3.10 adds `sensor.energyhub_inverter_fault_current` and
+`sensor.energyhub_inverter_fault_recent_1` through `_3`. The EnergyHub Status
+dashboard shows these four read-only rows. Selecting a recent row opens the
+retained incident attributes, including timestamp, clearance, and bounded
+pre-event conditions. Telegram Family Assistant 1.3.14 reads the three recent
+entities for its previous-day morning summary.
+
 The working-tree Zigbee reliability increment uses Zigbee2MQTT's Home Assistant-discovered `binary_sensor.zigbee2mqtt_bridge_connection_state`, which reads the retained `zigbee2mqtt/bridge/state` MQTT topic. If it remains offline for two minutes, Home Assistant creates one persistent notification stating that readings may be stale and that no restart or relay action was attempted. An online transition dismisses that alert and creates a recovery notice that requires individual-device availability and fresh post-recovery reports to be checked. This is bridge transport monitoring only: it does not prove that the Zigbee2MQTT app is healthy, that a device is reachable, or that any retained measurement is fresh.
 
 ---
@@ -741,16 +774,23 @@ Operating Mode is displayed prominently with strategy-specific icons.
 
 ## Heat Pumps View
 
-The dedicated Heat Pumps view uses the same compact four-card operating layout for each floor:
+The dedicated Heat Pumps view begins with a live policy card that distinguishes
+current family/EnergyHub authority from a remembered lockout. Each floor then
+uses the same compact operating layout:
 
 1. heat-pump switch state and manual toggle;
 2. live plug power in watts;
 3. auto-off duration from `0` to `9` hours;
 4. absolute local turn-off time, or `Manual` when no timer is active.
 
-Floor 1 uses `switch.first_floor_heat_pump_plug` and `sensor.first_floor_heat_pump_plug_power`. Floor 2 uses `switch.second_floor_heat_pump_plug` and `sensor.second_floor_heat_pump_plug_power`. Floor 3 retains `switch.chuangmi_212a01_ea40_switch` and `sensor.chuangmi_212a01_ea40_electric_power`. Template sensors `sensor.floor_1_heat_pump_turns_off_at`, `sensor.floor_2_heat_pump_turns_off_at`, and `sensor.floor_3_heat_pump_turns_off_at` render `Today HH:MM`, `Tomorrow HH:MM`, another local date/time, or `Manual` from each timer's `finishes_at` attribute. Daily, weekly, and monthly consumption graphs remain below the compact controls.
+Floor 1 uses `switch.first_floor_heat_pump_plug` and `sensor.first_floor_heat_pump_plug_power`. Floor 2 uses `switch.second_floor_heat_pump_plug` and `sensor.second_floor_heat_pump_plug_power`. Floor 3 retains `switch.energyhub_heat_pump_floor_3` and `sensor.energyhub_heat_pump_floor_3_power`. Template sensors `sensor.floor_1_heat_pump_turns_off_at`, `sensor.floor_2_heat_pump_turns_off_at`, and `sensor.floor_3_heat_pump_turns_off_at` render `Today HH:MM`, `Tomorrow HH:MM`, another local date/time, or `Manual` from each timer's `finishes_at` attribute. Daily, weekly, and monthly consumption graphs remain below the compact controls.
 
-These cards expose Home Assistant household controls only. They do not indicate that EnergyHub owns the run or that Smart Thermal automatic starts are enabled. A displayed electrical value can be stale after a Zigbee availability interruption; later automatic policy must verify bridge/device availability, a fresh post-recovery report, and safe ownership reconstruction as documented in [Zigbee2MQTT with SONOFF ZBDongle-E](../hardware/zigbee2mqtt-zbdongle-e.md).
+These cards expose Home Assistant household controls only. The policy card
+shows reserve authority but does not claim that Smart Thermal automatic starts
+are enabled. A displayed electrical value can be stale after a Zigbee
+availability interruption; later automatic policy must verify bridge/device
+availability, a fresh post-recovery report, and safe ownership reconstruction
+as documented in [Zigbee2MQTT with SONOFF ZBDongle-E](../hardware/zigbee2mqtt-zbdongle-e.md).
 
 Mission Control intentionally omits these floor sections after the dedicated view was introduced. Its first screen remains focused on whole-house energy, EnergyHub status, decision logic, and operating controls.
 
@@ -758,9 +798,13 @@ Mission Control intentionally omits these floor sections after the dedicated vie
 
 ![Smart-plug reserve protection logic](../Images/Infographic%233_smart_plug_reserve_logic.png)
 
-The working-tree dashboard has four explicit tabs: **Mission Control**, **Solar**, **Heat Pumps**, and **Water Systems**. The focused observational/manual views are:
+The working-tree dashboard has four explicit tabs: **Mission Control**, **Energy Statistics**, **Heat Pumps**, and **Water Systems**. The focused observational/manual views are:
 
-- **Solar** — side-by-side PV1/PV2 generation for 7 days, 7 weeks, and 12 months, with current daily, weekly, or yearly PV1/PV2/Total Solar values in each chart header;
+- **Energy Statistics** — side-by-side PV1/PV2 generation and estimated
+  night/normal Grid Import for 7 days, 7 weeks, and 12 months, plus a compact
+  current-month tariff kWh/cost summary and the read-only prices used. PV
+  generation uses dark/light blue, while estimated night/normal import uses
+  dark/light pink; both tariff legend entries remain visible when one is zero;
 - **Heat Pumps** — separate first-, second-, and third-floor sections with switch, live power, auto-off duration, absolute turn-off time, plus daily consumption for 7 days, weekly consumption for 6 weeks, and monthly consumption for 12 months;
 - **Water Systems** — separate 2nd-floor boiler and basement-pump sections with switch and live power, plus the same daily/weekly/monthly history periods.
 
@@ -768,11 +812,25 @@ The first two heat pumps use their verified native cumulative entities `sensor.f
 
 The local Integral sensors persist across Home Assistant restarts but begin accumulating only after deployment. Home Assistant cannot retroactively import the Xiaomi app's cloud-only history. The charts therefore show accurate local history from that point forward; empty older third-floor/water periods are expected.
 
-The water-boiler plug now has a deliberately narrow reserve policy. With fresh EnergyHub telemetry, reaching 50% SOC requests boiler OFF once. An ON request between 41% and 50% remains allowed; Home Assistant cannot reliably distinguish a physical/app action from the existing Xiaomi motion automation. At 40%, `input_boolean.energyhub_water_boiler_soc_lockout` latches, the boiler is requested OFF, and later ON requests are rejected. Fresh SOC of at least 60% clears the latch but never turns the boiler on automatically. The homeowner or Xiaomi demand automation remains responsible for restoration.
+The tariff chart series use the monotonic
+`sensor.energyhub_grid_import_night_total_estimated` and
+`sensor.energyhub_grid_import_normal_total_estimated` sources with Home
+Assistant `change` statistics. Tariff history begins with EnergyHub 1.3.11 and
+cannot reconstruct the split before deployment. Grid Import and UAH cost remain
+informational estimates rather than billing-grade meter readings.
 
-Heat pumps use a separate grid-confidence-aware reserve-only policy. The family
+The water-boiler plug has a deliberately narrow reserve policy when the grid
+is not trusted. With fresh EnergyHub telemetry, reaching 50% SOC requests
+boiler OFF once. An ON request between 41% and 50% remains allowed. At 40%,
+`input_boolean.energyhub_water_boiler_soc_lockout` latches, requests OFF, and
+rejects later ON requests. Fresh SOC of at least 60% clears the latch without
+turning the boiler on. While Grid Confidence is Normal, grid voltage is above
+180 V, and telemetry is fresh, manual/demand control is permitted at every SOC;
+the remembered latch remains available if trust is later lost.
+
+Heat pumps use the same trust gate with a separate reserve-relative policy. The family
 retains manual control when Grid Confidence is `normal`, current inverter grid
-voltage is above 50 V, and EnergyHub telemetry is `fresh`. A remembered lockout
+voltage is above 180 V, and EnergyHub telemetry is `fresh`. A remembered lockout
 may remain latched underneath that permission so protection can return
 immediately if the trust gate is lost. Manual permission never starts a heat
 pump.
@@ -789,12 +847,23 @@ clears the latch without restarting any load. For `S=20%`, the thresholds are
 Template triggers evaluate SOC, Grid Confidence, present grid, telemetry
 freshness, and AHM minimum together. A transition from trusted to untrusted
 conditions therefore applies the appropriate current band even if SOC crossed
-it earlier. No command is issued from stale EnergyHub telemetry. Lockouts are
+it earlier. The shed and lockout paths repeat the grid-trust check after fresh
+telemetry is confirmed and immediately before their actions. This prevents an
+SOC `unavailable` → threshold recovery from carrying a stale untrusted result
+into a plug command after the grid has already been confirmed Normal and
+present. Stale telemetry cannot create or clear an SOC-derived lockout. If a
+lockout was already latched, stale telemetry conservatively removes trusted-grid
+manual permission and may reassert OFF; it never starts a load. Lockouts are
 best effort: Home Assistant cannot physically prevent a local, Zigbee, or
 cloud command while Core, Zigbee2MQTT, the Xiaomi integration, the network, or
 a plug is unavailable. Persistent notifications show requested actions and
 observed plug states. The basement pump remains outside this policy, and
 automatic Smart Thermal starts remain deferred.
+
+At Home Assistant startup, the boiler and heat-pump latch, enforcement, and
+clear paths wait ten seconds and then reconcile restored helper state with the
+current trust and SOC conditions. This closes the restart interval without
+creating an automatic ON path.
 
 ## EnergyHub Decision Logic
 

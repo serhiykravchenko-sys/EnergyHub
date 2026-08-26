@@ -83,7 +83,7 @@ def trusted_grid(confidence: Any, voltage: Any, freshness: Any) -> bool:
     return (
         valid_confidence(confidence) == "normal"
         and voltage_value is not None
-        and voltage_value > 50
+        and voltage_value > 180
         and str(freshness or "").strip().lower() == "fresh"
     )
 

@@ -11,6 +11,8 @@ PANIC_TARGETS = {
     "panic": 95,
 }
 
+NORMAL_GRID_RELEASE_SOC = 30
+
 PANIC_MODES = {
     "panic",
     "panic_grid_hold",
@@ -32,6 +34,7 @@ class PanicDecisionEngine:
         self.grid_target_soc = None
         self.ahm_target_soc = None
         self.target_source = None
+        self.release_soc = None
         self.phase = "inactive"
 
     def evaluate(
@@ -65,13 +68,6 @@ class PanicDecisionEngine:
                 phase="inactive",
             )
 
-        if operating_mode in HYBRID_MODES:
-            return self._result(
-                status="skipped",
-                reason="AHM night strategy is active",
-                phase="inactive",
-            )
-
         if operating_mode == "transitioning":
             return self._result(
                 status="skipped",
@@ -79,7 +75,11 @@ class PanicDecisionEngine:
                 phase="transitioning",
             )
 
-        if operating_mode not in {"solar", *PANIC_MODES}:
+        if operating_mode not in {
+            "solar",
+            *HYBRID_MODES,
+            *PANIC_MODES,
+        }:
             return self._result(
                 status="skipped",
                 reason=(
@@ -116,6 +116,15 @@ class PanicDecisionEngine:
             grid_target_soc,
             valid_ahm_target or 0,
         )
+        normal_reserve_cycle = (
+            grid_confidence == "normal"
+            and valid_ahm_target is None
+        )
+        release_soc = (
+            NORMAL_GRID_RELEASE_SOC
+            if normal_reserve_cycle
+            else None
+        )
 
         target_sources = [
             f"Grid Confidence {grid_confidence}={grid_target_soc}%"
@@ -133,6 +142,64 @@ class PanicDecisionEngine:
         self.ahm_target_soc = valid_ahm_target
         self.target_soc = round(target_soc, 2)
         self.target_source = target_source
+        self.release_soc = release_soc
+
+        if operating_mode in HYBRID_MODES:
+            if battery_soc < target_soc:
+                phase = (
+                    "charging"
+                    if grid_available
+                    else "waiting_for_grid"
+                )
+                return self._result(
+                    status="handoff_to_charging",
+                    reason=(
+                        f"Daytime Panic took ownership at SOC="
+                        f"{battery_soc:.1f}% below target="
+                        f"{target_soc:.1f}%; {target_source}"
+                    ),
+                    request="panic",
+                    target_soc=target_soc,
+                    phase=phase,
+                )
+
+            if (
+                normal_reserve_cycle
+                and grid_available
+                and battery_soc >= release_soc
+            ):
+                return self._result(
+                    status="handoff_to_solar",
+                    reason=(
+                        f"Daytime Panic took ownership at SOC="
+                        f"{battery_soc:.1f}%, which meets the Normal-grid "
+                        f"Solar release threshold {release_soc}%"
+                    ),
+                    request="solar",
+                    target_soc=target_soc,
+                    phase="solar",
+                )
+
+            return self._result(
+                status="handoff_to_grid_hold",
+                reason=(
+                    f"Daytime Panic took ownership at SOC="
+                    f"{battery_soc:.1f}%; preserve the {target_soc:.1f}% "
+                    + (
+                        f"floor until SOC reaches the {release_soc}% "
+                        "Normal-grid Solar release threshold"
+                        if normal_reserve_cycle
+                        else "target in Panic Grid Hold"
+                    )
+                ),
+                request="panic_grid_hold",
+                target_soc=target_soc,
+                phase=(
+                    "grid_hold"
+                    if grid_available
+                    else "reserve_support"
+                ),
+            )
 
         if battery_soc < target_soc:
             phase = "charging" if grid_available else "waiting_for_grid"
@@ -145,6 +212,18 @@ class PanicDecisionEngine:
                     else "grid is offline, remain armed and wait"
                 )
             )
+
+            if (
+                normal_reserve_cycle
+                and operating_mode == "solar"
+                and not grid_available
+            ):
+                return self._result(
+                    status="waiting_for_grid",
+                    reason=reason,
+                    target_soc=target_soc,
+                    phase="waiting_for_grid",
+                )
 
             if operating_mode == "panic":
                 return self._result(
@@ -161,6 +240,40 @@ class PanicDecisionEngine:
                 phase=phase,
             )
 
+        if (
+            normal_reserve_cycle
+            and operating_mode == "solar"
+            and battery_soc <= target_soc
+        ):
+            if not grid_available:
+                return self._result(
+                    status="waiting_for_grid",
+                    reason=(
+                        f"SOC={battery_soc:.1f}% reached the Normal-grid "
+                        f"reserve floor={target_soc:.1f}%, but grid power "
+                        "is absent; remain in Solar and reevaluate when "
+                        "the grid returns"
+                    ),
+                    target_soc=target_soc,
+                    phase="waiting_for_grid",
+                )
+
+            return self._result(
+                status="trigger_grid_hold",
+                reason=(
+                    f"SOC={battery_soc:.1f}% reached the Normal-grid "
+                    f"reserve floor={target_soc:.1f}%; hold until "
+                    f"SOC reaches {release_soc}%"
+                ),
+                request="panic_grid_hold",
+                target_soc=target_soc,
+                phase=(
+                    "grid_hold"
+                    if grid_available
+                    else "reserve_support"
+                ),
+            )
+
         if operating_mode == "panic":
             return self._result(
                 status="target_reached",
@@ -174,12 +287,37 @@ class PanicDecisionEngine:
             )
 
         if operating_mode == "panic_grid_hold":
+            if (
+                normal_reserve_cycle
+                and grid_available
+                and battery_soc >= release_soc
+            ):
+                return self._result(
+                    status="release_solar",
+                    reason=(
+                        f"SOC={battery_soc:.1f}% reached the Normal-grid "
+                        f"Solar release threshold={release_soc}%; "
+                        "return to Solar"
+                    ),
+                    request="solar",
+                    target_soc=target_soc,
+                    phase="solar",
+                )
+
             return self._result(
                 status="grid_hold",
                 reason=(
                     f"SOC={battery_soc:.1f}% >= target={target_soc:.1f}%; "
-                    f"{target_source}; preserve reserve until AHM takes "
-                    "ownership at 23:50"
+                    f"{target_source}; "
+                    + (
+                        f"preserve reserve until SOC reaches the "
+                        f"{release_soc}% Normal-grid Solar release threshold"
+                        if normal_reserve_cycle
+                        else (
+                            "preserve reserve until AHM takes ownership "
+                            "at 23:50"
+                        )
+                    )
                 ),
                 phase="grid_hold" if grid_available else "reserve_support",
             )
@@ -217,6 +355,38 @@ class PanicDecisionEngine:
 
         return values
 
+    def requires_immediate_evaluation(
+        self,
+        *,
+        operating_mode,
+        grid_confidence,
+        battery_soc,
+        grid_available,
+        ahm_target_soc=None,
+        now=None,
+    ):
+        """Wake the Normal-grid hysteresis at its exact SOC boundaries."""
+        current_time = now or datetime.now()
+        if not self._inside_evaluation_window(current_time):
+            return False
+        if grid_confidence != "normal" or self._valid_number(ahm_target_soc):
+            return False
+        if not self._valid_number(battery_soc):
+            return False
+
+        soc = float(battery_soc)
+        if (
+            operating_mode == "solar"
+            and grid_available
+            and soc <= PANIC_TARGETS["normal"]
+        ):
+            return True
+        return (
+            operating_mode == "panic_grid_hold"
+            and grid_available
+            and soc >= NORMAL_GRID_RELEASE_SOC
+        )
+
     def _result(
         self,
         *,
@@ -241,6 +411,7 @@ class PanicDecisionEngine:
             "grid_target_soc": self.grid_target_soc,
             "ahm_target_soc": self.ahm_target_soc,
             "target_source": self.target_source,
+            "release_soc": self.release_soc,
             "phase": self.phase,
         }
 

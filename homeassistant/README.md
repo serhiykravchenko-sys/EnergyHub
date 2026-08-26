@@ -43,7 +43,7 @@ homeassistant/
 
 - Autopilot helper;
 - Adaptive Hybrid schedule at 23:50, a guarded 06:05 early-Solar check from
-  Grid Hold, and Solar restoration at 07:00;
+  Grid Hold, and a Panic ownership evaluation at 07:00;
 - live Solcast publication, including the first tomorrow hourly forecast at
   or above 300 W for the adaptive morning-gap target;
 - atomic Daily Summary publication;
@@ -53,12 +53,22 @@ homeassistant/
 - first-, second-, and third-floor heat-pump auto-off controls;
 - a compact Heat Pumps view with switch, live power, 0–12 h auto-off, absolute turn-off time, and consumption history for all three floors;
 - a compact Mission Control view without duplicated floor cards;
-- a dedicated Solar view with PV1/PV2 daily, weekly, and monthly generation comparisons plus current period totals;
+- a dedicated Energy Statistics view with PV1/PV2 generation and estimated
+  night/normal tariff import across daily, weekly, and monthly periods;
 - separate Heat Pumps and Water Systems views for compact manual control and daily/weekly/monthly locally recorded consumption history.
-- family heat-pump permission whenever Grid Confidence is Normal, the grid is
-  present, and telemetry is fresh; otherwise AHM-relative shed/lockout/recovery
-  bands apply. The permission never starts a heat pump and preserves any
-  remembered SOC lockout underneath.
+- family heat-pump and water-boiler permission whenever Grid Confidence is
+  Normal, the grid is present, and telemetry is fresh; otherwise the existing
+  reserve shed/lockout/recovery bands apply. Permission never starts a load and
+  preserves remembered SOC lockouts underneath.
+- restart reconciliation for boiler and heat-pump lockout creation,
+  enforcement, and clearance;
+  already-latched OFF enforcement remains conservative if telemetry becomes
+  stale, but new SOC-derived latches and clearances still require fresh data;
+- Mission Control PV2 health/sample-age visibility, separate SOC-anomaly
+  diagnostics, 48-hour grid availability, and an explicit non-billing-grade
+  Grid Import notice;
+- Heat Pumps and Water Systems cards that distinguish current family/EnergyHub
+  authority from a remembered dormant lockout.
 
 ## Current EnergyHub-owned functions
 

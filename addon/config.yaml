@@ -1,5 +1,5 @@
 name: Energy Hub
-version: "1.3.8"
+version: "1.3.14"
 slug: energy_hub
 description: Local home energy management for PowMr PI30MAX and Home Assistant
 url: https://github.com/serhiykravchenko-sys/EnergyHub
@@ -31,6 +31,7 @@ options:
   pv2_modbus_enabled: false
   pv2_poll_interval: 30
   device_name: PowMr 10.2M
+  timezone: Europe/Kyiv
 
 schema:
   powmr_enabled: bool
@@ -45,3 +46,4 @@ schema:
   pv2_modbus_enabled: bool
   pv2_poll_interval: int
   device_name: str
+  timezone: str

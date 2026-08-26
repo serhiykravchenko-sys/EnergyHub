@@ -72,17 +72,21 @@ The former Away Mode prototype has been removed. EnergyHub includes reserve-only
 
 ## Current status
 
-Status as of 2026-08-12:
+Status as of 2026-08-26:
 
 - EnergyHub 1.0.2 tagged, released, and tested;
-- EnergyHub 1.3.0 released and validated; 1.3.1 added the dashboard-selected AHM reserve and solar-ramp refinement; the 1.3.2 learned morning-net-energy and reserve-advisor increment is in private monitoring before public promotion;
+- EnergyHub 1.3.0 released and validated; the coordinated 1.3.1–1.3.14 line
+  added configurable/learned reserve planning, PV2/Total PV, early Solar,
+  persistent diagnostics, tariff accounting, and Normal-grid reserve
+  hysteresis; 1.3.14 is the monitored closure release selected for public
+  promotion;
 - Adaptive Hybrid and Conservative Panic coordinated with explicit 07:00 and 23:50 ownership handoffs;
 - hourly post-07:00 forecast alignment, adaptive target persistence, offline Panic waiting, and Panic Grid Hold implemented;
 - Zigbee2MQTT and two paired heat-pump plugs validated for manual monitoring/control;
 - dedicated Heat Pumps and Water Systems dashboards deployed and observed;
 - matching three-floor auto-off controls and local consumption history added;
 - reserve-only boiler and heat-pump OFF guards implemented without automatic starts;
-- automatic Smart Thermal starts remain deferred to 1.4.
+- automatic Smart Thermal starts remain deferred to 2.0.
 
 ## Product pillars
 

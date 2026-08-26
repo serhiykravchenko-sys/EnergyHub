@@ -127,7 +127,8 @@ Coordinate cheap-night planning with conservative daytime reserve recovery.
 Delivered in the 1.3.0 working tree:
 
 - aligned post-07:00 consumption/solar energy balance for AHM;
-- adaptive 30–95% target with persisted context;
+- original adaptive 30–95% target with persisted context (superseded by the
+  1.3.1 configurable minimum; the current target range is 20–95%);
 - 07:00–23:50 Panic ownership with 20/60/80/95% targets;
 - offline waiting, charging, and Panic Grid Hold phases;
 - dated AHM morning-debt handoff;
@@ -155,7 +156,8 @@ Safety rule:
 
 Status:
 
-Implementation and supervised deployment validation completed on 2026-08-09; public publication is pending explicit approval.
+Implementation and supervised deployment validation completed on 2026-08-09;
+the increment is included in the 1.3.14 closure release.
 
 ---
 
@@ -180,11 +182,11 @@ No undocumented Modbus writes or output-2 control belong in this release.
 
 Status:
 
-Implementation, 80 add-on tests, supervised deployment, nighttime validation,
-and homeowner-observed daylight chart validation are complete. Read-only
+Implementation, supervised deployment, nighttime validation, and homeowner-
+observed daylight chart validation are complete. Read-only
 registers 4563 and 4564 passed high-production and full-battery/curtailed-
-production probes on the installed inverter. A 2–3-day private monitoring
-period remains before public promotion.
+production probes on the installed inverter. The increment is included in the
+monitored 1.3.14 closure release.
 
 ---
 
@@ -206,10 +208,8 @@ Scope:
 
 Status:
 
-Implemented and regression-tested in the private repository. Supervised
-deployment and add-on startup validation completed on 2026-08-15. The 2–3-day
-private monitoring period and a later planned Home Assistant Core
-retained-state restoration check remain pending before public promotion.
+Implemented, regression-tested, deployed, and startup-validated. The increment
+is included in the monitored 1.3.14 closure release.
 
 ---
 
@@ -234,8 +234,8 @@ Scope:
 
 Status:
 
-Prepared, privately deployed, startup-validated, monitored, and publicly
-released as part of the 1.3.8 baseline.
+Prepared, privately deployed, startup-validated, and included in the monitored
+1.3.8 baseline and the 1.3.14 closure release.
 
 ---
 
@@ -265,7 +265,7 @@ Scope:
 Status:
 
 Regression-tested, synchronized to Home Assistant, started, privately
-monitored without a reported regression, and publicly released.
+monitored, and publicly released as the previous public baseline.
 
 ---
 
@@ -290,7 +290,8 @@ Scope:
 
 Status:
 
-Next planned observer-only increment after 1.3.8 release closure.
+Delivered, privately deployed, live-validated, and included in the monitored
+1.3.14 closure release.
 
 ---
 
@@ -312,7 +313,8 @@ Scope:
 
 Status:
 
-Planned after the SOC Anomaly Journal.
+Delivered, privately deployed, and included in the monitored 1.3.14 closure
+release. Automatic fault recovery and overload action remain deferred to 2.0.
 
 ---
 
@@ -339,7 +341,52 @@ Billing control. Those remain later tariff-scheduling/economic-planning work.
 
 Status:
 
-Planned after inverter fault diagnostics.
+Delivered, privately deployed, and included in the monitored 1.3.14 closure
+release without changing inverter scheduling or control.
+
+---
+
+## EnergyHub 1.3.12 — Meaningful Inverter Messages
+
+Goal:
+
+Preserve raw QPIWS evidence while keeping routine overnight PV-loss-only
+transitions out of operational dashboard incident positions.
+
+Status:
+
+Delivered, deployed, and monitored. Mixed incidents retain every meaningful
+message, while diagnostic history remains available for investigation.
+
+---
+
+## EnergyHub 1.3.13 — Normal-Grid Reserve Hysteresis
+
+Goal:
+
+Transfer AHM ownership to daytime Panic at 07:00, hold a Normal-grid 20% floor,
+release Solar at 30%, and leave protected smart plugs under family control
+while grid trust is valid.
+
+Status:
+
+Delivered and incorporated into the monitored 1.3.14 closure release.
+
+---
+
+## EnergyHub 1.3.14 — Grid-Available Reserve Guard
+
+Goal:
+
+Require physical grid availability before Normal-grid Solar requests the 20%
+Grid Hold, remain command-free while the grid is absent, and reevaluate
+immediately after grid return.
+
+Status:
+
+Repository-tested, deployed on 2026-08-24, startup-validated, monitored through
+2026-08-26 without a reported release blocker, and publicly released as the
+planned close of the 1.x feature line.
 
 ---
 
@@ -348,7 +395,7 @@ Planned after inverter fault diagnostics.
 Goal:
 
 Test family-friendly conversational control before committing to the complete
-2.0 interface, using the existing timed Home Assistant load controls and the
+3.0 interface, using the existing timed Home Assistant load controls and the
 central EnergyHub safety decision.
 
 Representative requests:
@@ -381,12 +428,12 @@ Sequence:
 5. no raw entity IDs, MQTT, PI30MAX, or Modbus commands exposed to the
    assistant.
 
-This experiment informs the full 2.0 architecture; it does not bypass reserve
+This experiment informs the full 3.0 architecture; it does not bypass reserve
 lockouts, Grid Confidence, Panic, device timing, or immutable safety limits.
 
 ---
 
-## EnergyHub 1.4 — Smart Thermal & Flexible Loads
+## EnergyHub 2.0 — Fault-Aware Smart Thermal & Flexible Loads
 
 Goal:
 
@@ -457,12 +504,13 @@ Voice or messenger assistants are request interfaces, not safety authorities. En
 
 Status:
 
-Planned. The 1.4 family begins with diagnostics and calibration; it does not
+Planned. The 2.0 family begins with diagnostics, bounded recovery research,
+and calibration; it does not
 ship a guessed active overload threshold.
 
 ---
 
-## EnergyHub 2.0 — Conversational EnergyHub
+## EnergyHub 3.0 — Conversational EnergyHub
 
 Goal:
 
@@ -497,13 +545,13 @@ command proxies or safety authorities.
 Status:
 
 Outbound Telegram reporting and notifications are implemented. A bounded
-Ukrainian/English text-then-voice experiment is planned after 1.4. Full
+Ukrainian/English text-then-voice experiment is planned after 2.0. Full
 inbound authentication, authorization, audit, and generalized bounded intents
-remain the 2.0 milestone.
+remain the 3.0 milestone.
 
 ---
 
-## EnergyHub 2.x — Tariff Scheduling
+## EnergyHub 4.0 — Tariff Scheduling
 
 Goal:
 
@@ -530,7 +578,7 @@ them.
 
 ---
 
-## EnergyHub 3.0 — Hardware & Economic Ecosystem
+## EnergyHub 5.0 — Hardware & Economic Ecosystem
 
 Goal:
 

@@ -372,7 +372,7 @@
                     },
                     {
                       "entity": "sensor.energyhub_daily_grid_import_estimated",
-                      "name": "Grid Import Est.",
+                      "name": "Total Grid Import Est.",
                       "type": "column",
                       "color": "#8e44ad",
                       "yaxis_id": "energy",
@@ -728,8 +728,71 @@
                         },
                         {
                           "entity": "sensor.powmr_10_2m_pv1_power",
-                          "name": "Solar Power",
+                          "name": "PV1 Power",
                           "icon": "mdi:solar-power"
+                        },
+                        {
+                          "entity": "sensor.powmr_10_2m_pv2_power",
+                          "name": "PV2 Power",
+                          "icon": "mdi:solar-power"
+                        },
+                        {
+                          "entity": "sensor.powmr_10_2m_total_pv_power",
+                          "name": "Total PV Power",
+                          "icon": "mdi:solar-power-variant"
+                        },
+                        {
+                          "entity": "sensor.energyhub_pv2_telemetry_status",
+                          "name": "PV2 Telemetry Status",
+                          "icon": "mdi:solar-panel-large"
+                        },
+                        {
+                          "entity": "sensor.energyhub_pv2_telemetry_freshness",
+                          "name": "PV2 Freshness",
+                          "icon": "mdi:clock-check-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_pv2_sample_age_seconds",
+                          "name": "PV2 Sample Age",
+                          "icon": "mdi:timer-sand"
+                        },
+                        {
+                          "type": "section",
+                          "label": "Inverter messages"
+                        },
+                        {
+                          "entity": "sensor.energyhub_inverter_fault_current",
+                          "name": "Current",
+                          "icon": "mdi:alert-circle-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_inverter_fault_recent_1",
+                          "name": "Latest message",
+                          "icon": "mdi:history"
+                        },
+                        {
+                          "entity": "sensor.energyhub_inverter_fault_recent_2",
+                          "name": "Previous message",
+                          "icon": "mdi:history"
+                        },
+                        {
+                          "entity": "sensor.energyhub_inverter_fault_recent_3",
+                          "name": "Third latest message",
+                          "icon": "mdi:history"
+                        },
+                        {
+                          "type": "section",
+                          "label": "Battery telemetry diagnostics"
+                        },
+                        {
+                          "entity": "sensor.energyhub_soc_anomaly_event_count",
+                          "name": "SOC Anomaly Count",
+                          "icon": "mdi:battery-alert-variant-outline"
+                        },
+                        {
+                          "entity": "sensor.energyhub_soc_anomaly_latest",
+                          "name": "Latest SOC Anomaly",
+                          "icon": "mdi:chart-timeline-variant-shimmer"
                         }
                       ]
                     },
@@ -793,6 +856,10 @@
                           "icon": "mdi:counter"
                         }
                       ]
+                    },
+                    {
+                      "type": "markdown",
+                      "content": "ℹ️ Grid-import energy and cost values are **informational estimates**, not billing-grade meter data."
                     }
                   ]
                 }
@@ -827,6 +894,11 @@
                           "entity": "sensor.energyhub_grid_availability_24h",
                           "name": "Grid Availability — 24h",
                           "icon": "mdi:percent"
+                        },
+                        {
+                          "entity": "sensor.energyhub_grid_available_48h",
+                          "name": "Grid Available — 48h",
+                          "icon": "mdi:timeline-clock-outline"
                         },
                         {
                           "type": "section",
@@ -1049,12 +1121,66 @@
           ]
         },
         {
-          "title": "Solar",
+          "title": "Energy Statistics",
           "path": "solar",
-          "icon": "mdi:solar-power",
+          "icon": "mdi:chart-bar",
           "type": "sections",
           "max_columns": 3,
           "sections": [
+            {
+              "type": "grid",
+              "column_span": 3,
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading_style": "title",
+                  "heading": "Estimated Grid Import — Current Month"
+                },
+                {
+                  "type": "glance",
+                  "show_name": true,
+                  "show_icon": true,
+                  "show_state": true,
+                  "columns": 6,
+                  "entities": [
+                    {
+                      "entity": "sensor.energyhub_grid_import_night_month_estimated",
+                      "name": "Night",
+                      "icon": "mdi:weather-night"
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_normal_month_estimated",
+                      "name": "Normal",
+                      "icon": "mdi:white-balance-sunny"
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_month_estimated",
+                      "name": "Total",
+                      "icon": "mdi:transmission-tower-import"
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_cost_month_estimated",
+                      "name": "Est. Cost",
+                      "icon": "mdi:cash-multiple"
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_night_price",
+                      "name": "Night Price",
+                      "icon": "mdi:currency-uah"
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_normal_price",
+                      "name": "Normal Price",
+                      "icon": "mdi:currency-uah"
+                    }
+                  ]
+                },
+                {
+                  "type": "markdown",
+                  "content": "Grid Import and cost are informational estimates, not billing-grade meter readings."
+                }
+              ]
+            },
             {
               "type": "grid",
               "cards": [
@@ -1062,7 +1188,7 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "PV Generation — 7 days",
+                    "title": "Generation & Grid Import — 7 days",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -1089,7 +1215,21 @@
                     },
                     "legend": {
                       "show": true,
-                      "showForZeroSeries": false,
+                      "showForZeroSeries": true,
+                      "customLegendItems": [
+                        "PV1 Generated",
+                        "PV2 Generated",
+                        "Night Import Est.",
+                        "Normal Import Est."
+                      ],
+                      "markers": {
+                        "fillColors": [
+                          "#0d47a1",
+                          "#4fc3f7",
+                          "#c2185b",
+                          "#ff6f91"
+                        ]
+                      },
                       "position": "bottom",
                       "horizontalAlign": "center"
                     },
@@ -1098,7 +1238,9 @@
                       "intersect": false,
                       "enabledOnSeries": [
                         0,
-                        1
+                        1,
+                        2,
+                        3
                       ]
                     },
                     "xaxis": {
@@ -1123,7 +1265,7 @@
                       "statistics": {
                         "type": "change",
                         "period": "day",
-                        "align": "start"
+                        "align": "middle"
                       },
                       "show": {
                         "in_header": false,
@@ -1140,7 +1282,41 @@
                       "statistics": {
                         "type": "change",
                         "period": "day",
-                        "align": "start"
+                        "align": "middle"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_night_total_estimated",
+                      "name": "Night Import Est.",
+                      "type": "column",
+                      "color": "#c2185b",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "day",
+                        "align": "middle"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_normal_total_estimated",
+                      "name": "Normal Import Est.",
+                      "type": "column",
+                      "color": "#ff6f91",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "day",
+                        "align": "middle"
                       },
                       "show": {
                         "in_header": false,
@@ -1213,7 +1389,7 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "PV Generation — 7 weeks",
+                    "title": "Generation & Grid Import — 7 weeks",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -1240,7 +1416,21 @@
                     },
                     "legend": {
                       "show": true,
-                      "showForZeroSeries": false,
+                      "showForZeroSeries": true,
+                      "customLegendItems": [
+                        "PV1 Generated",
+                        "PV2 Generated",
+                        "Night Import Est.",
+                        "Normal Import Est."
+                      ],
+                      "markers": {
+                        "fillColors": [
+                          "#0d47a1",
+                          "#4fc3f7",
+                          "#c2185b",
+                          "#ff6f91"
+                        ]
+                      },
                       "position": "bottom",
                       "horizontalAlign": "center"
                     },
@@ -1249,7 +1439,9 @@
                       "intersect": false,
                       "enabledOnSeries": [
                         0,
-                        1
+                        1,
+                        2,
+                        3
                       ]
                     },
                     "xaxis": {
@@ -1274,7 +1466,7 @@
                       "statistics": {
                         "type": "change",
                         "period": "week",
-                        "align": "start"
+                        "align": "middle"
                       },
                       "show": {
                         "in_header": false,
@@ -1291,7 +1483,41 @@
                       "statistics": {
                         "type": "change",
                         "period": "week",
-                        "align": "start"
+                        "align": "middle"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_night_total_estimated",
+                      "name": "Night Import Est.",
+                      "type": "column",
+                      "color": "#c2185b",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "week",
+                        "align": "middle"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_normal_total_estimated",
+                      "name": "Normal Import Est.",
+                      "type": "column",
+                      "color": "#ff6f91",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "week",
+                        "align": "middle"
                       },
                       "show": {
                         "in_header": false,
@@ -1364,7 +1590,7 @@
                   "type": "custom:apexcharts-card",
                   "header": {
                     "show": true,
-                    "title": "PV Generation — 12 months",
+                    "title": "Generation & Grid Import — 12 months",
                     "show_states": true,
                     "colorize_states": true
                   },
@@ -1445,6 +1671,40 @@
                       }
                     },
                     {
+                      "entity": "sensor.energyhub_grid_import_night_total_estimated",
+                      "name": "Night Import Est.",
+                      "type": "column",
+                      "color": "#c2185b",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "month",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_grid_import_normal_total_estimated",
+                      "name": "Normal Import Est.",
+                      "type": "column",
+                      "color": "#ff6f91",
+                      "yaxis_id": "energy",
+                      "float_precision": 1,
+                      "statistics": {
+                        "type": "change",
+                        "period": "month",
+                        "align": "start"
+                      },
+                      "show": {
+                        "in_header": false,
+                        "legend_value": false
+                      }
+                    },
+                    {
                       "entity": "sensor.pv1_generated_this_year",
                       "name": "PV1 This Year",
                       "color": "#0d47a1",
@@ -1502,6 +1762,22 @@
           "sections": [
             {
               "type": "grid",
+              "column_span": 3,
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "EnergyHub Reserve Protection",
+                  "heading_style": "title",
+                  "icon": "mdi:shield-home-outline"
+                },
+                {
+                  "type": "markdown",
+                  "content": "{% set trusted = states('sensor.energyhub_grid_confidence') | lower == 'normal' and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 180 and states('sensor.energyhub_telemetry_freshness') == 'fresh' %} {% set locked = is_state('input_boolean.energyhub_heat_pump_soc_lockout', 'on') %} {% set reserve = states('input_number.ahm_minimum_soc') | float(20) %}\n**Current authority:** {% if trusted %}👨‍👩‍👧‍👦 **Family manual control**{% else %}🛡️ **EnergyHub reserve protection**{% endif %}\n**Remembered lockout:** {% if locked %}🔒 Active{% else %}🔓 Clear{% endif %}\n**Thresholds:** shed {{ reserve + 30 }}% · lockout {{ reserve + 20 }}% · clear {{ reserve + 40 }}%\n{% if trusted and locked %}The lockout is remembered but dormant while the grid remains trusted.{% elif not trusted and locked %}Running heat pumps and new ON requests are blocked until the lockout clears.{% else %}EnergyHub never turns a heat pump on automatically.{% endif %}"
+                }
+              ]
+            },
+            {
+              "type": "grid",
               "cards": [
                 {
                   "type": "heading",
@@ -1516,7 +1792,7 @@
                   "cards": [
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_e515_temperature",
+                      "entity": "sensor.energyhub_floor_1_temperature",
                       "name": "Temperature",
                       "icon": "mdi:thermometer",
                       "color": "red",
@@ -1524,7 +1800,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_e515_relative_humidity",
+                      "entity": "sensor.energyhub_floor_1_humidity",
                       "name": "Humidity",
                       "icon": "mdi:water-percent",
                       "color": "cyan",
@@ -1591,7 +1867,7 @@
                   "cards": [
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_1bf2_temperature",
+                      "entity": "sensor.energyhub_floor_2_temperature",
                       "name": "Temperature",
                       "icon": "mdi:thermometer",
                       "color": "red",
@@ -1599,7 +1875,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_1bf2_relative_humidity",
+                      "entity": "sensor.energyhub_floor_2_humidity",
                       "name": "Humidity",
                       "icon": "mdi:water-percent",
                       "color": "cyan",
@@ -1666,7 +1942,7 @@
                   "cards": [
                     {
                       "type": "tile",
-                      "entity": "sensor.lumi_weather_v1_b318_temperature",
+                      "entity": "sensor.energyhub_floor_3_temperature",
                       "name": "Temperature",
                       "icon": "mdi:thermometer",
                       "color": "red",
@@ -1674,7 +1950,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.lumi_weather_v1_b318_relative_humidity",
+                      "entity": "sensor.energyhub_floor_3_humidity",
                       "name": "Humidity",
                       "icon": "mdi:water-percent",
                       "color": "cyan",
@@ -1682,7 +1958,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "switch.chuangmi_212a01_ea40_switch",
+                      "entity": "switch.energyhub_heat_pump_floor_3",
                       "name": "Switch",
                       "icon": "mdi:heat-pump",
                       "color": "green",
@@ -1696,7 +1972,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.chuangmi_212a01_ea40_electric_power",
+                      "entity": "sensor.energyhub_heat_pump_floor_3_power",
                       "name": "Live Power",
                       "icon": "mdi:flash",
                       "color": "purple",
@@ -1923,6 +2199,22 @@
           "sections": [
             {
               "type": "grid",
+              "column_span": 2,
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "EnergyHub Boiler Reserve Protection",
+                  "heading_style": "title",
+                  "icon": "mdi:shield-home-outline"
+                },
+                {
+                  "type": "markdown",
+                  "content": "{% set trusted = states('sensor.energyhub_grid_confidence') | lower == 'normal' and states('sensor.powmr_10_2m_grid_voltage') | float(0) > 180 and states('sensor.energyhub_telemetry_freshness') == 'fresh' %} {% set locked = is_state('input_boolean.energyhub_water_boiler_soc_lockout', 'on') %}\n**Current authority:** {% if trusted %}👨‍👩‍👧‍👦 **Family manual control**{% else %}🛡️ **EnergyHub reserve protection**{% endif %}\n**Remembered boiler lockout:** {% if locked %}🔒 Active{% else %}🔓 Clear{% endif %}\n**Fixed thresholds:** shed 50% · lockout 40% · clear 60%\n{% if trusted and locked %}The lockout is remembered but dormant while the grid remains trusted.{% elif not trusted and locked %}The boiler is kept OFF until fresh SOC clears the lockout.{% else %}EnergyHub never turns the boiler on automatically.{% endif %}"
+                }
+              ]
+            },
+            {
+              "type": "grid",
               "cards": [
                 {
                   "type": "heading",
@@ -1937,7 +2229,7 @@
                   "cards": [
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_4119_temperature",
+                      "entity": "sensor.energyhub_utility_room_temperature",
                       "name": "Temperature",
                       "icon": "mdi:thermometer",
                       "color": "red",
@@ -1945,7 +2237,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.miaomiaoce_t2_4119_relative_humidity",
+                      "entity": "sensor.energyhub_utility_room_humidity",
                       "name": "Humidity",
                       "icon": "mdi:water-percent",
                       "color": "cyan",
@@ -1953,7 +2245,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "switch.chuangmi_212a01_c91f_switch",
+                      "entity": "switch.energyhub_water_boiler",
                       "name": "Boiler",
                       "icon": "mdi:water-boiler",
                       "color": "orange",
@@ -1967,7 +2259,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.chuangmi_212a01_c91f_electric_power",
+                      "entity": "sensor.energyhub_water_boiler_power",
                       "name": "Live Power",
                       "icon": "mdi:flash",
                       "color": "purple",
@@ -1993,7 +2285,7 @@
                   "cards": [
                     {
                       "type": "tile",
-                      "entity": "sensor.lumi_weather_v1_27f0_temperature",
+                      "entity": "sensor.energyhub_basement_temperature",
                       "name": "Temperature",
                       "icon": "mdi:thermometer",
                       "color": "red",
@@ -2001,7 +2293,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.lumi_weather_v1_27f0_relative_humidity",
+                      "entity": "sensor.energyhub_basement_humidity",
                       "name": "Humidity",
                       "icon": "mdi:water-percent",
                       "color": "cyan",
@@ -2009,7 +2301,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "switch.chuangmi_212a01_ac48_switch",
+                      "entity": "switch.energyhub_basement_water_pump",
                       "name": "Water Pump",
                       "icon": "mdi:pump",
                       "color": "blue",
@@ -2023,7 +2315,7 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "sensor.chuangmi_212a01_ac48_electric_power",
+                      "entity": "sensor.energyhub_basement_water_pump_power",
                       "name": "Live Power",
                       "icon": "mdi:flash",
                       "color": "purple",

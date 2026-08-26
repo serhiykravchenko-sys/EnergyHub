@@ -34,6 +34,8 @@ from app.mqtt.publisher import (
     publish_hybrid_decision_discovery,
     publish_inverter_health,
     publish_inverter_health_discovery,
+    publish_inverter_fault_journal,
+    publish_inverter_fault_journal_discovery,
     publish_inverter_settings,
     publish_inverter_settings_discovery,
     publish_notification_event,
@@ -45,6 +47,8 @@ from app.mqtt.publisher import (
     publish_pv2_telemetry,
     publish_reserve_advisor,
     publish_reserve_advisor_discovery,
+    publish_soc_anomaly_journal,
+    publish_soc_anomaly_journal_discovery,
     publish_system_health,
     publish_system_health_discovery,
     publish_telemetry_freshness,
@@ -68,10 +72,12 @@ from app.services.hybrid_night_enforcement import (
 )
 from app.services.inverter_controller import InverterController
 from app.services.inverter_health import InverterHealthMonitor
+from app.services.inverter_fault_journal import InverterFaultJournal
 from app.services.morning_load_profile import MorningLoadProfileService
 from app.services.panic_decision import PanicDecisionEngine
 from app.services.pv2_telemetry import PV2TelemetryService
 from app.services.reserve_advisor import ReserveAdvisorService
+from app.services.soc_anomaly_journal import SocAnomalyJournal
 from app.services.system_health import SystemHealthMonitor
 from app.services.telemetry import TelemetryService
 from app.services.telemetry_freshness import (
@@ -151,12 +157,15 @@ def main():
     battery_health = BatteryHealthMonitor()
     telemetry_freshness = TelemetryFreshnessMonitor()
     inverter_health = InverterHealthMonitor()
+    inverter_fault_journal = InverterFaultJournal()
     system_health = SystemHealthMonitor()
     autopilot = AutopilotState()
 
     grid = GridMonitor()
     history = GridHistoryService()
-    grid_import = GridImportService()
+    grid_import = GridImportService(
+        timezone_name=options.get("timezone", "Europe/Kyiv")
+    )
     stability = GridStabilityEngine(history)
     daily_summary = DailySummaryService(
         history,
@@ -164,6 +173,7 @@ def main():
     )
     morning_load_profile = MorningLoadProfileService()
     reserve_advisor = ReserveAdvisorService()
+    soc_anomaly_journal = SocAnomalyJournal()
 
     # Live decision inputs are kept separate from Daily Summary snapshot
     # inputs. Solcast updates these values throughout the day, while the
@@ -191,6 +201,7 @@ def main():
     last_warning_read = 0
     last_settings_read = 0
     last_panic_evaluation = 0
+    communication_interrupted = False
 
     hybrid_evaluation_requested = False
     early_solar_evaluation_request = None
@@ -405,6 +416,12 @@ def main():
             log("Hybrid evaluation requested")
             return
 
+        if requested_mode == "evaluate_panic":
+            panic_evaluation_requested = True
+
+            log("Panic evaluation requested")
+            return
+
         if not autopilot.is_enabled():
             log(
                 "Ignore inverter mode request "
@@ -462,6 +479,10 @@ def main():
 
             if inverter_controller.mode == "panic":
                 transition_succeeded = True
+            elif inverter_controller.mode == "hybrid_charging":
+                transition_succeeded = (
+                    inverter_controller.transfer_hybrid_charging_to_panic()
+                )
             else:
                 transition_succeeded = (
                     inverter_controller.enter_panic()
@@ -477,9 +498,14 @@ def main():
                     panic_target_soc
                 )
 
-            transition_succeeded = (
-                inverter_controller.enter_panic_grid_hold()
-            )
+            if inverter_controller.mode == "hybrid_grid_hold":
+                transition_succeeded = (
+                    inverter_controller.transfer_hybrid_hold_to_panic()
+                )
+            else:
+                transition_succeeded = (
+                    inverter_controller.enter_panic_grid_hold()
+                )
 
         else:
             log(
@@ -878,6 +904,7 @@ def main():
                 "soc": state.battery_soc,
                 "grid_confidence": grid_confidence,
                 "phase": decision["phase"],
+                "requested_mode": requested_mode,
                 "target_source": decision["target_source"],
                 "target_soc": decision["target_soc"],
                 "reason": decision["reason"],
@@ -1370,6 +1397,8 @@ def main():
     publish_battery_health_discovery(client)
     publish_telemetry_freshness_discovery(client)
     publish_inverter_health_discovery(client)
+    publish_inverter_fault_journal_discovery(client)
+    publish_inverter_fault_journal(client, inverter_fault_journal)
     publish_inverter_settings_discovery(client)
     publish_operating_mode_discovery(client)
     publish_hybrid_decision_discovery(client)
@@ -1383,6 +1412,8 @@ def main():
     )
     publish_reserve_advisor_discovery(client)
     publish_reserve_advisor(client, reserve_advisor)
+    publish_soc_anomaly_journal_discovery(client)
+    publish_soc_anomaly_journal(client, soc_anomaly_journal)
     publish_panic_decision_discovery(client)
     publish_autopilot_discovery(client)
     publish_system_health_discovery(client)
@@ -1472,16 +1503,90 @@ def main():
                 telemetry_freshness,
             )
 
+            communication_recovered = (
+                state.valid and communication_interrupted
+            )
+            anomaly_created = soc_anomaly_journal.observe(
+                valid=state.valid,
+                soc=state.battery_soc,
+                battery_voltage=state.battery_voltage,
+                charging_current=(state.raw or {}).get(
+                    "battery_charging_current"
+                ),
+                discharging_current=(state.raw or {}).get(
+                    "battery_discharge_current"
+                ),
+                pv1_power=state.pv_power,
+                pv2_power=(
+                    pv2_telemetry.last_power
+                    if pv2_telemetry.pv2_is_fresh()
+                    else None
+                ),
+                total_pv_power=(
+                    pv2_telemetry.last_total_power
+                    if pv2_telemetry.total_is_fresh()
+                    else None
+                ),
+                house_load=state.load_power,
+                grid_available=state.grid_available,
+                grid_voltage=(state.raw or {}).get(
+                    "ac_input_voltage"
+                ),
+                operating_mode=inverter_controller.mode,
+                telemetry_freshness=telemetry_freshness.status,
+                communication_recovered=communication_recovered,
+            )
+            communication_interrupted = not state.valid
+
+            inverter_fault_journal.observe_telemetry(
+                valid=state.valid,
+                load_w=state.load_power,
+                load_percent=(state.raw or {}).get("ac_output_load"),
+                battery_soc=state.battery_soc,
+                battery_voltage=state.battery_voltage,
+                battery_charging_current=(state.raw or {}).get(
+                    "battery_charging_current"
+                ),
+                battery_discharging_current=(state.raw or {}).get(
+                    "battery_discharge_current"
+                ),
+                pv1_power=state.pv_power,
+                pv2_power=(
+                    pv2_telemetry.last_power
+                    if pv2_telemetry.pv2_is_fresh()
+                    else None
+                ),
+                total_pv_power=(
+                    pv2_telemetry.last_total_power
+                    if pv2_telemetry.total_is_fresh()
+                    else None
+                ),
+                grid_available=state.grid_available,
+                grid_voltage=(state.raw or {}).get("ac_input_voltage"),
+                operating_mode=inverter_controller.mode,
+                telemetry_freshness=telemetry_freshness.status,
+            )
+
+            if anomaly_created:
+                publish_soc_anomaly_journal(
+                    client,
+                    soc_anomaly_journal,
+                )
+
             now = time.monotonic()
 
             if (
                 now - last_warning_read
                 >= INVERTER_WARNING_INTERVAL_SECONDS
             ):
+                fault_changed = False
                 try:
                     warning_data = inverter.read_warnings()
 
                     inverter_health.update(
+                        warning_data
+                    )
+                    fault_changed = inverter_fault_journal.observe_qpiws(
                         warning_data
                     )
 
@@ -1497,6 +1602,11 @@ def main():
                     client,
                     inverter_health,
                 )
+                if fault_changed:
+                    publish_inverter_fault_journal(
+                        client,
+                        inverter_fault_journal,
+                    )
 
                 last_warning_read = now
 
@@ -1632,6 +1742,22 @@ def main():
                     evaluate_early_solar(state, request)
 
                 enforce_hybrid_night_target(state)
+
+                if panic_decision.requires_immediate_evaluation(
+                    operating_mode=inverter_controller.mode,
+                    grid_confidence=stability.level(),
+                    battery_soc=soc,
+                    grid_available=grid.is_available,
+                    ahm_target_soc=(
+                        inverter_controller.ahm_debt_target_soc
+                    ),
+                ):
+                    if not panic_evaluation_requested:
+                        log(
+                            "Immediate Normal-grid reserve evaluation "
+                            "requested at a 20%/30% boundary"
+                        )
+                    panic_evaluation_requested = True
 
                 if (
                     autopilot.is_enabled()

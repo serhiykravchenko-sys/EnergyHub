@@ -209,6 +209,21 @@ Current rules:
 
 This is a warning service, not yet a complete telemetry quarantine layer.
 
+### SOC Anomaly Journal
+
+`SocAnomalyJournal` compares consecutive valid SOC samples and records an
+event when the absolute change is at least five percentage points within five
+minutes. Its `/data/soc_anomaly_journal.json` file retains the latest 100
+events plus a lifetime count and the latest valid baseline. Each event carries
+battery voltage and charge/discharge current, PV1/fresh PV2/aligned Total PV,
+load, grid availability and voltage, mode, freshness, process uptime, SOC
+region, and startup/communication-recovery flags.
+
+The journal publishes only `sensor.energyhub_soc_anomaly_event_count` and
+`sensor.energyhub_soc_anomaly_latest` diagnostics. It is not consulted by the
+telemetry parser, controller, Hybrid/Panic services, smart-load policy, System
+Health, or Telegram delivery. Load/save failures are logged and isolated.
+
 ### Telemetry Freshness
 
 - no valid telemetry → stale;
@@ -220,6 +235,19 @@ Unchanged load duration is published separately.
 ### Inverter Health
 
 QPIWS values equal to `1` are treated as active warnings, excluding command metadata and reserved fields.
+
+The verified adapter normally returns the complete named QPIWS map. EnergyHub
+does not currently attach a completeness marker to that response, so a
+partial-but-nonempty map would be interpreted as a real active-set transition.
+No control decision depends on this diagnostic path. Firmware/adapter evidence
+is required before introducing a different completeness rule.
+
+EnergyHub 1.3.10 treats each change of the active named QPIWS set as a
+diagnostic transition. It persists at most 100 incidents, closes an incident
+when the active set changes or clears, and attaches a 30-sample/five-minute
+in-memory pre-event telemetry ring. Current and latest-three MQTT entities are
+retained for Home Assistant and the Family Assistant. QPIWS clearance alone is
+not evidence of an inverter restart.
 
 ### System Health
 
@@ -345,6 +373,13 @@ Tracked fields:
 - SUB interval start/max SOC;
 - already-accounted battery contribution;
 - pending day finalizations.
+
+An invalid finalization remains queued for retry. An `updated` or `unchanged`
+result is acknowledged normally. A `missing` Daily Summary snapshot is also
+acknowledged and removed from the queue because the scheduled historical
+snapshot cannot appear later; the completed value remains available in Grid
+Import history and the log records the missing reconciliation. This is a
+deliberate bounded-retry policy, not loss of the underlying Grid Import total.
 
 Intervals longer than 60 seconds are not integrated as house energy, preventing a long blocked loop from creating a false jump.
 

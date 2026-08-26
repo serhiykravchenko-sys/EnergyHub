@@ -52,10 +52,6 @@ class HomeAssistantClient:
                 return None
             raise
 
-    def discover_weather_entity(self) -> str:
-        weather = sorted(item["entity_id"] for item in self.states() if str(item.get("entity_id", "")).startswith("weather."))
-        return weather[0] if len(weather) == 1 else ""
-
     def forecast(self, entity_id: str, forecast_type: str = "hourly") -> list[dict[str, Any]]:
         result = self._request(
             "/services/weather/get_forecasts?return_response",

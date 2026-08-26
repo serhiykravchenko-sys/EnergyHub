@@ -5,6 +5,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .device_health import EnvironmentSensor, parse_environment_sensors
+
 
 DEFAULT_OPTIONS_FILE = Path("/data/options.json")
 
@@ -35,13 +37,30 @@ class Config:
     moon_entity: str
     daily_grid_import_entity: str
     yesterday_grid_import_entity: str
+    yesterday_night_grid_import_entity: str
+    yesterday_normal_grid_import_entity: str
+    yesterday_grid_import_cost_entity: str
+    month_night_grid_import_entity: str
+    month_normal_grid_import_entity: str
+    month_grid_import_entity: str
+    month_grid_import_cost_entity: str
+    night_grid_import_price_entity: str
+    normal_grid_import_price_entity: str
     grid_voltage_entity: str
     grid_confidence_entity: str
     telemetry_freshness_entity: str
+    inverter_message_entities: tuple[str, ...]
     heat_pump_active_threshold_w: float
     heat_pump_floor_1_power_entity: str
     heat_pump_floor_2_power_entity: str
     heat_pump_floor_3_power_entity: str
+    environment_sensors: tuple[EnvironmentSensor, ...]
+    environment_stale_hours: float
+    environment_temperature_deviation_c: float
+    environment_humidity_deviation_percent: float
+    environment_persistence_minutes: int
+    device_low_battery_percent: float
+    doorbell_battery_entity: str
     state_file: Path
 
 
@@ -90,12 +109,57 @@ def load_config(path: Path | None = None) -> Config:
         moon_entity=str(options.get("moon_entity") or "moon.moon"),
         daily_grid_import_entity=str(options.get("daily_grid_import_entity") or "sensor.energyhub_daily_grid_import_estimated"),
         yesterday_grid_import_entity=str(options.get("yesterday_grid_import_entity") or "sensor.energyhub_grid_import_yesterday_estimated"),
+        yesterday_night_grid_import_entity=str(options.get("yesterday_night_grid_import_entity") or "sensor.energyhub_grid_import_night_yesterday_estimated"),
+        yesterday_normal_grid_import_entity=str(options.get("yesterday_normal_grid_import_entity") or "sensor.energyhub_grid_import_normal_yesterday_estimated"),
+        yesterday_grid_import_cost_entity=str(options.get("yesterday_grid_import_cost_entity") or "sensor.energyhub_grid_import_cost_yesterday_estimated"),
+        month_night_grid_import_entity=str(options.get("month_night_grid_import_entity") or "sensor.energyhub_grid_import_night_month_estimated"),
+        month_normal_grid_import_entity=str(options.get("month_normal_grid_import_entity") or "sensor.energyhub_grid_import_normal_month_estimated"),
+        month_grid_import_entity=str(options.get("month_grid_import_entity") or "sensor.energyhub_grid_import_month_estimated"),
+        month_grid_import_cost_entity=str(options.get("month_grid_import_cost_entity") or "sensor.energyhub_grid_import_cost_month_estimated"),
+        night_grid_import_price_entity=str(options.get("night_grid_import_price_entity") or "sensor.energyhub_grid_import_night_price"),
+        normal_grid_import_price_entity=str(options.get("normal_grid_import_price_entity") or "sensor.energyhub_grid_import_normal_price"),
         grid_voltage_entity=str(options.get("grid_voltage_entity") or "sensor.powmr_10_2m_grid_voltage"),
         grid_confidence_entity=str(options.get("grid_confidence_entity") or "sensor.energyhub_grid_confidence"),
         telemetry_freshness_entity=str(options.get("telemetry_freshness_entity") or "sensor.energyhub_telemetry_freshness"),
+        inverter_message_entities=tuple(
+            item.strip()
+            for item in str(
+                options.get("inverter_message_entities")
+                or "sensor.energyhub_inverter_fault_recent_1;"
+                "sensor.energyhub_inverter_fault_recent_2;"
+                "sensor.energyhub_inverter_fault_recent_3"
+            ).split(";")
+            if item.strip()
+        ),
         heat_pump_active_threshold_w=max(0.0, float(options.get("heat_pump_active_threshold_w", 50))),
         heat_pump_floor_1_power_entity=str(options.get("heat_pump_floor_1_power_entity") or "sensor.first_floor_heat_pump_plug_power"),
         heat_pump_floor_2_power_entity=str(options.get("heat_pump_floor_2_power_entity") or "sensor.second_floor_heat_pump_plug_power"),
-        heat_pump_floor_3_power_entity=str(options.get("heat_pump_floor_3_power_entity") or "sensor.chuangmi_212a01_ea40_electric_power"),
+        heat_pump_floor_3_power_entity=str(options.get("heat_pump_floor_3_power_entity") or "sensor.energyhub_heat_pump_floor_3_power"),
+        environment_sensors=parse_environment_sensors(
+            options.get("environment_sensor_entities", "")
+        ),
+        environment_stale_hours=max(
+            1.0,
+            float(options.get("environment_stale_hours", 24)),
+        ),
+        environment_temperature_deviation_c=max(
+            0.5,
+            float(options.get("environment_temperature_deviation_c", 5)),
+        ),
+        environment_humidity_deviation_percent=max(
+            1.0,
+            float(options.get("environment_humidity_deviation_percent", 20)),
+        ),
+        environment_persistence_minutes=max(
+            0,
+            int(options.get("environment_persistence_minutes", 60)),
+        ),
+        device_low_battery_percent=max(
+            1.0,
+            min(100.0, float(options.get("device_low_battery_percent", 10))),
+        ),
+        doorbell_battery_entity=str(
+            options.get("doorbell_battery_entity") or ""
+        ).strip(),
         state_file=Path(os.environ.get("STATE_FILE", "/data/telegram-family-assistant-state.json")),
     )

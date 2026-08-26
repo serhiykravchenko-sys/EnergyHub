@@ -1,5 +1,74 @@
 # Changelog
 
+## 1.3.14 - 2026-08-24
+
+- Keep Solar unchanged at the Normal 20% reserve floor when the physical grid
+  is absent, and reevaluate immediately after grid availability returns.
+- Require present grid for the Normal-grid 20% immediate hold boundary.
+- Transfer confirmed `SUB` + `SNU` Hybrid Charging ownership to Panic Charging
+  without redundant inverter writes at the daytime handoff.
+- Preserve the 1.3.13 07:00 ownership handoff, 20%/30% hysteresis, missed-AHM
+  debt, and non-Normal 60/80/95% reserve behavior.
+- Reject non-finite telemetry and out-of-range SOC before MQTT publication,
+  controller state, and battery-health classification.
+- Clear stale Panic context before non-Panic Hybrid writes and recover Solar
+  after a failed Hybrid/Panic Menu 01 entry when the bounded recovery succeeds.
+- Mark direct fault-set replacements as superseded, preserve valid journal
+  history across malformed optional fields, and limit Home Assistant fault
+  state strings to 255 characters while retaining full attributes.
+- Derive the PV1 freshness allowance used by Total PV from longer configured
+  PV2 poll intervals.
+
+## 1.3.13 - 2026-08-23
+
+- Transfer 07:00 ownership from AHM to Panic without forcing Solar first.
+- Under Normal Grid Confidence, hold the 20% floor and release Solar only at
+  30%, creating a 10-point hysteresis band.
+- Preserve missed AHM debt and the existing 60/80/95% non-Normal targets.
+- Transfer an already-confirmed `SUB` + `OSO` Grid Hold between owners without
+  redundant inverter writes.
+- Use routine Normal-grid reserve notifications and extend trusted-grid manual
+  permission to the water boiler.
+
+## 1.3.12 - 2026-08-22
+
+- Hide expected `pv_loss_warning` transitions from the four dashboard-facing
+  inverter-message entities while retaining them in the bounded journal.
+- Select the latest three meaningful incidents across skipped PV-loss-only
+  records and preserve real messages from mixed incidents.
+
+## 1.3.11 - 2026-08-22
+
+- Split estimated Grid Import into local calendar-day night (`00:00–07:00`
+  and `23:00–24:00`) and normal (`07:00–23:00`) tariff periods.
+- Persist bounded daily tariff records, lifetime chart counters, completed
+  yesterday values, and current-month kWh and estimated UAH cost.
+- Use initial informational prices of 2.50 UAH/kWh at night and
+  5.00 UAH/kWh during the normal period.
+- Preserve the existing total Grid Import and Daily Summary finalization path;
+  no tariff result enters inverter or household-load control.
+
+## 1.3.10 - 2026-08-21
+
+- Persist the latest 100 named QPIWS incidents and their clear transitions.
+- Retain up to five minutes of pre-incident load, load percentage, battery,
+  solar, grid, operating-mode, and telemetry-freshness samples.
+- Publish the current inverter message and latest three incidents through
+  retained Home Assistant MQTT Discovery entities.
+- Keep the observer outside every inverter and household-load control path.
+
+## 1.3.9 - 2026-08-20
+
+- Added a read-only, restart-aware SOC anomaly journal for changes of at least
+  five percentage points within five minutes.
+- Persisted the latest 100 events with SOC, interval, battery voltage and
+  charge/discharge current, PV1/PV2/Total PV, load, grid, operating mode,
+  freshness, process uptime, and communication-recovery evidence.
+- Exposed the lifetime event count and latest event with full MQTT attributes
+  through Home Assistant Discovery.
+- Kept anomaly observation outside telemetry acceptance and every inverter or
+  household-load control path.
+
 ## 1.3.8 - 2026-08-18
 
 - Persist the date through which a completed 23:50 AHM plan remains

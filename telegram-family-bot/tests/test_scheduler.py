@@ -3,11 +3,13 @@ from __future__ import annotations
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app.main import (
     capture_seven_snapshot,
     due_for_report,
+    prepare_morning_report_outbox,
     summarized_night_mode,
     time_minutes,
 )
@@ -58,6 +60,23 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue(due_for_report(self.config, state, at_eight))
         state["last_report_date"] = "2026-08-11"
         self.assertFalse(due_for_report(self.config, state, at_eight))
+
+    @patch("app.main.create_report", return_value="stable report")
+    def test_report_outbox_reuses_the_same_logical_message_after_restart(
+        self,
+        create_report,
+    ):
+        at_eight = self.now.replace(hour=8)
+        state = {}
+
+        self.assertTrue(prepare_morning_report_outbox(
+            self.config, FakeClient({}), state, at_eight
+        ))
+        self.assertFalse(prepare_morning_report_outbox(
+            self.config, FakeClient({}), state, at_eight
+        ))
+        self.assertEqual("stable report", state["morning_report_outbox"]["message"])
+        create_report.assert_called_once()
 
     def test_mode_priority(self):
         self.assertEqual(summarized_night_mode(["solar", "hybrid_charging"]), "hybrid")

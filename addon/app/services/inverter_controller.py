@@ -299,7 +299,7 @@ class InverterController:
 
     def clear_panic_target_soc(self):
         self.panic_target_soc = None
-        self._persist_state()
+        return self._persist_state()
 
     def set_ahm_debt(self, debt_date, target_soc=None):
         if target_soc is not None:
@@ -592,6 +592,19 @@ class InverterController:
         )
 
     def enter_hybrid(self):
+        # Panic context is written before Panic hardware commands so startup
+        # reconstruction can identify an interrupted Panic entry. Clear that
+        # context before a non-Panic transition writes the same SUB/SNU
+        # combination; otherwise a crash can be reconstructed as Panic even
+        # though AHM initiated the transition.
+        if not self.clear_panic_target_soc():
+            self.mode = "transition_failed"
+            self.last_error = (
+                "Hybrid transition blocked: stale Panic ownership could "
+                "not be cleared from persistent state"
+            )
+            log(self.last_error)
+            return False
         self.mode = "transitioning"
 
         log(
@@ -600,7 +613,12 @@ class InverterController:
         )
 
         if not self.set_output_priority("SUB"):
-            self.mode = "transition_failed"
+            log(
+                "Hybrid transition failed before Menu 01 was confirmed. "
+                "Attempting Solar recovery."
+            )
+            if not self.restore_solar():
+                self.mode = "transition_failed"
             return False
 
         if not self.set_charger_priority("SNU"):
@@ -631,6 +649,17 @@ class InverterController:
         confirmed_mode="hybrid_grid_hold",
         strategy_name="Hybrid Grid Hold",
     ):
+        if (
+            confirmed_mode == "hybrid_grid_hold"
+            and not self.clear_panic_target_soc()
+        ):
+            self.mode = "transition_failed"
+            self.last_error = (
+                f"{strategy_name} blocked: stale Panic ownership could "
+                "not be cleared from persistent state"
+            )
+            log(self.last_error)
+            return False
         self.mode = "transitioning"
 
         log(
@@ -725,6 +754,54 @@ class InverterController:
             strategy_name="Panic Grid Hold",
         )
 
+    def transfer_hybrid_charging_to_panic(self):
+        """Transfer confirmed Charging ownership without inverter writes."""
+        if (
+            self.mode != "hybrid_charging"
+            or self.confirmed_mode != "hybrid_charging"
+            or self.known_charger_priority != "SNU"
+            or self.panic_target_soc is None
+        ):
+            log(
+                "Cannot transfer Hybrid Charging to Panic Charging: "
+                f"mode={self.mode}, confirmed={self.confirmed_mode}, "
+                f"Menu 16={self.known_charger_priority}, "
+                f"panic target={self.panic_target_soc}"
+            )
+            return False
+
+        self._confirm_mode("panic")
+
+        log(
+            "Transferred confirmed Charging ownership from AHM to Panic "
+            "without inverter writes"
+        )
+        return True
+
+    def transfer_hybrid_hold_to_panic(self):
+        """Transfer confirmed Grid Hold ownership without inverter writes."""
+        if (
+            self.mode != "hybrid_grid_hold"
+            or self.confirmed_mode != "hybrid_grid_hold"
+            or self.known_charger_priority != "OSO"
+            or self.panic_target_soc is None
+        ):
+            log(
+                "Cannot transfer Hybrid Grid Hold to Panic Grid Hold: "
+                f"mode={self.mode}, confirmed={self.confirmed_mode}, "
+                f"Menu 16={self.known_charger_priority}, "
+                f"panic target={self.panic_target_soc}"
+            )
+            return False
+
+        self._confirm_mode("panic_grid_hold")
+
+        log(
+            "Transferred confirmed Grid Hold ownership from AHM to Panic "
+            "without inverter writes"
+        )
+        return True
+
     def enter_panic(self):
         self.mode = "transitioning"
 
@@ -737,7 +814,12 @@ class InverterController:
         )
 
         if not self.set_output_priority("SUB"):
-            self.mode = "transition_failed"
+            log(
+                "Panic transition failed before Menu 01 was confirmed. "
+                "Attempting Solar recovery."
+            )
+            if not self.restore_solar():
+                self.mode = "transition_failed"
             return False
 
         if not self.set_charger_priority("SNU"):

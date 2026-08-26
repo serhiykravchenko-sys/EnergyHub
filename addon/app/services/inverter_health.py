@@ -1,9 +1,7 @@
+from app.services.inverter_fault_journal import active_qpiws_messages
+
+
 class InverterHealthMonitor:
-    IGNORED_KEYS = {
-        "_command",
-        "_command_description",
-        "reserved",
-    }
 
     def __init__(self):
         self.status = "unknown"
@@ -15,14 +13,7 @@ class InverterHealthMonitor:
             self.reason = "warning_read_failed"
             return
 
-        active = []
-
-        for key, value in data.items():
-            if key in self.IGNORED_KEYS:
-                continue
-
-            if str(value) == "1":
-                active.append(key)
+        active = active_qpiws_messages(data)
 
         if active:
             self.status = "warning"

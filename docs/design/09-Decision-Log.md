@@ -190,7 +190,11 @@ Sequential retained input messages may update stored inputs but never create a s
 
 **Status:** accepted and implemented.
 
-Grid Import queues the completed day; Daily Summary reconciles it; Grid Import acknowledges only after a non-invalid result. The operation is idempotent.
+Grid Import queues the completed day; Daily Summary reconciles it; Grid Import
+acknowledges only after a non-invalid result. `updated` and `unchanged` are
+idempotent successes. `missing` is a terminal reconciliation result because a
+scheduled historical snapshot cannot appear later; the completed value remains
+in Grid Import history and the condition is logged. Invalid input stays queued.
 
 ## D031 — Restart strategy reconstruction combines physical and remembered state
 
@@ -256,7 +260,7 @@ Current-state documentation is audited once after coherent functional and dashbo
 
 EnergyHub 1.1 combines real-world 1.0.2 corrections with the first Smart Loads work. Zigbee2MQTT owns the SONOFF coordinator and device transport. Home Assistant owns pairing, manual controls, dashboards, timers, local energy integration, and the narrow reserve-only OFF automations. The EnergyHub inverter runtime remains unchanged.
 
-EnergyHub 1.1 never turns the boiler or a heat pump on. The water-boiler guard and grid-confidence-aware heat-pump guard may request OFF at documented reserve thresholds and reject ON while an emergency lockout is latched. Missing or stale EnergyHub telemetry produces no command. Automatic Smart Thermal ownership, starts, comfort decisions, surplus use, minimum runtime, and compressor cooldown remain deferred to 1.4.
+EnergyHub 1.1 never turns the boiler or a heat pump on. The water-boiler guard and grid-confidence-aware heat-pump guard may request OFF at documented reserve thresholds and reject ON while an emergency lockout is latched. Missing or stale EnergyHub telemetry produces no command. Automatic Smart Thermal ownership, starts, comfort decisions, surplus use, minimum runtime, and compressor cooldown remain deferred to 2.0.
 
 The 2026-08-02 Ember `ASH_ERROR_TIMEOUTS` failure stopped Zigbee2MQTT while the Home Assistant app Watchdog was disabled. An attended manual Start on 2026-08-03 recovered the same network, both devices and states, MQTT, availability, and Home Assistant discovery without re-pairing or an observed relay command. On 2026-08-05, ASH reset but EZSP startup failed with `HOST_FATAL_ERROR`; Zigbee2MQTT exited while Watchdog was enabled and no autonomous recovery was observed. On 2026-08-06, Supervisor Watchdog made ten restart attempts after another `ASH_ERROR_TIMEOUTS`, but every attempt failed to establish ASH/EZSP and the crash loop stopped. App Watchdog alone is therefore not an accepted recovery mechanism for this failure mode.
 
@@ -311,10 +315,10 @@ AHM remains Solar when projected 07:00 SOC meets or exceeds the calculated targe
 The planned sequence after EnergyHub 1.3.4 is:
 
 1. EnergyHub 1.3.5 — verified read-only PV2 telemetry and derived Total PV;
-2. EnergyHub 1.4 — Smart Thermal and Flexible Loads, beginning with observer-first Peak Load Guard behavior;
-3. EnergyHub 2.0 — Telegram-first conversational access for explanations and structured safe intents, including voice messages;
-4. EnergyHub 2.x — multiple configurable cheap-tariff intervals, with optional day-ahead import-price support later;
-5. EnergyHub 3.0 — additional verified inverter adapters and optional Net Billing/export optimization for compatible hardware, contracts, and markets.
+2. EnergyHub 2.0 — Fault-Aware Smart Thermal and Flexible Loads, beginning with fault/recovery evidence and observer-first Peak Load Guard behavior;
+3. EnergyHub 3.0 — Telegram-first conversational access for explanations and structured safe intents, including voice messages;
+4. EnergyHub 4.0 — multiple configurable cheap-tariff intervals, with optional day-ahead import-price support later;
+5. EnergyHub 5.0 — additional verified inverter adapters and optional Net Billing/export optimization for compatible hardware, contracts, and markets.
 
 Configuration validation, forecast fallback, dependency health, diagnostics, recovery, and replay remain cross-cutting engineering requirements rather than a separate release theme. Telegram or another messenger is an interface to EnergyHub's validated intent boundary, not a proxy for raw inverter commands. Net Billing is an optional ecosystem capability and does not replace the core positioning around adaptive solar planning, smart tariff use, and outage-ready reserve.
 
@@ -369,7 +373,8 @@ inverter commands or arbitrary Home Assistant entity access.
 **Status:** implemented in EnergyHub 1.3.7 and carried into the deployed 1.3.8
 baseline.
 
-The ordinary 07:00 Solar handover remains the conservative fallback. One
+Through 1.3.12, the ordinary 07:00 Solar handover was the conservative
+fallback; D055 replaces it in 1.3.13. One
 Home Assistant schedule event at 06:05 publishes the dated 06:00–07:00 Solcast
 interval, but EnergyHub owns the decision and inverter transition.
 
@@ -384,7 +389,7 @@ failure remains observable.
 
 ## D053 — Overload protection is evidence-first and fault-aware
 
-**Status:** accepted design direction for the EnergyHub 1.4 family; no runtime
+**Status:** accepted design direction for the EnergyHub 2.0 family; no runtime
 behavior implemented by this decision.
 
 EnergyHub must not infer a safe automatic-shedding threshold from the nominal
@@ -420,3 +425,29 @@ resumes Hybrid Charging. Existing target-reached logic then selects Grid Hold.
 An absent grid or stale/unavailable SOC makes no inverter request. A confirmed
 non-AHM Solar handover clears the dated enforcement context. The date prevents
 a retained target from a previous night becoming authoritative after restart.
+
+## D055 — Normal grid uses a 20%/30% daytime reserve band
+
+**Status:** implemented in 1.3.13, corrected in 1.3.14, privately deployed,
+startup-validated, and monitored.
+
+The 07:00 schedule requests a Panic evaluation rather than unconditionally
+restoring Solar. Panic may take ownership directly from Hybrid Charging or
+Hybrid Grid Hold. A confirmed `SUB` + `OSO` Hybrid Grid Hold transfers to
+Panic Grid Hold through persisted ownership only, without redundant inverter
+writes.
+
+With Grid Confidence Normal, physical grid present, fresh SOC, and no active
+missed-AHM debt, 20% is the reserve floor and 30% is the Solar-release
+threshold. Solar at or below 20% requests Grid Hold only while the grid is
+present; if the grid is absent, Solar remains unchanged and reports
+`waiting_for_grid`. A value below 20% with grid available charges back to the
+floor; Grid Hold releases Solar only at 30%. The ten-point band prevents rapid
+switching. A genuine AHM debt and the existing Unstable/Risk/Panic 60/80/95%
+targets retain priority.
+
+The same trusted-grid gate leaves participating heat pumps and the water
+boiler under family/manual-demand control at every SOC without clearing any
+remembered lockout. Losing trust restores the existing reserve policy. The
+basement pump remains outside shedding, and EnergyHub never starts a protected
+load automatically.

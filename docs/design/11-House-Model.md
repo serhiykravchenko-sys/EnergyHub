@@ -59,12 +59,12 @@ The boiler is connected through an existing Xiaomi device named `2nd floor water
 
 | Capability | Boiler | Basement pump |
 |---|---|---|
-| Switch | `switch.chuangmi_212a01_c91f_switch` | `switch.chuangmi_212a01_ac48_switch` |
-| Live power | `sensor.chuangmi_212a01_c91f_electric_power` | `sensor.chuangmi_212a01_ac48_electric_power` |
-| Energy today | `sensor.chuangmi_212a01_c91f_power_cost_today` | `sensor.chuangmi_212a01_ac48_power_cost_today` |
-| Energy month | `sensor.chuangmi_212a01_c91f_power_cost_month` | `sensor.chuangmi_212a01_ac48_power_cost_month` |
-| Current | `sensor.chuangmi_212a01_c91f_electric_current` | `sensor.chuangmi_212a01_ac48_electric_current` |
-| Plug temperature | `sensor.chuangmi_212a01_c91f_temperature` | `sensor.chuangmi_212a01_ac48_temperature` |
+| Switch | `switch.energyhub_water_boiler` | `switch.energyhub_basement_water_pump` |
+| Live power | `sensor.energyhub_water_boiler_power` | `sensor.energyhub_basement_water_pump_power` |
+| Energy today | `sensor.energyhub_water_boiler_energy_today` | `sensor.energyhub_basement_water_pump_energy_today` |
+| Energy month | `sensor.energyhub_water_boiler_energy_month` | `sensor.energyhub_basement_water_pump_energy_month` |
+| Current | `sensor.energyhub_water_boiler_current` | `sensor.energyhub_basement_water_pump_current` |
+| Plug temperature | `sensor.energyhub_water_boiler_plug_temperature` | `sensor.energyhub_basement_water_pump_plug_temperature` |
 
 Availability is represented by these entities becoming `unavailable`; there is no separate verified availability sensor. Boiler/plug ratings, pump/motor ratings and starting surge, power-outage behavior, and load suitability must be recorded before unattended switching. The pump remains a critical non-sheddable load unless a later explicit safety review changes that classification.
 
@@ -72,8 +72,8 @@ Availability is represented by these entities becoming `unavailable`; there is n
 
 | Capability | Entity |
 |---|---|
-| Temperature | `sensor.miaomiaoce_t2_e515_temperature` |
-| Humidity | `sensor.miaomiaoce_t2_e515_relative_humidity` |
+| Temperature | `sensor.energyhub_floor_1_temperature` |
+| Humidity | `sensor.energyhub_floor_1_humidity` |
 | Heat-pump plug | `switch.first_floor_heat_pump_plug` |
 | Heat-pump power | `sensor.first_floor_heat_pump_plug_power` |
 | Auto-off duration | `input_number.input_number_floor1_heat_pump_timer_hours` |
@@ -83,8 +83,8 @@ Availability is represented by these entities becoming `unavailable`; there is n
 
 | Capability | Entity |
 |---|---|
-| Temperature | `sensor.miaomiaoce_t2_1bf2_temperature` |
-| Humidity | `sensor.miaomiaoce_t2_1bf2_relative_humidity` |
+| Temperature | `sensor.energyhub_floor_2_temperature` |
+| Humidity | `sensor.energyhub_floor_2_humidity` |
 | Heat-pump plug | `switch.second_floor_heat_pump_plug` |
 | Heat-pump power | `sensor.second_floor_heat_pump_plug_power` |
 | Auto-off duration | `input_number.input_number_floor2_heat_pump_timer_hours` |
@@ -94,12 +94,31 @@ Availability is represented by these entities becoming `unavailable`; there is n
 
 | Capability | Entity |
 |---|---|
-| Temperature | `sensor.lumi_weather_v1_b318_temperature` |
-| Humidity | `sensor.lumi_weather_v1_b318_relative_humidity` |
-| Heat-pump plug | `switch.chuangmi_212a01_ea40_switch` |
-| Heat-pump power | `sensor.chuangmi_212a01_ea40_electric_power` |
+| Temperature | `sensor.energyhub_floor_3_temperature` |
+| Humidity | `sensor.energyhub_floor_3_humidity` |
+| Heat-pump plug | `switch.energyhub_heat_pump_floor_3` |
+| Heat-pump power | `sensor.energyhub_heat_pump_floor_3_power` |
 | Auto-off duration | `input_number.input_number_floor3_heat_pump_timer_hours` |
 | Remaining time | `timer.floor_3_heat_pump_auto_off` |
+
+### Environmental sensor inventory
+
+The 1.3.9 companion health observer uses these verified physical locations.
+The basement is intentionally excluded from the indoor peer median.
+
+| Location | Temperature | Humidity | Supporting evidence |
+|---|---|---|---|
+| 1st floor | `sensor.energyhub_floor_1_temperature` | `sensor.energyhub_floor_1_humidity` | — |
+| 2nd-floor kids' room | `sensor.energyhub_floor_2_temperature` | `sensor.energyhub_floor_2_humidity` | — |
+| 3rd floor | `sensor.energyhub_floor_3_temperature` | `sensor.energyhub_floor_3_humidity` | — |
+| Main entrance | `sensor.energyhub_entrance_temperature` | `sensor.energyhub_entrance_humidity` | battery replaced after a long offline period |
+| 1st-floor bathroom | `sensor.energyhub_bathroom_temperature` | `sensor.energyhub_bathroom_humidity` | `sensor.energyhub_bathroom_pressure` |
+| 2nd-floor toilet | `sensor.energyhub_utility_room_temperature` | `sensor.energyhub_utility_room_humidity` | `sensor.energyhub_utility_room_sensor_battery` |
+| Basement | `sensor.energyhub_basement_temperature` | `sensor.energyhub_basement_humidity` | `sensor.energyhub_basement_pressure`; reconnected after a long offline period |
+
+The reference utility-room sensor identity is installation-specific, not the
+water-boiler area. Existing dashboard placement must not be treated as location
+evidence. The health observer uses the verified physical name.
 
 All three floors use the same Home Assistant auto-off behavior. Duration `0 h` means manual mode: cancel the countdown but leave the heat pump in its current state. When a non-zero duration expires, HA switches the corresponding plug off and resets the duration to zero. Switching a plug off also cancels its timer and resets its duration.
 
@@ -107,9 +126,13 @@ All three floors use the same Home Assistant auto-off behavior. Duration `0 h` m
 
 In 1.0 EnergyHub directly controls only inverter strategy. Heat-pump controls shown on the dashboard are Home Assistant household controls, not EnergyHub automatic strategy outputs.
 
-EnergyHub 1.1 implements reserve-only OFF protection in Home Assistant. The boiler is requested OFF once at 50%, may be manually or motion-restored from 41–50%, locks OFF at 40%, and unlocks at 60%. Heat pumps use a fully trusted-grid policy of all-floor OFF/lock at 50% and unlock at 60%. Every degraded or unknown grid state uses the conservative policy: all floors OFF once at 80%, floor 2 again at 70%, floor 1 at 60%, and floor 3 plus every floor OFF/locked at 50%, with unlock at 90%. No recovery threshold turns a load on. The basement pump is never shed.
-
-Confirmed Hybrid Charging or Hybrid Grid Hold with fresh telemetry and currently present grid power temporarily permits manual heat-pump requests. The SOC latch remains remembered underneath and is re-enforced when that permission ends. This permission never starts a heat pump and does not introduce Smart Thermal ownership.
+EnergyHub 1.3.13 keeps reserve-only OFF protection in Home Assistant. Normal
+Grid Confidence, present grid voltage, and fresh telemetry leave the boiler and
+all heat pumps under family/manual-demand control at every SOC. Remembered
+lockouts remain latched underneath and return when trust is lost. The boiler
+then uses 50% shed, 40% lockout, and 60% recovery; heat pumps use the selected
+AHM minimum plus 30/20/40 points. No recovery threshold turns a load on. The
+basement pump is never shed.
 
 ## Current strategies
 
@@ -145,7 +168,7 @@ changes to Grid Hold when the adaptive target is reached.
 ```text
 Menu 01 = SUB
 Menu 16 = OSO
-Exit = 07:00 Solar request
+Exit = guarded early Solar or 07:00 Panic ownership handoff
 ```
 
 ### Panic
@@ -153,8 +176,12 @@ Exit = 07:00 Solar request
 ```text
 Menu 01 = SUB
 Menu 16 = SNU
-Target SOC = 80% or 95%
+Target SOC = 20%, 60%, 80%, or 95% from Grid Confidence
 ```
+
+Under Normal confidence with no missed AHM debt, Panic Grid Hold begins at
+20% and releases Solar at 30%. Other confidence levels preserve their recovered
+target until AHM takes ownership at 23:50.
 
 ## Removed experimental capability
 
@@ -162,7 +189,7 @@ The old Away Mode first-floor heat-pump automation and helpers are not part of 1
 
 ## Future Smart Thermal Energy
 
-EnergyHub 1.4 introduces the first automatic Smart Thermal controller. EnergyHub 1.1 provides device, dashboard, measurement, and reserve-protection groundwork only.
+EnergyHub 2.0 introduces the first automatic Smart Thermal controller. EnergyHub 1.1 provides device, dashboard, measurement, and reserve-protection groundwork only.
 
 Smart Thermal will model thermal loads as capabilities:
 

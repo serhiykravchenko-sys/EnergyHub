@@ -312,6 +312,18 @@ class PV2TelemetryServiceTests(unittest.TestCase):
         self.service.refresh()
         self.assertEqual(self.service.status, "stale")
 
+    def test_long_poll_interval_keeps_aligned_pv1_fresh_until_next_poll(self):
+        service = PV2TelemetryService(True, 60, self.clock)
+        inverter = FakeInverter({
+            "pv2_input_voltage": 352.6,
+            "pv2_charging_power": 3466,
+        })
+        service.poll(inverter, 700, 99.0)
+
+        self.clock.value = 160.0
+
+        self.assertTrue(service.total_is_fresh())
+
     def test_unsupported_modbus_does_not_block_next_pi30_read(self):
         inverter = FakeInverter(error=ModbusUnsupportedError())
         self.assertFalse(self.service.poll(inverter, 700, 99.0))

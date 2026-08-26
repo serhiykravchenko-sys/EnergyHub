@@ -4,8 +4,8 @@ The local Git repository is the durable source of truth for EnergyHub. Topic-spe
 
 ## Documentation areas
 
-- [`project/`](project/) — manifesto, project definition, principles, current state, and history.
-- [`roadmap/`](roadmap/) — roadmap, backlog, and version development plans.
+- [`project/`](project/) — manifesto, public project definition, principles, and positioning.
+- [`roadmap/`](roadmap/) — the public roadmap and version development plans.
 - [`design/`](design/) — system architecture, decision engine, house model, and decision log.
 - [`features/`](features/) — active and proposed feature specifications.
 - [`operations/`](operations/) — installation, Home Assistant configuration, deployment, and recovery.
@@ -17,11 +17,15 @@ The local Git repository is the durable source of truth for EnergyHub. Topic-spe
 ## Cross-task workflow
 
 1. Start a focused task for one feature, incident, or operational topic.
-2. Read [`project/PROJECT_STATE.md`](project/PROJECT_STATE.md) and the relevant topic document before making changes.
+2. In the private development repository, read the private project-state record and the relevant topic document before making changes.
 3. Keep hypotheses separate from verified observations.
 4. Record accepted decisions in [`design/09-Decision-Log.md`](design/09-Decision-Log.md).
 5. Update the relevant feature, incident, validation, or operations document as work progresses.
-6. Update project state, roadmap, changelog, and release notes only when their status actually changes.
+6. Update the private project state, public roadmap, changelog, and release notes only when their status actually changes.
+
+Household-specific project state, incident diaries, and detailed backlog items
+are private development records and are deliberately not linked from the
+public documentation map.
 
 Chat history is useful working context, but it is not the project record. A new task should be able to continue safely from the repository alone.
 
