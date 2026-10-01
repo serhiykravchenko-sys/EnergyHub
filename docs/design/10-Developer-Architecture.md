@@ -1,10 +1,29 @@
 # EnergyHub Developer Architecture
 
+Current 2.4 execution and ownership are summarized in
+[System Architecture](05-System-Architecture.md) and
+[Battery Reserve](BATTERY_RESERVE_CURRENT.md). Retained Hybrid/Panic code names
+and MQTT identifiers do not imply separate night/day policy authorities.
+
+## 2.1.3 presentation boundary
+
+Display adapters translate friendly names and prose, never raw modes, MQTT keys
+or persistence. Family current-strategy reporting is a read-only addition to
+report generation, not a scheduler/control change. See
+[display contract](../../RELEASE_NOTES_2.1.3.md).
+
+## Historical 2.1.2 observer boundary
+
+The separate baseline helper is removed. `advice_only` marks family ownership;
+manual changes did not rebase the fixed 20% diagnostic calculation. That release
+had no automatic control path; current 2.4 authority supersedes it. See the
+[historical contract](../../RELEASE_NOTES_2.1.2.md).
+
 ## Purpose
 
 This document maps the current implementation to runtime responsibilities. It is intended for developers who need to modify, test, or reconstruct EnergyHub.
 
-![Technical architecture](../Images/Infographic%E2%84%962_details.png)
+![Smart Heating and load-protection boundaries](../Images/smart-heating-load-protection.png)
 
 ## Runtime entry point
 
@@ -44,10 +63,12 @@ app/
     grid_monitor.py
     grid_stability.py
     health_monitor.py
-    hybrid_decision.py
+    battery_load_policy.py
     inverter_controller.py
     inverter_health.py
+    peak_load_control.py
     panic_decision.py
+    weather_buffer.py
     pv2_telemetry.py
     system_health.py
     telemetry.py
@@ -92,7 +113,9 @@ Properties:
 - load power;
 - raw telemetry.
 
-Grid availability is currently derived from AC input voltage greater than 180 V in normalized telemetry. The family dashboard uses the actual voltage and shows online when it is above 1 V because a stabilizer supplies approximately 220 V whenever the upstream grid exists.
+Control grid availability is derived from AC input voltage greater than 180 V
+in normalized telemetry. Dashboard voltage presentation is not a substitute
+for that control gate or for historical Grid Confidence.
 
 ## MQTT threading and queue
 
@@ -122,7 +145,7 @@ Current inputs:
 | `autopilot` | yes | master permission state |
 | `inverter_mode` | no | `evaluate_hybrid`, `solar`, `panic` and supported requests |
 | `solar_forecast_today_live` | yes | live contextual forecast |
-| `solar_forecast_tomorrow_live` | yes | live Hybrid forecast |
+| `solar_forecast_tomorrow_live` | yes | legacy contextual forecast input; not a current reserve decision reader |
 | `daily_house_consumption` | yes | scheduled consumption input |
 | `solar_forecast_today` | yes | scheduled Daily Summary input |
 | `solar_forecast_tomorrow` | yes | scheduled/fallback forecast input |
@@ -137,12 +160,12 @@ Current inputs:
 | optional PV2 Modbus | configured, default 30 seconds; bounded failure backoff |
 | QPIWS warnings | 60 seconds |
 | QPIRI settings | 60 seconds |
-| automatic Panic evaluation | 5 minutes, plus grid/mode reevaluation events |
+| continuous reserve evaluation | 5 minutes, plus grid/mode reevaluation events |
 | raw telemetry disk snapshot | at most 60 seconds |
 | incremental Grid Import save | at most 60 seconds |
-| Hybrid evaluation | HA trigger at 23:50 |
+| preliminary next-day reserve forecast | HA trigger at 23:52 |
 | Daily Summary atomic snapshot | HA trigger at 23:51 |
-| Solar restoration | HA trigger at 07:00 |
+| current-day reserve forecast revision | HA trigger at 05:00 |
 
 ## Startup sequence
 
@@ -156,7 +179,7 @@ Current inputs:
 8. Read QPIGS.
 9. Read QPIRI.
 10. Reconstruct strategy.
-11. Accept consistent state without writes, or queue one safe Solar recovery if Autopilot is enabled and reconstruction is incomplete.
+11. Accept consistent state without writes, or queue one safe Solar recovery if Autopilot is enabled and reconstruction is incomplete. An unfinished persisted hardware transition instead requires attended verification; automatic recovery is suspended.
 
 Startup recovery waits for both:
 
@@ -236,11 +259,12 @@ Unchanged load duration is published separately.
 
 QPIWS values equal to `1` are treated as active warnings, excluding command metadata and reserved fields.
 
-The verified adapter normally returns the complete named QPIWS map. EnergyHub
-does not currently attach a completeness marker to that response, so a
-partial-but-nonempty map would be interpreted as a real active-set transition.
-No control decision depends on this diagnostic path. Firmware/adapter evidence
-is required before introducing a different completeness rule.
+The adapter normally returns a named QPIWS map. Metadata-only and malformed
+bit replies cannot clear a fault. There is still no independently verified
+complete-map marker; a valid-looking partial map remains an evidence gap.
+Unlike the earlier diagnostic-only design, a recently verified active overload
+warning may trigger the load controller. Failed reads cannot keep that control
+signal current indefinitely.
 
 EnergyHub 1.3.10 treats each change of the active named QPIWS set as a
 diagnostic transition. It persists at most 100 incidents, closes an incident
@@ -262,7 +286,7 @@ not evidence of an inverter restart.
 - write attempts: 3;
 - retry delay: 1 second;
 - settle delay: 2 seconds;
-- controller state schema: 1.
+- controller state schema: 3 (older supported schemas migrate on load).
 
 ### Menu 01
 
@@ -278,12 +302,15 @@ not evidence of an inverter restart.
 
 `set_charger_priority()`:
 
-1. sends PCP command;
-2. requires ACK;
-3. stores `known_charger_priority`;
-4. persists immediately.
+1. durably records a transition-pending marker before the write;
+2. sends PCP command and requires ACK;
+3. stores and persists `known_charger_priority` immediately;
+4. reports failure if that save fails, even after ACK.
 
-There is no independent read-back.
+There is no independent read-back. Menu 01 writes use the same pre-write marker;
+it is cleared only when the complete confirmed mode is durably saved. Restart
+with the marker still set refuses automatic mode reconstruction. A state-save
+failure latches further hardware writes off for the rest of that process.
 
 ### Strategy transitions
 
@@ -307,29 +334,15 @@ Persist target, write/verify SUB, ACK-confirm SNU. On partial failure, attempt S
 
 Preserve the Panic target/context, keep/verify SUB, and ACK-confirm OSO. Resume Panic Charging if SOC falls below target.
 
-## Decision engines
+## Continuous reserve evaluation
 
-### Hybrid
-
-Pure input/output service. See [Decision Engine](DECISION_ENGINE.md).
-The companion night-enforcement evaluator reuses the persisted target and
-dated ownership context; it does not recalculate the target or write hardware.
-
-### Panic
-
-Pure input/output service with 07:00–23:50 time-window checks. It maps Grid Confidence to 20/60/80/95% and optionally inherits a persisted AHM morning debt. It does not gate recovery on live PV or forecast sufficiency.
-
-## Target monitoring
-
-The main loop monitors confirmed modes:
-
-- Hybrid Charging + SOC ≥ adaptive target → enter Hybrid Grid Hold;
-- active dated AHM plan + Solar + SOC = target → enter Hybrid Grid Hold;
-- active dated AHM plan + Solar/Grid Hold + SOC < target → enter or resume
-  Hybrid Charging when fresh telemetry and grid are available;
-- Panic Charging + SOC ≥ target → enter Panic Grid Hold;
-- Panic Grid Hold + SOC < target → resume Panic Charging;
-- AHM at 23:50 overtakes either Panic mode.
+`PanicDecisionEngine` evaluates the applied reserve throughout the day;
+see [Decision Engine](DECISION_ENGINE.md). With fresh telemetry and grid
+available, SOC below reserve requests charging and SOC at reserve requests
+grid hold. Solar resumes at reserve +10 points; the 95% cap remains held until
+reserve decreases. With grid unavailable the controller waits, rather than
+claiming grid charging. The retained controller modes and old identifier names
+are compatibility details, not a 23:50/07:00 ownership handoff.
 
 ## Notifications
 
@@ -393,6 +406,49 @@ MQTT Discovery includes:
 
 Existing HA registry IDs are not automatically renamed by `default_entity_id`; migrations must preserve unique ID and rename through Home Assistant.
 
+## Acknowledged load protection
+
+`PeakLoadGuardController` owns the current overload and outage-discharge load
+protection state. It consumes fresh inverter load telemetry plus the schema-5
+Home Assistant participant snapshot, publishes short-lived allow-listed intents,
+and requires acknowledgement followed by fresh state/context and power evidence.
+Confirmed ownership is persisted in `/data/energyhub_peak_load_control.json`.
+The historical 40/30/20 observer and its separate journal are removed.
+If a bounded service-intent queue evicts evidence for a pending or owned load,
+that load is quarantined or released from ownership. Other loads remain eligible.
+
+## Battery Reserve policy
+
+`WeatherBufferDryRun` retains its historical name and MQTT entity for upgrade
+compatibility, but now owns the complete Manual/Automatic Battery Reserve
+policy. At 23:52 Home Assistant publishes tomorrow's Solcast forecast for a
+preliminary next-day plan, after the 23:51 completed Daily Summary. At 05:00 it
+publishes an updated current-day forecast that replaces the preliminary
+forecast component. `DailySummaryService` supplies up to three newest valid
+positive completed consumption days.
+
+The recommendation is `20% policy base + forecast + grid + weather + Smart Heating`, capped at 95%.
+Forecast deficit contributes 20 points. Grid Confidence contributes
+0/20/40/60 points for Normal/Unstable/Risk/Panic. Weather contributes 20 points
+only for active Level II–III, infrastructure-relevant, Kyiv/Kyiv-region UHMC
+warnings while confidence is Normal. The forecast component never accumulates;
+missing morning forecast retains the preliminary component. Grid and weather
+components remain live. Enabled Smart Heating contributes 20 points. Manual
+recommends only; Automatic applies a complete,
+fresh recommendation through the guarded Home Assistant helper automation.
+
+Telegram Family Assistant parses the public `uhmc1921` preview and publishes a
+normalized retained document to `energyhub/input/weather/uhmc` through Home
+Assistant's authenticated MQTT service. It persists active warnings so preview
+pagination and restart do not clear them, handles duplicates, updates,
+cancellations and expiry, and publishes source status `unknown` on read
+failure. EnergyHub preserves the last warning set while status is unknown.
+
+The decision remains stored in `/data/energyhub_weather_buffer.json` and
+exposed as `sensor.energyhub_ahm_weather_buffer`. Family Assistant reads it for
+daytime warning explanations and the matching 08:00 report. Existing entity,
+MQTT and persistence identifiers remain unchanged for compatibility.
+
 ## Known technical debt
 
 - `main.py` is large;
@@ -400,9 +456,8 @@ Existing HA registry IDs are not automatically renamed by `default_entity_id`; m
 - dependencies are unpinned;
 - graceful shutdown is implicit;
 - constants are duplicated across services;
-- HA owns the 07:00 schedule;
 - Grid Import is approximate during daytime SUB with simultaneous PV;
-- configuration is not yet user-editable.
+- some policy thresholds and device roles still need per-installation review.
 
 ## Safe refactoring order
 

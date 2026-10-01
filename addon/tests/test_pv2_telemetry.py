@@ -371,6 +371,8 @@ class PV2MqttTests(unittest.TestCase):
             total["availability"][1]["topic"],
             "powmr/total_pv/status",
         )
+        age = configs["homeassistant/sensor/energyhub_pv2_sample_age_seconds/config"]
+        self.assertEqual("{{ value | float(none) }}", age["value_template"])
 
 
 if __name__ == "__main__":

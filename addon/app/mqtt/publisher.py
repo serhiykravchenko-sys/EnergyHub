@@ -1,5 +1,7 @@
 import json
 import math
+import time
+import weakref
 
 import paho.mqtt.client as mqtt
 
@@ -11,6 +13,7 @@ from app.config import (
     SENSORS,
     TOTAL_PV_AVAILABILITY_TOPIC,
 )
+from app.utils.presentation import display_text, display_value
 from app.utils.logger import log
 
 
@@ -20,6 +23,31 @@ OUTPUT_SOURCE_PRIORITY_MAP = {
 }
 
 HOME_ASSISTANT_STATE_MAX_LENGTH = 255
+OPTIONAL_NUMERIC_STATES = {
+    "pv2_sample_age_seconds",
+    "daily_solar_actual",
+    "daily_solar_forecast_error_percent",
+}
+TELEMETRY_HEARTBEAT_SECONDS = 30
+TELEMETRY_DEADBANDS = {
+    "ac_output_active_power": 25.0,
+    "ac_output_apparent_power": 25.0,
+    "pv1_charging_power": 25.0,
+    "ac_output_load": 1.0,
+    "battery_capacity": 1.0,
+    "battery_charging_current": 1.0,
+    "battery_discharge_current": 1.0,
+    "ac_input_voltage": 0.5,
+    "ac_output_voltage": 0.5,
+    "battery_voltage": 0.1,
+    "battery_voltage_from_scc": 0.1,
+    "ac_input_frequency": 0.05,
+    "ac_output_frequency": 0.05,
+    "inverter_heat_sink_temperature": 1.0,
+}
+PEAK_GUARD_HEARTBEAT_SECONDS = 60
+_PEAK_GUARD_PUBLICATIONS = weakref.WeakKeyDictionary()
+_GRID_IMPORT_PUBLICATIONS = weakref.WeakKeyDictionary()
 
 
 # Stable entity IDs for fresh Home Assistant installations. Existing entities
@@ -64,7 +92,6 @@ ENERGYHUB_DEFAULT_ENTITY_ID_OVERRIDES = {
     "house_load_unchanged_minutes": (
         "sensor.energyhub_house_load_unchanged"
     ),
-    "daily_grid_import": "sensor.energyhub_daily_summary_grid_import",
 }
 
 
@@ -254,6 +281,9 @@ def publish_pv2_telemetry(client, pv2_telemetry):
 
 def publish_values(client, data, previous):
     published = 0
+    suppressed = 0
+    now = time.monotonic()
+    published_at = previous.setdefault("__published_at__", {})
 
     for key in SENSORS:
         if key not in data:
@@ -264,11 +294,28 @@ def publish_values(client, data, previous):
         if not is_valid_value(key, value):
             continue
 
+        last_value = previous.get(key)
+        last_time = float(published_at.get(key, 0.0))
+        deadband = TELEMETRY_DEADBANDS.get(key, 0.0)
+        try:
+            changed = (
+                last_value is None
+                or (abs(float(value) - float(last_value)) >= deadband if deadband > 0
+                    else float(value) != float(last_value))
+            )
+        except (TypeError, ValueError):
+            changed = value != last_value
+        heartbeat_due = now - last_time >= TELEMETRY_HEARTBEAT_SECONDS
+        if not changed and not heartbeat_due:
+            suppressed += 1
+            continue
+
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
             str(value),
             retain=True,
         )
+        published_at[key] = now
         published += 1
 
     client.publish(
@@ -277,6 +324,7 @@ def publish_values(client, data, previous):
         retain=True,
     )
 
+    previous["__last_suppressed__"] = suppressed
     return published
 
 
@@ -365,12 +413,43 @@ def publish_grid_discovery(client):
 
 
 def publish_grid_import(client, grid_import):
+    now = time.monotonic()
+    cache = _GRID_IMPORT_PUBLICATIONS.setdefault(client, {})
     for key, value in grid_import.mqtt_values().items():
+        previous = cache.get(key)
+        if value is None:
+            # Clear any retained state without sending a non-numeric sentinel
+            # to Home Assistant energy and monetary sensors.
+            if previous is None or previous["value"] is not None:
+                client.publish(
+                    f"{BASE_TOPIC}/{key}/state",
+                    "",
+                    retain=True,
+                )
+                cache[key] = {"value": None, "published_at": now}
+            continue
+        try:
+            numeric = float(value)
+            previous_numeric = float(previous["value"]) if previous else None
+        except (TypeError, ValueError):
+            numeric = previous_numeric = None
+        deadband = 25.0 if key == "grid_import_power_estimated" else 0.01
+        changed = (
+            previous is None
+            or (numeric is None and value != previous["value"])
+            or (numeric is not None and previous_numeric is None)
+            or (numeric is not None and previous_numeric is not None
+                and abs(numeric - previous_numeric) >= deadband)
+        )
+        heartbeat_due = previous is None or now - previous["published_at"] >= 60
+        if not changed and not heartbeat_due:
+            continue
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
             str(value),
             retain=True,
         )
+        cache[key] = {"value": value, "published_at": now}
 
 
 def publish_grid_import_discovery(client):
@@ -459,7 +538,31 @@ def publish_grid_import_discovery(client):
             "Grid Import Cost This Month Estimated",
             "UAH",
             "monetary",
-            "total_increasing",
+            "total",
+        ),
+        "grid_import_night_previous_week_estimated": (
+            "Night Grid Import Previous Week Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_normal_previous_week_estimated": (
+            "Normal Grid Import Previous Week Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_previous_week_estimated": (
+            "Grid Import Previous Week Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_cost_previous_week_estimated": (
+            "Grid Import Cost Previous Week Estimated", "UAH", "monetary", None,
+        ),
+        "grid_import_night_previous_month_estimated": (
+            "Night Grid Import Previous Month Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_normal_previous_month_estimated": (
+            "Normal Grid Import Previous Month Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_previous_month_estimated": (
+            "Grid Import Previous Month Estimated", "kWh", "energy", None,
+        ),
+        "grid_import_cost_previous_month_estimated": (
+            "Grid Import Cost Previous Month Estimated", "UAH", "monetary", None,
         ),
         "grid_import_night_price": (
             "Night Grid Import Price",
@@ -545,11 +648,14 @@ def publish_daily_summary_discovery(client):
             "energy",
             None,
         ),
-        "daily_grid_import": (
-            "Daily Summary Grid Import",
-            "kWh",
-            "energy",
-            None,
+        "daily_solar_actual": (
+            "Daily Solar Actual", "kWh", "energy", None,
+        ),
+        "daily_solar_forecast_error_percent": (
+            "Daily Solar Forecast Error", "%", None, "measurement",
+        ),
+        "daily_battery_reached_full": (
+            "Daily Battery Reached Full", None, None, None,
         ),
         "daily_grid_availability": (
             "Daily Grid Availability",
@@ -807,6 +913,132 @@ def publish_inverter_fault_journal_discovery(client):
     log("Inverter fault journal MQTT discovery published")
 
 
+def publish_peak_load_guard(client, guard):
+    status = guard.status_state()[:HOME_ASSISTANT_STATE_MAX_LENGTH]
+    event = guard.event_state()[:HOME_ASSISTANT_STATE_MAX_LENGTH]
+    attributes = guard.status_attributes()
+    event_attributes = guard.event_attributes()
+    cycle = attributes.get("cycle") or {}
+    pending = attributes.get("pending") or {}
+    fingerprint = json.dumps({
+        "status": status,
+        "event": event,
+        "fault": attributes.get("fault"),
+        "automatic_requested": attributes.get("automatic_requested"),
+        "pending": {key: pending.get(key) for key in ("command_id", "key", "action", "reason")},
+        "cycle": {key: cycle.get(key) for key in ("cycle_id", "owned", "blocked", "shed", "restored", "shedding")},
+        "latest_event_id": attributes.get("latest_event_id"),
+    }, sort_keys=True, default=str)
+    now = time.monotonic()
+    previous = _PEAK_GUARD_PUBLICATIONS.get(client, {})
+    if (
+        previous.get("fingerprint") == fingerprint
+        and now - float(previous.get("published_at", 0.0)) < PEAK_GUARD_HEARTBEAT_SECONDS
+    ):
+        return False
+    client.publish(
+        f"{BASE_TOPIC}/peak_load_guard/state",
+        status,
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/peak_load_guard/attributes",
+        json.dumps(attributes),
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/peak_load_guard_event/state",
+        event,
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/peak_load_guard_event/attributes",
+        json.dumps(event_attributes),
+        retain=True,
+    )
+    _PEAK_GUARD_PUBLICATIONS[client] = {
+        "fingerprint": fingerprint,
+        "published_at": now,
+    }
+    return True
+
+
+def publish_peak_load_guard_discovery(client):
+    device = _energyhub_device()
+    entities = {
+        "peak_load_guard": (
+            "Peak Load Guard",
+            "mdi:shield-home-outline",
+        ),
+        "peak_load_guard_event": (
+            "Peak Load Guard Event",
+            "mdi:shield-alert-outline",
+        ),
+    }
+    for key, (name, icon) in entities.items():
+        payload = {
+            "name": name,
+            "unique_id": f"energyhub_{key}",
+            "default_entity_id": f"sensor.energyhub_{key}",
+            "state_topic": f"{BASE_TOPIC}/{key}/state",
+            "json_attributes_topic": f"{BASE_TOPIC}/{key}/attributes",
+            "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC,
+            "icon": icon,
+            "device": device,
+        }
+        client.publish(
+            f"homeassistant/sensor/energyhub_{key}/config",
+            json.dumps(payload),
+            retain=True,
+        )
+    log("Peak Load Guard MQTT discovery published")
+
+
+def publish_weather_buffer(client, weather_buffer):
+    client.publish(
+        f"{BASE_TOPIC}/weather_buffer/state",
+        weather_buffer.status_state()[:HOME_ASSISTANT_STATE_MAX_LENGTH],
+        retain=True,
+    )
+    client.publish(
+        f"{BASE_TOPIC}/weather_buffer/attributes",
+        json.dumps(weather_buffer.status_attributes()),
+        retain=True,
+    )
+
+
+def publish_weather_buffer_discovery(client):
+    payload = {
+        "name": "Battery Reserve Recommendation",
+        "unique_id": "energyhub_weather_buffer",
+        "default_entity_id": "sensor.energyhub_ahm_weather_buffer",
+        "state_topic": f"{BASE_TOPIC}/weather_buffer/state",
+        "json_attributes_topic": f"{BASE_TOPIC}/weather_buffer/attributes",
+        "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC,
+        "icon": "mdi:battery-heart-variant",
+        "device": _energyhub_device(),
+    }
+    client.publish(
+        "homeassistant/sensor/energyhub_weather_buffer/config",
+        json.dumps(payload),
+        retain=True,
+    )
+    log("Battery Reserve Recommendation MQTT discovery published")
+    client.publish(
+        "homeassistant/binary_sensor/energyhub_battery_reserve_auto/config",
+        json.dumps({
+            "name": "Battery Reserve Auto",
+            "unique_id": "energyhub_battery_reserve_auto",
+            "default_entity_id": "binary_sensor.energyhub_battery_reserve_auto",
+            "state_topic": f"{BASE_TOPIC}/weather_buffer/attributes",
+            "value_template": "{{ 'ON' if value_json.automatic_control_enabled | default(false) else 'OFF' }}",
+            "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC,
+            "icon": "mdi:battery-lock",
+            "device": _energyhub_device(),
+        }), retain=True,
+    )
+
+
 def publish_system_health(client, system_health):
     for key, value in system_health.mqtt_values().items():
         client.publish(
@@ -952,7 +1184,7 @@ def _publish_sensor_discovery(client, device, sensors):
         )
 
         payload = {
-            "name": name,
+            "name": display_text(name),
             "unique_id": f"energyhub_{key}",
             "default_entity_id": default_entity_id,
             "state_topic": f"{BASE_TOPIC}/{key}/state",
@@ -968,6 +1200,11 @@ def _publish_sensor_discovery(client, device, sensors):
 
         if state_class:
             payload["state_class"] = state_class
+
+        if key in OPTIONAL_NUMERIC_STATES:
+            # The retained source may say "unknown" before its first sample.
+            # Numeric HA sensors must render None, not that literal string.
+            payload["value_template"] = "{{ value | float(none) }}"
 
         topic = (
             f"homeassistant/sensor/"
@@ -985,7 +1222,7 @@ def publish_operating_mode(client, inverter_controller):
     for key, value in inverter_controller.mqtt_values().items():
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
-            str(value),
+            display_value(key, value),
             retain=True,
         )
 
@@ -1021,7 +1258,7 @@ def publish_panic_decision(client, panic_decision):
     for key, value in panic_decision.mqtt_values().items():
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
-            str(value),
+            display_value(key, value),
             retain=True,
         )
 
@@ -1060,18 +1297,6 @@ def publish_panic_decision_discovery(client):
             "battery",
             "measurement",
         ),
-        "panic_grid_target_soc": (
-            "Panic Grid Confidence Target SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "panic_ahm_target_soc": (
-            "Panic AHM Target SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
     }
 
     _publish_sensor_discovery(
@@ -1083,342 +1308,50 @@ def publish_panic_decision_discovery(client):
     log("Panic Decision MQTT discovery published")
 
 
-def publish_hybrid_decision(client, hybrid_decision):
-    for key, value in hybrid_decision.mqtt_values().items():
-        state = str(value)
+RETIRED_SENSOR_KEYS = (
+    "adaptive_hybrid_plan",
+    "daily_summary_grid_import",
+    "hybrid_calculation",
+    "hybrid_decision", "hybrid_decision_reason", "hybrid_evaluated_at",
+    "hybrid_evaluated_soc", "hybrid_evaluated_consumption",
+    "hybrid_evaluated_forecast", "hybrid_battery_refill_required",
+    "hybrid_total_energy_required", "hybrid_projected_soc_at_07",
+    "hybrid_minimum_soc", "hybrid_raw_morning_hours", "hybrid_morning_hours",
+    "hybrid_useful_solar_start", "hybrid_effective_solar_start",
+    "hybrid_ramp_confirmed", "hybrid_ramp_credit_hours",
+    "hybrid_ramp_start_power_w", "hybrid_ramp_next_power_w",
+    "hybrid_morning_reserve_soc", "hybrid_morning_model_source",
+    "hybrid_morning_model_reason", "hybrid_morning_model_samples",
+    "hybrid_morning_expected_load_kwh", "hybrid_morning_forecast_solar_kwh",
+    "hybrid_morning_net_deficit_kwh", "hybrid_expected_consumption_after_07",
+    "hybrid_solar_forecast_after_07", "hybrid_daytime_deficit_kwh",
+    "hybrid_daytime_deficit_soc", "hybrid_energy_balance_available",
+    "hybrid_target_soc", "hybrid_target_capped", "hybrid_forecast_fallback",
+    "hybrid_early_solar_check", "hybrid_early_solar_reason",
+    "hybrid_early_solar_evaluated_at", "hybrid_early_solar_live_power_w",
+    "hybrid_early_solar_forecast_kwh", "ahm_reserve_advice",
+    "ahm_reserve_advice_current_soc", "ahm_reserve_advice_suggested_soc",
+    "ahm_reserve_advice_sample_count", "ahm_reserve_advice_reason",
+    "panic_grid_target_soc", "panic_ahm_target_soc",
+)
 
-        if key == "hybrid_decision" and state == "not_evaluated":
-            state = "awaiting_evaluation"
 
-        if key == "hybrid_decision_reason":
-            state = state[:HOME_ASSISTANT_STATE_MAX_LENGTH]
-
+def publish_retired_entity_cleanup(client):
+    """Remove retained discovery/state and inputs from retired planning models."""
+    for key in RETIRED_SENSOR_KEYS:
         client.publish(
-            f"{BASE_TOPIC}/{key}/state",
-            state,
-            retain=True,
+            f"homeassistant/sensor/energyhub_{key}/config", b"", retain=True
         )
-
-
-def publish_early_solar_handover(client, early_solar_handover):
-    for key, value in early_solar_handover.mqtt_values().items():
-        state = str(value)
-
-        if key == "hybrid_early_solar_reason":
-            state = state[:HOME_ASSISTANT_STATE_MAX_LENGTH]
-
-        client.publish(
-            f"{BASE_TOPIC}/{key}/state",
-            state,
-            retain=True,
-        )
-
-
-def publish_reserve_advisor(client, reserve_advisor):
-    for key, value in reserve_advisor.mqtt_values().items():
-        if value is None:
-            continue
-        client.publish(
-            f"{BASE_TOPIC}/{key}/state",
-            str(value),
-            retain=True,
-        )
-
-
-def publish_reserve_advisor_discovery(client):
-    device = _energyhub_device()
-    sensors = {
-        "ahm_reserve_advice": (
-            "AHM Reserve Advice",
-            None,
-            None,
-            None,
-        ),
-        "ahm_reserve_advice_current_soc": (
-            "AHM Reserve Advice Current SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "ahm_reserve_advice_suggested_soc": (
-            "AHM Reserve Advice Suggested SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "ahm_reserve_advice_sample_count": (
-            "AHM Reserve Advice Sample Count",
-            None,
-            None,
-            None,
-        ),
-        "ahm_reserve_advice_reason": (
-            "AHM Reserve Advice Reason",
-            None,
-            None,
-            None,
-        ),
-    }
-    _publish_sensor_discovery(client, device, sensors)
-    log("AHM Reserve Advisor MQTT discovery published")
-
-
-def publish_hybrid_decision_discovery(client):
-    device = _energyhub_device()
-
-    sensors = {
-        "hybrid_decision": (
-            "Hybrid Decision",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_decision_reason": (
-            "Hybrid Decision Reason",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_evaluated_at": (
-            "Hybrid Evaluated At",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_calculation": (
-            "Hybrid Calculation",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_evaluated_soc": (
-            "Hybrid Evaluated SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_evaluated_consumption": (
-            "Hybrid Evaluated Consumption",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_evaluated_forecast": (
-            "Hybrid Evaluated Forecast",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_battery_refill_required": (
-            "Hybrid Battery Refill Required",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_total_energy_required": (
-            "Hybrid Total Energy Required",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_projected_soc_at_07": (
-            "Hybrid Projected SOC at 07:00",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_minimum_soc": (
-            "Hybrid Selected Minimum SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_raw_morning_hours": (
-            "Hybrid Raw Morning Gap",
-            "h",
-            "duration",
-            "measurement",
-        ),
-        "hybrid_morning_hours": (
-            "Hybrid Effective Morning Gap",
-            "h",
-            "duration",
-            "measurement",
-        ),
-        "hybrid_useful_solar_start": (
-            "Hybrid Useful Solar Start",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_effective_solar_start": (
-            "Hybrid Effective Solar Support",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_ramp_confirmed": (
-            "Hybrid Solar Ramp Confirmed",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_ramp_credit_hours": (
-            "Hybrid Solar Ramp Credit",
-            "h",
-            "duration",
-            "measurement",
-        ),
-        "hybrid_ramp_start_power_w": (
-            "Hybrid Ramp Start Power",
-            "W",
-            "power",
-            "measurement",
-        ),
-        "hybrid_ramp_next_power_w": (
-            "Hybrid Ramp Next-Hour Power",
-            "W",
-            "power",
-            "measurement",
-        ),
-        "hybrid_morning_reserve_soc": (
-            "Hybrid Morning Reserve",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_morning_model_source": (
-            "Hybrid Morning Model Source",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_morning_model_reason": (
-            "Hybrid Morning Model Reason",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_morning_model_samples": (
-            "Hybrid Morning Model Samples",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_morning_expected_load_kwh": (
-            "Hybrid Morning Expected Essential Load",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_morning_forecast_solar_kwh": (
-            "Hybrid Morning Forecast Solar",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_morning_net_deficit_kwh": (
-            "Hybrid Morning Net Deficit",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_expected_consumption_after_07": (
-            "Hybrid Expected Consumption after 07:00",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_solar_forecast_after_07": (
-            "Hybrid Solar Forecast after 07:00",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_daytime_deficit_kwh": (
-            "Hybrid Daytime Deficit",
-            "kWh",
-            "energy",
-            None,
-        ),
-        "hybrid_daytime_deficit_soc": (
-            "Hybrid Daytime Deficit SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_energy_balance_available": (
-            "Hybrid Energy Balance Available",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_target_soc": (
-            "Hybrid Adaptive Target SOC",
-            "%",
-            "battery",
-            "measurement",
-        ),
-        "hybrid_target_capped": (
-            "Hybrid Target Capped",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_forecast_fallback": (
-            "Hybrid Forecast Fallback",
-            None,
-            None,
-            None,
-        ),
-    }
-
-    _publish_sensor_discovery(
-        client,
-        device,
-        sensors,
-    )
-
-    log("Hybrid Decision MQTT discovery published")
-
-
-def publish_early_solar_handover_discovery(client):
-    device = _energyhub_device()
-    sensors = {
-        "hybrid_early_solar_check": (
-            "Hybrid Early Solar Check",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_early_solar_reason": (
-            "Hybrid Early Solar Reason",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_early_solar_evaluated_at": (
-            "Hybrid Early Solar Evaluated At",
-            None,
-            None,
-            None,
-        ),
-        "hybrid_early_solar_live_power_w": (
-            "Hybrid Early Solar Live Power",
-            "W",
-            "power",
-            "measurement",
-        ),
-        "hybrid_early_solar_forecast_kwh": (
-            "Hybrid Early Solar Forecast 06:00–07:00",
-            "kWh",
-            "energy",
-            None,
-        ),
-    }
-
-    _publish_sensor_discovery(client, device, sensors)
-    log("Hybrid Early Solar MQTT discovery published")
+        client.publish(f"{BASE_TOPIC}/{key}/state", b"", retain=True)
+    for topic in (
+        "energyhub/input/ha/adaptive_hybrid_plan",
+        "energyhub/input/ha/early_solar_check",
+        "energyhub/input/ha/morning_load_snapshot",
+        "energyhub/input/ha/ahm_reserve_observation",
+        "energyhub/input/ha/peak_load_guard_plugs",
+    ):
+        client.publish(topic, b"", retain=True)
+    log("Retired planning MQTT entities and inputs cleared")
 
 
 def publish_notification_event(client, event):

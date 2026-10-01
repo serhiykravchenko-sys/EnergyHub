@@ -1,7 +1,7 @@
 name: Telegram Family Assistant
-version: "1.3.14"
+version: "2.4.15"
 slug: telegram_family_assistant
-description: Sends a Ukrainian morning weather and EnergyHub summary to the family Telegram group
+description: Sends a Ukrainian morning calendar, weather, and EnergyHub summary to the family Telegram group
 url: https://github.com/serhiykravchenko-sys/EnergyHub
 
 arch:
@@ -18,20 +18,23 @@ options:
   bot_token: null
   destination_chat_id: null
   weather_entity: auto
+  uhmc_weather_source: uhmc1921
+  uhmc_weather_mqtt_topic: energyhub/input/weather/uhmc
+  family_calendar_ical_url: ""
   send_time: "08:00"
-  soc_snapshot_time: "07:00"
-  night_start_time: "23:00"
   timezone: Europe/Kyiv
   useful_solar_threshold_w: 300
+  battery_capacity_kwh: 16
+  battery_nominal_voltage_v: 51.2
+  battery_grid_charge_current_a: 30
+  battery_charge_efficiency: 0.9
+  house_grid_reference_current_a: 16
   strong_wind_threshold_ms: 15
-  test_mode: true
+  weather_humidity_low_percent: 30
+  weather_humidity_high_percent: 80
+  weather_humidity_change_percent: 25
   battery_soc_entity: sensor.powmr_10_2m_battery_soc
-  target_soc_entity: sensor.energyhub_hybrid_target_soc
   ahm_minimum_soc_entity: input_number.ahm_minimum_soc
-  reserve_advice_entity: sensor.energyhub_ahm_reserve_advice
-  reserve_advice_current_soc_entity: sensor.energyhub_ahm_reserve_advice_current_soc
-  reserve_advice_suggested_soc_entity: sensor.energyhub_ahm_reserve_advice_suggested_soc
-  reserve_advice_sample_count_entity: sensor.energyhub_ahm_reserve_advice_sample_count
   operating_mode_entity: sensor.energyhub_operating_mode
   yesterday_consumption_entity: sensor.energyhub_daily_house_consumption
   solar_forecast_entity: sensor.solcast_pv_forecast_forecast_today
@@ -50,44 +53,50 @@ options:
   normal_grid_import_price_entity: sensor.energyhub_grid_import_normal_price
   grid_voltage_entity: sensor.powmr_10_2m_grid_voltage
   grid_confidence_entity: sensor.energyhub_grid_confidence
+  grid_available_24h_entity: sensor.energyhub_grid_available_24h
+  grid_outage_24h_entity: sensor.energyhub_grid_outage_24h
   telemetry_freshness_entity: sensor.energyhub_telemetry_freshness
+  soc_anomaly_latest_entity: sensor.energyhub_soc_anomaly_latest
+  peak_load_guard_event_entity: sensor.energyhub_peak_load_guard_event
+  heat_pump_restart_event_entity: input_text.energyhub_heat_pump_restart_event
+  weather_buffer_entity: sensor.energyhub_ahm_weather_buffer
   inverter_message_entities: >-
     sensor.energyhub_inverter_fault_recent_1;
     sensor.energyhub_inverter_fault_recent_2;
     sensor.energyhub_inverter_fault_recent_3
-  environment_sensor_entities: >-
-    1st floor|sensor.energyhub_floor_1_temperature|sensor.energyhub_floor_1_humidity|indoor;
-    2nd floor Kids room|sensor.energyhub_floor_2_temperature|sensor.energyhub_floor_2_humidity|indoor;
-    3rd floor|sensor.energyhub_floor_3_temperature|sensor.energyhub_floor_3_humidity|indoor;
-    Main entrance|sensor.energyhub_entrance_temperature|sensor.energyhub_entrance_humidity|indoor;
-    1st floor bathroom|sensor.energyhub_bathroom_temperature|sensor.energyhub_bathroom_humidity|indoor||sensor.energyhub_bathroom_pressure;
-    2nd floor toilet|sensor.energyhub_utility_room_temperature|sensor.energyhub_utility_room_humidity|indoor|sensor.energyhub_utility_room_sensor_battery;
-    Basement|sensor.energyhub_basement_temperature|sensor.energyhub_basement_humidity|basement||sensor.energyhub_basement_pressure
+  environment_sensor_entities: ""
   environment_stale_hours: 24
   environment_temperature_deviation_c: 5
   environment_humidity_deviation_percent: 20
   environment_persistence_minutes: 60
   device_low_battery_percent: 10
   doorbell_battery_entity: ""
+  smart_plug_entities: ""
 
 schema:
   bot_token: password
   destination_chat_id: "str?"
+  technical_chat_id: "str?"
   weather_entity: str
+  uhmc_weather_source: str
+  uhmc_weather_mqtt_topic: str
+  family_calendar_ical_url: "password?"
   send_time: str
-  soc_snapshot_time: str
-  night_start_time: str
+  soc_snapshot_time: "str?"
+  night_start_time: "str?"
   timezone: str
   useful_solar_threshold_w: "int(50,5000)"
+  battery_capacity_kwh: "float(1,100)"
+  battery_nominal_voltage_v: "float(12,100)"
+  battery_grid_charge_current_a: "float(1,100)"
+  battery_charge_efficiency: "float(0.5,1)"
+  house_grid_reference_current_a: "float(1,100)"
   strong_wind_threshold_ms: "float(5,40)"
-  test_mode: bool
+  weather_humidity_low_percent: "float?"
+  weather_humidity_high_percent: "float?"
+  weather_humidity_change_percent: "float?"
   battery_soc_entity: str
-  target_soc_entity: str
   ahm_minimum_soc_entity: str
-  reserve_advice_entity: str
-  reserve_advice_current_soc_entity: str
-  reserve_advice_suggested_soc_entity: str
-  reserve_advice_sample_count_entity: str
   operating_mode_entity: str
   yesterday_consumption_entity: str
   solar_forecast_entity: str
@@ -106,7 +115,13 @@ schema:
   normal_grid_import_price_entity: str
   grid_voltage_entity: str
   grid_confidence_entity: str
+  grid_available_24h_entity: "str?"
+  grid_outage_24h_entity: "str?"
   telemetry_freshness_entity: str
+  soc_anomaly_latest_entity: str
+  peak_load_guard_event_entity: str
+  heat_pump_restart_event_entity: str
+  weather_buffer_entity: str
   inverter_message_entities: str
   environment_sensor_entities: str
   environment_stale_hours: "float(1,168)"
@@ -115,6 +130,7 @@ schema:
   environment_persistence_minutes: "int(0,1440)"
   device_low_battery_percent: "float(1,100)"
   doorbell_battery_entity: "str?"
+  smart_plug_entities: str
   heat_pump_active_threshold_w: "float?"
   heat_pump_floor_1_power_entity: "str?"
   heat_pump_floor_2_power_entity: "str?"

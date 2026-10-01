@@ -12,6 +12,7 @@ REQUIRED_FIELDS = [
     "battery_capacity",
     "ac_output_active_power",
     "pv1_charging_power",
+    "ac_input_voltage",
 ]
 
 LAST_SNAPSHOT_SAVE_INTERVAL_SECONDS = 60
@@ -44,7 +45,13 @@ class TelemetryService:
         if battery_soc is not None and not 0 <= battery_soc <= 100:
             valid = False
 
-        grid_voltage = _to_float(data.get("ac_input_voltage"))
+        grid_voltage = required["ac_input_voltage"]
+        if grid_voltage is not None and grid_voltage < 0:
+            valid = False
+        if required["ac_output_active_power"] is not None and required["ac_output_active_power"] < 0:
+            valid = False
+        if required["pv1_charging_power"] is not None and required["pv1_charging_power"] < 0:
+            valid = False
 
         return InverterState(
             valid=valid,
@@ -66,7 +73,8 @@ class TelemetryService:
                 "Invalid values | "
                 f"SOC={state.battery_soc} | "
                 f"PV={state.pv_power} | "
-                f"Load={state.load_power}"
+                f"Load={state.load_power} | "
+                f"Grid={_to_float(data.get('ac_input_voltage'))}"
             )
             return state
 
@@ -81,7 +89,8 @@ class TelemetryService:
             f"PV1={state.pv_power}W | "
             f"Load={state.load_power}W | "
             f"Grid={'online' if state.grid_available else 'offline'} | "
-            f"Published={published}"
+            f"Published={published} | "
+            f"Suppressed={self.previous.get('__last_suppressed__', 0)}"
         )
 
         return state

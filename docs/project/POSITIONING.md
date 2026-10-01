@@ -1,117 +1,84 @@
-# EnergyHub Project Positioning
+# EnergyHub positioning
 
-## Current message
+## Main message
 
-> **Adaptive solar planning. Smart tariff use. Outage-ready reserve.**
+> EnergyHub helps your home make the most of solar energy and lower-cost
+> electricity while keeping battery reserve for power outages. It combines
+> solar-generation forecasts, weather warnings, household consumption and
+> observed grid reliability to decide when to use, preserve or replenish the
+> battery.
 
-EnergyHub is a local-first, resilience-aware Home Assistant energy controller for the PowMr 10.2M / POW-HVM10.2M hybrid inverter. It combines tomorrow's hourly solar forecast, expected household demand, battery state, a configured cheap-tariff window, and observed grid reliability to plan economical charging and maintain an adaptive reserve.
+> It also coordinates selected appliances and heating, protects against
+> inverter overload, and explains important decisions through Home Assistant
+> dashboards and Telegram reports.
 
-EnergyHub 1.3 is validated for one reference hardware and installation architecture. It should not yet claim generic Voltronic, multi-vendor, dynamic-price, Net Billing, automatic EV charging, or full HEMS support.
+**Economy when conditions allow, preparedness when conditions demand it.**
 
-## Public one-sentence description
+This is a product aim, not a measured savings claim. The current reserve
+controller can require grid charging outside cheap hours. It has one configured
+night/normal tariff split for estimated accounting; optimized cheap-slot start
+times and electricity export remain future work.
 
-> Home Assistant energy controller for PowMr solar inverters: hourly solar
-> planning, tariff-aware charging, explainable decisions, and outage-ready
-> battery reserve.
+## Homeowner outcomes in the monitored 2.x candidate
 
-## Public differentiation
+| What EnergyHub does | What the homeowner gets |
+| --- | --- |
+| Combines solar forecast, recent consumption, official weather warnings and grid reliability into one Battery Reserve | Prepare for tomorrow and possible outages without manually interpreting every chart. |
+| Offers Manual and guarded Automatic reserve authority | Keep the chosen battery floor or allow recommendations to be applied with evidence checks. |
+| Coordinates Solar, Reserve Charging and Grid Hold | Use the available sources according to one understandable reserve policy. |
+| Protects against overload and battery discharge during outages | Pause selected flexible appliances when capacity is limited, then restore only with verified conditions and ownership. |
+| Integrates supported heat pumps and smart plugs through Home Assistant | Bring connected-home appliances into the energy policy while keeping family temperature and manual OFF choices. |
+| Sends Telegram morning reports and important alerts | Read the energy outlook and power-loss/recovery notices in an existing messenger; no extra dedicated monitoring app is required. Home Assistant handles setup and dashboards. |
+| Records inverter faults, SOC jumps, freshness and tariff estimates | Understand events and investigate suspicious readings instead of treating every graph as trustworthy. |
 
-EnergyHub should lead with outcomes rather than protocol support:
+The difference to emphasize is coordination across the connected home:
+inverter, battery, supported appliances, heating, weather and grid evidence
+contribute to one local policy. AI is not part of the current control system.
 
-- it plans from an hourly solar curve and learned essential morning demand,
-  rather than only showing telemetry or reacting to one SOC threshold;
-- it coordinates night AHM and daytime Panic as explicit owners with persisted
-  targets, restart reconstruction, and recovery behavior;
-- it combines economy and resilience through a homeowner-selected reserve and
-  advisory model, without silently changing that preference;
-- it publishes reasons, targets, freshness, and diagnostics so a homeowner can
-  see why Grid Hold, charging, waiting, or Solar was chosen;
-- it keeps Telegram, voice, Home Assistant, and future AI outside the hardware
-  safety boundary.
+## What comes next
 
-The current Telegram companion is useful evidence of a family-facing product,
-but it must be called **briefings and alerts**, not Mission Control. The latter
-is a future capability and should be shown in a separate roadmap panel.
+- **Whole-house evidence and flexible heating (3.x):** validated CO/CO2 and BMS
+  inputs, more useful device-health diagnosis, family-controlled and optional
+  scheduled heating policies, and cold-weather observations.
+- **AI companion and Mission Control (4.x):** an assistant that knows the
+  installation, explains decisions, and requests validated settings, schedules
+  and device actions. Telegram text in Ukrainian/English comes before voice.
+- **Smart EV charging (5.x):** plan energy by departure time from solar and
+  approved cheap-grid charging without exhausting the household reserve.
+- **Tariff and optional export management (6.x):** multiple fixed cheap periods
+  first, dynamic prices later, and contract-specific export/Net Billing only
+  with verified export-capable equipment. The aim is to help reduce the monthly
+  electricity bill, not promise a universal saving.
+- **More installations:** separately verified inverter/device adapters and
+  clear capability declarations for each home.
 
-## GitHub landing page
+EV charging and tariff/export planning should be visible future benefits on the
+public page. Version numbers and sensor implementation detail belong in the
+roadmap, rather than the opening message.
 
-The public README should make the use case understandable before installation:
+## Evidence and scope
 
-1. outcome tagline and one-sentence description;
-2. one current dashboard screenshot and the version-neutral AHM/Panic graphic;
-3. three real scenarios: cheap-night planning, grid-outage reserve, and a
-   concise family morning briefing;
-4. current supported hardware and explicit limitations;
-5. a short **Available now / Next** comparison;
-6. installation and upgrade link;
-7. validation evidence and safety boundary.
+EnergyHub 2.4.12 and Family Assistant 2.4.15 were started on 2026-09-29. On
+2026-10-01 the homeowner reported the agreed 24-hour monitoring period passed
+with normal operation and no new Core/Supervisor errors. Repository regressions
+cover the corrective paths; rare failures and extended cold-weather heating
+are not all live-tested. Public promotion is prepared separately.
 
-Recommended repository topics include `home-assistant`, `energy-management`,
-`solar-energy`, `solar-inverter`, `battery-storage`, `energy-optimization`,
-`outage-resilience`, `time-of-use`, `mqtt`, `powmr`, and `solcast`.
+Current verified hardware scope is one PowMr 10.2M / POW-HVM10.2M PI30MAX
+installation, with separate optional read-only PV2 Modbus. Household control
+requires a mapped, validated Home Assistant bridge. Local operation does not
+make forecasts or Telegram independent of their external services.
 
-## Product pillars
+Do not claim:
 
-### Adaptive solar planning
+- prevention of an external grid outage or guaranteed uninterrupted power;
+- measured savings, billing-grade grid import, or dynamic tariff optimization;
+- universal inverter compatibility, current EV/export control, or current AI;
+- zero grid use for heating from PV/strategy permission alone;
+- complete field validation from passing repository tests or routine monitoring.
 
-Adaptive Hybrid Mode uses tomorrow's hourly forecast rather than only a daily total. It aligns expected post-07:00 consumption and solar, applies an independently verified solar-ramp credit to the morning gap, and combines that need with a user-selected 20–50% minimum reserve.
-
-The homeowner chooses the protective reserve. EnergyHub learns the household's essential 07:00–12:00 net energy, then recommends the next safer or more economical setting from comparable completed mornings. It shows the evidence but never changes the preference automatically.
-
-### Smart tariff use
-
-EnergyHub 1.3 uses one configured cheap-tariff window. The durable product concept is a tariff schedule containing one or more eligible periods. Future releases may ingest day-ahead import/export prices and Net Billing rules.
-
-### Outage-ready reserve
-
-Grid Confidence summarizes observed 24-hour and 48-hour availability. Conservative Panic maps that evidence to reserve targets, can remain armed while grid is absent, charges when grid returns, and preserves recovered reserve in Panic Grid Hold.
-
-Grid Confidence does not predict a specific outage, and EnergyHub cannot guarantee uninterrupted power or a reachable target when energy is unavailable.
-
-### Explainable, owned execution
-
-Each strategy transition has one controller owner, a target, a reason, and an observable result. Menu 01 is independently read back. Menu 16 is ACK-confirmed but cannot be independently read back on the reference inverter. Persisted context supports restart reconstruction without guessing from clock time alone.
-
-## Target users
-
-- Home Assistant users with residential solar, battery storage, and hybrid inverters;
-- PowMr 10.2M owners who need more than telemetry and isolated YAML rules;
-- households with fixed cheap tariffs or future multi-period/day-ahead pricing;
-- households in regions where grid availability is not consistently trustworthy;
-- advanced users who want visible decisions and bounded local control.
-
-## Why not only Home Assistant automations?
-
-Home Assistant remains the UI, schedule, integration, and notification layer. EnergyHub owns long-lived decision and hardware-transition state that is difficult to reproduce safely as independent automations:
-
-- rolling grid history and Grid Confidence;
-- coordinated AHM/Panic ownership;
-- adaptive target and morning-debt persistence;
-- one writer for inverter transitions;
-- transition sequencing and partial-failure recovery;
-- restart reconstruction;
-- hardware-specific read-back and acknowledgement boundaries.
-
-Future voice or messenger control should submit a time-bounded request to EnergyHub. A conversational assistant must not decide safety. The deterministic override evaluator may allow, shorten, delay, or deny the request according to fresh telemetry, projected reserve, grid availability, load energy, and immutable emergency limits.
-
-The optional Telegram Family Assistant already provides outbound morning plans, grid events, Grid Confidence changes, and AHM reserve advice. This is a useful product surface and a foundation for future interaction, but the current version does not receive or execute commands. Future Telegram text/voice and Home Assistant Assist adapters must translate input into the same authenticated, expiring, auditable intent contract before EnergyHub evaluates it.
-
-## Evidence for public claims
-
-Public releases should provide:
-
-- an AHM calculation example;
-- the AHM/Panic ownership timeline;
-- a Grid Confidence/Panic flowchart;
-- a visible decision-dashboard example;
-- Menu 01 read-back versus Menu 16 ACK documentation;
-- restart-reconstruction and partial-failure tests;
-- sanitized supervised validation results;
-- a supported-hardware and firmware matrix;
-- known limitations and explicit non-goals.
-
-## Future direction
-
-> EnergyHub should become a capability-based home energy planner that coordinates import, export, storage, EV charging, and flexible loads using forecasts, real prices, and observed grid reliability while preserving local execution, explainability, and bounded hardware control.
-
-Future capability must be introduced progressively through monitoring, shadow planning, attended validation, and only then bounded automatic control.
+Competitor comparisons with Tesla Powerwall, SolarAssistant or
+Sandisolar/EcoCloud require current primary-source research before publishing
+claims. Describe EnergyHub's own capabilities directly until that research is
+done. Keep private household diaries, audit inventories and the separate
+Threat Monitor outside public EnergyHub promotion.

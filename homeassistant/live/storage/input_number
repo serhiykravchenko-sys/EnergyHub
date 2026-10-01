@@ -43,8 +43,8 @@
       {
         "id": "energyhub_ahm_minimum_soc",
         "min": 20.0,
-        "max": 50.0,
-        "name": "AHM Minimum SOC",
+        "max": 95.0,
+        "name": "Battery Reserve",
         "step": 5.0,
         "unit_of_measurement": "%",
         "mode": "slider"

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from html import escape
-from statistics import median
 from typing import Any
 
 
@@ -28,6 +27,35 @@ class EnvironmentSensor:
         return self.temperature_entity.removeprefix("sensor.").removesuffix(
             "_temperature"
         )
+
+
+@dataclass(frozen=True)
+class SmartPlug:
+    label: str
+    switch_entity: str
+
+
+def parse_smart_plugs(specification: str) -> tuple[SmartPlug, ...]:
+    plugs = []
+    for raw_entry in str(specification or "").split(";"):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        parts = [part.strip() for part in entry.split("|")]
+        if len(parts) != 2 or not all(parts):
+            raise ValueError("Each smart plug must use label|switch_entity")
+        plugs.append(SmartPlug(label=parts[0], switch_entity=parts[1]))
+    return tuple(plugs)
+
+
+def smart_plug_report_lines(config, client) -> list[str]:
+    lines = []
+    for plug in getattr(config, "smart_plugs", ()):
+        entity = client.state(plug.switch_entity)
+        state = str((entity or {}).get("state") or "").strip().lower()
+        if state in INVALID_STATES:
+            lines.append(f"⚠️ Недоступна: {escape(plug.label)}")
+    return lines
 
 
 def parse_environment_sensors(specification: str) -> tuple[EnvironmentSensor, ...]:
@@ -120,8 +148,28 @@ def _entity_age_hours(
 
 def _previous_snapshot(state: dict[str, Any], now: datetime) -> dict[str, Any]:
     snapshots = state.setdefault("environment_hourly_snapshots", {})
-    yesterday_hour = (now - timedelta(days=1)).strftime("%Y-%m-%dT%H")
-    return snapshots.get(yesterday_hour, {})
+    target = (now - timedelta(days=1)).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+        tzinfo=None,
+    )
+    exact = snapshots.get(target.strftime("%Y-%m-%dT%H"))
+    if exact is not None:
+        return exact
+
+    nearest = None
+    nearest_seconds = float("inf")
+    for key, value in snapshots.items():
+        try:
+            stamp = datetime.strptime(key, "%Y-%m-%dT%H")
+        except (TypeError, ValueError):
+            continue
+        distance = abs((stamp - target).total_seconds())
+        if distance <= 90 * 60 and distance < nearest_seconds:
+            nearest = value
+            nearest_seconds = distance
+    return nearest or {}
 
 
 def _compact(value: float) -> str:
@@ -189,31 +237,6 @@ class DeviceHealthMonitor:
                 "group": sensor.group,
             }
 
-        indoor = [
-            reading
-            for reading in readings.values()
-            if reading["group"] == "indoor"
-        ]
-        indoor_temperatures = [
-            reading["temperature"]
-            for reading in indoor
-            if reading["temperature"] is not None
-            and reading["temperature_age_hours"] is not None
-            and reading["temperature_age_hours"] < self.stale_hours
-        ]
-        indoor_humidities = [
-            reading["humidity"]
-            for reading in indoor
-            if reading["humidity"] is not None
-            and reading["humidity_age_hours"] is not None
-            and reading["humidity_age_hours"] < self.stale_hours
-        ]
-        peer_temperature = (
-            median(indoor_temperatures) if len(indoor_temperatures) >= 3 else None
-        )
-        peer_humidity = (
-            median(indoor_humidities) if len(indoor_humidities) >= 3 else None
-        )
         previous = _previous_snapshot(state, now)
 
         conditions = {}
@@ -264,38 +287,31 @@ class DeviceHealthMonitor:
                 (
                     "temperature",
                     reading["temperature"],
-                    peer_temperature if sensor.group == "indoor" else None,
                     _number(previous_reading.get("temperature")),
                     self.temperature_deviation,
                 ),
                 (
                     "humidity",
                     reading["humidity"],
-                    peer_humidity if sensor.group == "indoor" else None,
                     _number(previous_reading.get("humidity")),
                     self.humidity_deviation,
                 ),
             )
-            for metric, value, peer, yesterday, threshold in comparisons:
-                peer_deviation = None if peer is None else value - peer
+            for metric, value, yesterday, threshold in comparisons:
                 yesterday_deviation = (
                     None if yesterday is None else value - yesterday
                 )
                 if not (
-                    peer_deviation is not None
-                    and abs(peer_deviation) >= threshold
-                    or yesterday_deviation is not None
+                    yesterday_deviation is not None
                     and abs(yesterday_deviation) >= threshold
                 ):
                     continue
                 conditions[f"{sensor.key}:{metric}"] = {
-                    "kind": "outlier",
+                    "kind": "change",
                     "label": sensor.label,
                     "metric": metric,
                     "value": value,
-                    "peer": peer,
                     "yesterday": yesterday,
-                    "peer_deviation": peer_deviation,
                     "yesterday_deviation": yesterday_deviation,
                     "immediate": False,
                 }
@@ -340,6 +356,8 @@ class DeviceHealthMonitor:
                 issue = dict(condition)
                 issue["since"] = since.isoformat()
                 issue["duration_minutes"] = duration_minutes
+                if active.get(key, {}).get("reported_at"):
+                    issue["reported_at"] = active[key]["reported_at"]
                 if active.get(key) != issue:
                     active[key] = issue
                     changed = True
@@ -349,7 +367,7 @@ class DeviceHealthMonitor:
                 continue
             candidates.pop(key, None)
             issue = active.pop(key, None)
-            if issue:
+            if issue and issue.get("kind") != "change":
                 recoveries.append(
                     {
                         "label": issue.get("label", key),
@@ -393,21 +411,26 @@ class DeviceHealthMonitor:
 
 def environment_report_lines(state: dict[str, Any], now: datetime) -> list[str]:
     lines = []
-    active_issues = list(state.get("environment_active", {}).values())
+    active_issues = [
+        (key, issue)
+        for key, issue in state.get("environment_active", {}).items()
+        if issue.get("kind") != "change" or not issue.get("reported_at")
+    ]
     active_issues.sort(
-        key=lambda issue: (
+        key=lambda item: (
             0
-            if issue.get("kind") in {
+            if item[1].get("kind") in {
                 "unavailable",
                 "stale",
                 "unchanged",
                 "low_battery",
             }
             else 1,
-            str(issue.get("label") or ""),
+            str(item[1].get("label") or ""),
         )
     )
-    for issue in active_issues[:MAX_ACTIVE_REPORT_LINES]:
+    reported_change_keys = []
+    for issue_key, issue in active_issues[:MAX_ACTIVE_REPORT_LINES]:
         label = escape(str(issue.get("label") or "Датчик"))
         kind = issue.get("kind")
         if kind == "unavailable":
@@ -425,20 +448,24 @@ def environment_report_lines(state: dict[str, Any], now: datetime) -> list[str]:
             )
         elif kind == "low_battery":
             lines.append(f"🔋 {label}: батарея {_compact(issue['battery'])}%.")
-        elif kind == "outlier":
+        elif kind == "change":
             metric = issue.get("metric")
-            unit = "°C" if metric == "temperature" else "%"
+            unit = "°C" if metric == "temperature" else " п.п."
             name = "температура" if metric == "temperature" else "вологість"
-            comparisons = []
-            if issue.get("peer") is not None:
-                comparisons.append(f"медіана в будинку {_compact(issue['peer'])}{unit}")
-            if issue.get("yesterday") is not None:
-                comparisons.append(f"учора {_compact(issue['yesterday'])}{unit}")
-            suffix = "; " + ", ".join(comparisons) if comparisons else ""
+            previous = _number(issue.get("yesterday"))
+            current = _number(issue.get("value"))
+            change = _number(issue.get("yesterday_deviation"))
+            if previous is None or current is None or change is None:
+                continue
+            direction = "зросла" if change > 0 else "знизилась"
+            delta = f"+{_compact(change)}" if change > 0 else _compact(change)
+            value_unit = "°C" if metric == "temperature" else "%"
             lines.append(
-                f"⚠️ {label}: {name} {_compact(issue['value'])}{unit}{suffix}; "
-                f"відхилення триває {issue.get('duration_minutes', 0)} хв."
+                f"⚠️ {label}: {name} {direction} з {_compact(previous)}{value_unit} "
+                f"до {_compact(current)}{value_unit} ({delta}{unit} порівняно з учора)."
             )
+            reported_change_keys.append(issue_key)
+    state["environment_changes_in_report"] = reported_change_keys
     omitted = len(active_issues) - MAX_ACTIVE_REPORT_LINES
     if omitted > 0:
         lines.append(f"⚠️ Ще активних проблем із датчиками: {omitted}.")
@@ -449,16 +476,12 @@ def environment_report_lines(state: dict[str, Any], now: datetime) -> list[str]:
         details = grouped_recoveries.pop(label, [])
         kind = recovery.get("kind")
         metric = recovery.get("metric")
-        if kind in {"unavailable", "stale"}:
-            detail = "зв’язок і свіжість даних"
-        elif kind == "unchanged":
-            detail = "зміни температури та вологості"
+        if kind in {"unavailable", "stale", "unchanged"}:
+            detail = "датчик знову передає актуальні дані"
         elif kind == "low_battery":
-            detail = "заряд вище порога"
-        elif metric == "temperature":
-            detail = "відхилення температури"
-        elif metric == "humidity":
-            detail = "відхилення вологості"
+            detail = "заряд батареї вище порога"
+        elif kind == "change" or metric in {"temperature", "humidity"}:
+            continue
         else:
             detail = "попереднє відхилення"
         if detail not in details:
@@ -469,7 +492,7 @@ def environment_report_lines(state: dict[str, Any], now: datetime) -> list[str]:
         -MAX_RECOVERY_REPORT_LINES:
     ]:
         lines.append(
-            f"✅ {escape(label)}: відновлено — {', '.join(details)}."
+            f"✅ {escape(label)}: {'; '.join(details)}."
         )
     return lines
 
@@ -493,4 +516,10 @@ def doorbell_report_line(config, client, now: datetime) -> str | None:
 
 
 def acknowledge_health_report(state: dict[str, Any]) -> None:
+    acknowledged_at = datetime.now().astimezone().isoformat()
+    active = state.setdefault("environment_active", {})
+    for key in state.pop("environment_changes_in_report", []):
+        issue = active.get(key)
+        if issue and issue.get("kind") == "change" and not issue.get("reported_at"):
+            issue["reported_at"] = acknowledged_at
     state["environment_recoveries"] = []

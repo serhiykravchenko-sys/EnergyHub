@@ -1,8 +1,9 @@
 import json
 import math
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from app.utils.json_store import atomic_write_json
 from app.utils.logger import log
@@ -18,9 +19,10 @@ REQUIRED_SNAPSHOT_INPUTS = (
 
 
 class DailySummaryService:
-    def __init__(self, grid_history, grid_import):
+    def __init__(self, grid_history, grid_import, timezone_name="Europe/Kyiv"):
         self.grid_history = grid_history
         self.grid_import = grid_import
+        self.timezone = ZoneInfo(timezone_name)
         self.inputs = {}
         self.last_snapshot = None
         self.history = {}
@@ -152,6 +154,10 @@ class DailySummaryService:
         forecast_tomorrow = self._numeric_value(
             data.get("solar_forecast_tomorrow")
         )
+        solar_actual_today = self._numeric_value(
+            data.get("solar_actual_today")
+        )
+        battery_full_today = data.get("battery_full_today")
 
         self.inputs.update(snapshot_inputs)
 
@@ -159,6 +165,11 @@ class DailySummaryService:
             self.inputs[
                 "solar_forecast_tomorrow"
             ] = forecast_tomorrow
+
+        snapshot_inputs["solar_actual_today"] = solar_actual_today
+        snapshot_inputs["battery_full_today"] = (
+            battery_full_today is True
+        )
 
         return self.snapshot(
             snapshot_date=snapshot_date,
@@ -241,6 +252,8 @@ class DailySummaryService:
                     "daily_solar_surplus_estimated"
                 ]
             ),
+            "solar_actual_kwh": values.get("solar_actual_today"),
+            "battery_full": bool(values.get("battery_full_today", False)),
             "grid_import_estimated_kwh": round(
                 self.grid_import.daily_energy_kwh,
                 3,
@@ -269,6 +282,10 @@ class DailySummaryService:
                 == snapshot[
                     "grid_import_estimated_kwh"
                 ]
+                and existing.get("solar_actual_kwh")
+                == snapshot["solar_actual_kwh"]
+                and bool(existing.get("battery_full", False))
+                == snapshot["battery_full"]
             )
 
             if same_values:
@@ -310,11 +327,14 @@ class DailySummaryService:
                     "solar_surplus_estimated_kwh"
                 ]
             ),
-            "daily_grid_import": (
-                self.last_snapshot.get(
-                    "grid_import_estimated_kwh",
-                    0.0,
-                )
+            "daily_solar_actual": self._mqtt_optional(
+                self.last_snapshot.get("solar_actual_kwh")
+            ),
+            "daily_solar_forecast_error_percent": (
+                self._forecast_error_percent(self.last_snapshot)
+            ),
+            "daily_battery_reached_full": (
+                "on" if self.last_snapshot.get("battery_full") else "off"
             ),
             "daily_grid_availability": (
                 self.last_snapshot[
@@ -322,6 +342,62 @@ class DailySummaryService:
                 ]
             ),
         }
+
+    def recent_consumption(self, before_date, limit=3, require_final=False):
+        """Return the newest valid completed daily-consumption samples.
+
+        Zero and non-finite values are excluded because they represent the
+        incomplete/unavailable snapshots seen in live Home Assistant evidence.
+        The current day is never used in its own 05:00 reserve evaluation.
+        """
+        try:
+            boundary = (
+                before_date
+                if isinstance(before_date, date)
+                else date.fromisoformat(str(before_date))
+            )
+            limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            return []
+
+        samples = []
+        for day, snapshot in sorted(self.history.items(), reverse=True):
+            try:
+                sample_date = date.fromisoformat(str(day))
+            except (TypeError, ValueError):
+                continue
+            if sample_date >= boundary or not isinstance(snapshot, dict):
+                continue
+            if (boundary - sample_date).days > 7:
+                continue
+            if require_final:
+                try:
+                    source_timestamp = snapshot.get("source_timestamp")
+                    try:
+                        captured = datetime.fromtimestamp(
+                            float(source_timestamp),
+                            tz=getattr(self, "timezone", ZoneInfo("Europe/Kyiv")),
+                        )
+                    except (TypeError, ValueError, OverflowError):
+                        captured = datetime.fromisoformat(str(source_timestamp))
+                        if captured.tzinfo is not None:
+                            captured = captured.astimezone(
+                                getattr(self, "timezone", ZoneInfo("Europe/Kyiv"))
+                            )
+                    if captured.date() != sample_date or (captured.hour, captured.minute) < (23, 50):
+                        continue
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            value = self._numeric_value(snapshot.get("house_consumption_kwh"))
+            if value is None or value <= 0:
+                continue
+            sample = {"date": sample_date.isoformat(), "kwh": value}
+            if require_final:
+                sample["complete"] = True
+            samples.append(sample)
+            if len(samples) >= limit:
+                break
+        return samples
 
     def finalize_grid_import(
         self,
@@ -424,3 +500,17 @@ class DailySummaryService:
             return None
 
         return round(numeric_value, 2)
+
+    @staticmethod
+    def _mqtt_optional(value):
+        return "unknown" if value is None else value
+
+    @classmethod
+    def _forecast_error_percent(cls, snapshot):
+        if snapshot.get("battery_full"):
+            return "unknown"
+        actual = cls._numeric_value(snapshot.get("solar_actual_kwh"))
+        forecast = cls._numeric_value(snapshot.get("solar_forecast_kwh"))
+        if actual is None or forecast is None or forecast <= 0:
+            return "unknown"
+        return round((actual - forecast) / forecast * 100, 1)

@@ -60,19 +60,17 @@ def atomic_write_json(
 
 
 def _fsync_directory(directory):
+    # Windows cannot fsync a directory through os.open. On Linux (the HA
+    # add-on host), failure to sync the rename is a failed durable save.
+    if os.name != "posix":
+        return
     flags = os.O_RDONLY
 
     if hasattr(os, "O_DIRECTORY"):
         flags |= os.O_DIRECTORY
 
-    try:
-        directory_fd = os.open(directory, flags)
-    except OSError:
-        return
-
+    directory_fd = os.open(directory, flags)
     try:
         os.fsync(directory_fd)
-    except OSError:
-        pass
     finally:
         os.close(directory_fd)

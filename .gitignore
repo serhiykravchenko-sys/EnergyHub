@@ -39,6 +39,8 @@ home-assistant_v2.db-*
 *.crt
 
 # Local generated data
+.local/
+.local/neoclima-hisense/
 powmr.json
 *.sqlite
 *.db

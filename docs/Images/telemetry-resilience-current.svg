@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs><style>
+    .title{font:700 52px Arial,sans-serif;fill:#102452}.sub{font:27px Arial,sans-serif;fill:#43516a}.head{font:700 28px Arial,sans-serif;fill:#102452}.label{font:700 21px Arial,sans-serif;fill:#152541}.body{font:18px Arial,sans-serif;fill:#2d3d56}.small{font:15.5px Arial,sans-serif;fill:#4e5d70}
+    .blue{fill:#f5f9ff;stroke:#2864ad;stroke-width:3}.green{fill:#f2fbf5;stroke:#2f8b59;stroke-width:3}.orange{fill:#fff8ed;stroke:#df8925;stroke-width:3}.red{fill:#fff4f4;stroke:#c64040;stroke-width:3}.card{fill:#fff;stroke:#a9b8cc;stroke-width:2}
+  </style></defs>
+  <rect width="1600" height="1000" fill="#fcfdff"/>
+  <text x="800" y="70" text-anchor="middle" class="title">EnergyHub — Telemetry, Memory and Recovery</text>
+  <text x="800" y="111" text-anchor="middle" class="sub">A resilient controller must know what is fresh, what is remembered, and what is only estimated</text>
+
+  <rect x="45" y="155" width="355" height="620" rx="24" class="blue"/>
+  <text x="222" y="200" text-anchor="middle" class="head">ACQUIRE</text>
+  <rect x="72" y="226" width="301" height="110" rx="16" class="card"/><text x="95" y="260" class="label">PI30MAX · every 10 s</text><text x="95" y="291" class="body">SOC · voltage · load · PV1</text><text x="95" y="320" class="small">Required fields and ranges validated</text>
+  <rect x="72" y="354" width="301" height="110" rx="16" class="card"/><text x="95" y="388" class="label">PV2 Modbus · every 30 s</text><text x="95" y="419" class="body">Voltage + power, read-only</text><text x="95" y="448" class="small">Failure cannot stop PI30MAX polling</text>
+  <rect x="72" y="482" width="301" height="110" rx="16" class="card"/><text x="95" y="516" class="label">Settings + warnings · 60 s</text><text x="95" y="547" class="body">QPIRI · QPIWS</text><text x="95" y="576" class="small">Named incidents, not raw mystery codes</text>
+  <rect x="72" y="610" width="301" height="135" rx="16" class="card"/><text x="95" y="644" class="label">HA evidence</text><text x="95" y="675" class="body">Forecasts · warnings · helpers</text><text x="95" y="705" class="body">device states + power</text><text x="95" y="733" class="small">Timestamped before policy use</text>
+
+  <rect x="425" y="155" width="355" height="620" rx="24" class="green"/>
+  <text x="602" y="200" text-anchor="middle" class="head">VALIDATE + DERIVE</text>
+  <rect x="452" y="226" width="301" height="120" rx="16" class="card"/><text x="475" y="260" class="label">Freshness first</text><text x="475" y="291" class="body">valid ≠ current</text><text x="475" y="320" class="small">Stale/NaN/∞/contradictory is rejected</text>
+  <rect x="452" y="364" width="301" height="120" rx="16" class="card"/><text x="475" y="398" class="label">Aligned Total PV</text><text x="475" y="429" class="body">PV1 + PV2 within 15 seconds</text><text x="475" y="458" class="small">Restart begins awaiting a new sample</text>
+  <rect x="452" y="502" width="301" height="120" rx="16" class="card"/><text x="475" y="536" class="label">Grid intelligence</text><text x="475" y="567" class="body">24 h + 48 h weighted reliability</text><text x="475" y="596" class="small">Normal · Unstable · Risk · Critical</text>
+  <rect x="452" y="640" width="301" height="105" rx="16" class="card"/><text x="475" y="674" class="label">Informational accounting</text><text x="475" y="705" class="body">SUB house load + SOC gain</text><text x="475" y="733" class="small">Night/normal tariff split, not billing-grade</text>
+
+  <rect x="805" y="155" width="355" height="620" rx="24" class="orange"/>
+  <text x="982" y="200" text-anchor="middle" class="head">REMEMBER + EXPLAIN</text>
+  <rect x="832" y="226" width="301" height="120" rx="16" class="card"/><text x="855" y="260" class="label">Durable transition marker</text><text x="855" y="291" class="body">Save uncertainty before writes</text><text x="855" y="320" class="small">Save failure blocks further control</text>
+  <rect x="832" y="364" width="301" height="120" rx="16" class="card"/><text x="855" y="398" class="label">Bounded journals</text><text x="855" y="429" class="body">Faults + SOC jumps</text><text x="855" y="458" class="small">Fresh overload warning feeds guard</text>
+  <rect x="832" y="502" width="301" height="120" rx="16" class="card"/><text x="855" y="536" class="label">Daily memory</text><text x="855" y="567" class="body">Energy + forecast accuracy</text><text x="855" y="596" class="small">Midnight import survives restart</text>
+  <rect x="832" y="640" width="301" height="105" rx="16" class="card"/><text x="855" y="674" class="label">Decision explanations</text><text x="855" y="705" class="body">Target · source · evidence · failure</text><text x="855" y="733" class="small">Same truth for dashboard and Telegram</text>
+
+  <rect x="1185" y="155" width="370" height="620" rx="24" class="red"/>
+  <text x="1370" y="200" text-anchor="middle" class="head">FAIL + RECOVER SAFELY</text>
+  <rect x="1212" y="226" width="316" height="120" rx="16" class="card"/><text x="1235" y="260" class="label">Communication loss</text><text x="1235" y="291" class="body">Availability marks data stale</text><text x="1235" y="320" class="small">Old values are not shown as current</text>
+  <rect x="1212" y="364" width="316" height="120" rx="16" class="card"/><text x="1235" y="398" class="label">Partial command failure</text><text x="1235" y="429" class="body">Bounded Solar recovery</text><text x="1235" y="458" class="small">Failure is published, not concealed</text>
+  <rect x="1212" y="502" width="316" height="120" rx="16" class="card"/><text x="1235" y="536" class="label">Restart reconstruction</text><text x="1235" y="567" class="body">Compare saved + inverter state</text><text x="1235" y="596" class="small">Uncertainty needs an attended check</text>
+  <rect x="1212" y="640" width="316" height="105" rx="16" class="card"/><text x="1235" y="674" class="label">Unknown evidence</text><text x="1235" y="705" class="body">Hold conservative authority</text><text x="1235" y="733" class="small">Never lower protection by guessing</text>
+
+  <rect x="145" y="830" width="1310" height="115" rx="22" class="blue"/>
+  <text x="800" y="872" text-anchor="middle" class="label">Published result</text>
+  <text x="800" y="906" text-anchor="middle" class="body">MQTT Discovery entities + availability + concise reasons → Home Assistant dashboard → Family Assistant briefings and alerts</text>
+</svg>

@@ -1,29 +1,38 @@
 # Telegram Family Assistant
 
-Home Assistant app that sends a Ukrainian weather, energy, and heat-pump
-ownership summary to a private family Telegram group every morning and warns
-when SOC crosses reserve-relative thresholds.
+Version 2.4.15 is the outbound Ukrainian reporting companion to EnergyHub
+2.4.12. It informs the household in Telegram without requiring another
+monitoring app. Home Assistant remains the configuration and device platform.
 
-It can recommend increasing the user-selected AHM reserve when the observed 07:00–12:00 SOC minimum approaches that reserve. Recommendations are informational and never change Home Assistant controls.
+## What it reports
 
-Version 1.3.14 remains outbound-only and joins the coordinated EnergyHub public
-release train. It reports whether the family or
-EnergyHub protection currently governs heat-pump use. Reserve warnings require
-an active configured heat pump, include its floor and observed power, and are
-kept quiet through 08:01. The 08:00 report also includes persistent health
-issues for seven configured temperature/humidity sensors and an optional
-doorbell low-battery warning. It treats an unchanged temperature/humidity pair
-for 24 hours as suspected offline and collapses duplicate recovery history per
-sensor. The app never switches a device or sends an
-inverter command. The morning report also summarizes up to three EnergyHub
-inverter incidents from the previous day and distinguishes a cleared message
-from an unverified inverter restart. The report also shows the finalized
-previous-calendar-day night/normal estimated Grid Import and cost, followed by
-current-month totals, when every required EnergyHub sensor is available.
+- Morning weather, solar-generation forecast, live SOC/mode and reserve context.
+- Grid outage/recovery, reserve and load-protection observations.
+- SOC anomalies, inverter faults and selected diagnostic warnings.
+- Estimated grid import and configured tariff costs where data is available.
+- Optional read-only family calendar, environment-sensor and smart-plug status.
 
-The app persists the exact logical morning report before calling Telegram and
-retries that outbox after a restart. Telegram `sendMessage` has no idempotency
-key, so delivery is at-least-once: a crash after Telegram accepts a message but
-before the local acknowledgement is saved can still cause a rare duplicate.
+Reports explain available evidence and distinguish missing or stale data.
+Overnight archived inverter-fault wording uses the current mode at report
+delivery. Routine monitoring and an observed outage validated delivery;
+rare persistence/retry paths have fixture regression tests, not exhaustive
+live fault injection.
 
-See `DOCS.md` for installation and data semantics.
+## Setup
+
+Install the app after the public release, configure the bot token, destination
+and HA access in local app options, and test delivery. Never store real tokens,
+chat IDs or private calendar URLs in Git. Optional environment-sensor and
+smart-plug lists are empty in the public manifest: populate them with your own
+entities. Generic aliases in source/tests are example mappings.
+
+See [configuration and behavior](DOCS.md),
+[release notes](../RELEASE_NOTES_FAMILY_2.4.15.md), and
+[release evidence](../docs/validation/RELEASE_2.4.12.md).
+
+## Control boundary
+
+This app does not change inverter settings, switch plugs or manage heating.
+AI Mission Control, bilingual text requests and later voice interaction are
+planned for 4.x, through validated EnergyHub intents. They are not shipped here.
+Telegram Threat Monitor is a separate project, not part of EnergyHub promotion.

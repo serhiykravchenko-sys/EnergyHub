@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbfdff"/><stop offset="1" stop-color="#f3f7fb"/></linearGradient>
+    <filter id="shadow2"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity="0.12"/></filter>
+    <style>
+      .title{font:700 56px 'Segoe UI',Arial,sans-serif;fill:#102a43}.sub{font:400 25px 'Segoe UI',Arial,sans-serif;fill:#486581}
+      .h{font:700 29px 'Segoe UI',Arial,sans-serif;fill:#102a43}.k{font:700 23px 'Segoe UI',Arial,sans-serif;fill:#0b7285}
+      .b{font:400 21px 'Segoe UI',Arial,sans-serif;fill:#243b53}.small{font:400 18px 'Segoe UI',Arial,sans-serif;fill:#486581}.white{fill:#fff}
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#bg2)"/>
+  <text x="80" y="82" class="title">EnergyHub — Smart Heating &amp; Load Protection</text>
+  <text x="82" y="124" class="sub">Comfort automation never outranks inverter or battery protection</text>
+  <g filter="url(#shadow2)">
+    <rect x="70" y="165" rx="22" width="1460" height="125" fill="#fff" stroke="#335c9b" stroke-width="3"/>
+    <text x="110" y="212" class="h">PRIORITY</text>
+    <g font-family="Segoe UI,Arial" font-size="23" font-weight="700">
+      <rect x="385" y="190" rx="16" width="245" height="62" fill="#ffe8e5"/><text x="508" y="229" text-anchor="middle" fill="#b9372a">1 · Overload</text>
+      <text x="655" y="229" fill="#789">›</text><rect x="685" y="190" rx="16" width="275" height="62" fill="#fff1df"/><text x="823" y="229" text-anchor="middle" fill="#b56c09">2 · Battery outage</text>
+      <text x="985" y="229" fill="#789">›</text><rect x="1015" y="190" rx="16" width="245" height="62" fill="#eaf1ff"/><text x="1138" y="229" text-anchor="middle" fill="#2459a7">3 · Family OFF</text>
+      <text x="1285" y="229" fill="#789">›</text><rect x="1315" y="190" rx="16" width="170" height="62" fill="#e5f7f4"/><text x="1400" y="229" text-anchor="middle" fill="#087f7f">4 · Heating</text>
+    </g>
+  </g>
+  <g filter="url(#shadow2)">
+    <rect x="70" y="330" rx="22" width="710" height="385" fill="#fff" stroke="#d34a3a" stroke-width="3"/>
+    <rect x="70" y="330" rx="22" width="710" height="68" fill="#d34a3a"/>
+    <text x="425" y="375" text-anchor="middle" class="h white">OVERLOAD PROTECTION</text>
+    <text x="110" y="443" class="k">Trigger</text><text x="260" y="443" class="b">Load ≥85% or inverter overload warning</text>
+    <text x="110" y="490" class="k">Relief</text><text x="260" y="490" class="b">Shed one eligible load at a time to ≤75%</text>
+    <text x="110" y="537" class="k">Recovery</text><text x="260" y="537" class="b">Load &lt;50% continuously for 5 minutes</text>
+    <text x="110" y="584" class="k">Restore</text><text x="320" y="584" class="b">One at a time; ≥60 s between restores</text>
+    <text x="110" y="631" class="k">Evidence</text><text x="260" y="631" class="b">Expiring intent + ACK + fresh state</text>
+    <rect x="105" y="660" rx="14" width="640" height="35" fill="#fff0ee"/><text x="425" y="684" text-anchor="middle" class="small">Dashboard switch: Automatic or warnings-only</text>
+  </g>
+  <g filter="url(#shadow2)">
+    <rect x="820" y="330" rx="22" width="710" height="385" fill="#fff" stroke="#0f8b8d" stroke-width="3"/>
+    <rect x="820" y="330" rx="22" width="710" height="68" fill="#0f8b8d"/>
+    <text x="1175" y="375" text-anchor="middle" class="h white">FIRST-FLOOR SMART HEATING</text>
+    <text x="860" y="443" class="k">Scope</text><text x="1000" y="443" class="b">Native climate control; first floor only</text>
+    <text x="860" y="490" class="k">Modes</text><text x="1000" y="490" class="b">Quiet 23:00–08:00 · Eco off-grid</text>
+    <text x="860" y="537" class="k">Battery</text><text x="1000" y="537" class="b">Pause at 40%; restore owned pause at 50%</text>
+    <text x="860" y="584" class="k">Solar-only</text><text x="1000" y="584" class="b">Solar/daylight · start 600 W · stay 400 W</text>
+    <text x="1000" y="616" class="small">SOC above reserve; short PV dips get 5-min dwell</text>
+    <text x="860" y="662" class="k">Reserve</text><text x="1000" y="662" class="b">Enabled Smart Heating adds +20 points</text>
+    <text x="1000" y="695" class="small">Family sets temperature, fan and Super</text>
+  </g>
+  <g filter="url(#shadow2)">
+    <rect x="70" y="755" rx="22" width="1460" height="170" fill="#fff" stroke="#335c9b" stroke-width="3"/>
+    <text x="110" y="803" class="h">PROTECTED HOUSEHOLD LOADS</text>
+    <text x="110" y="848" class="b">Order: water pump → boiler → first-floor heat pump → second floor → third floor → microwave</text>
+    <text x="110" y="884" class="small">Battery outage protection excludes the microwave. Smart Heating does not provide comfort control</text>
+    <text x="110" y="912" class="small">for floors 2–3, the boiler, or water pump. Auto-off hours survive protective OFF.</text>
+    <rect x="1100" y="786" rx="18" width="380" height="98" fill="#edf6ff"/>
+    <text x="1290" y="825" text-anchor="middle" class="k">Telegram reports outcomes</text>
+    <text x="1290" y="858" text-anchor="middle" class="small">It does not issue raw inverter commands</text>
+  </g>
+</svg>

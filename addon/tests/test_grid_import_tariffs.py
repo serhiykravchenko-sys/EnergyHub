@@ -10,6 +10,23 @@ from app.services.grid_import import GridImportService
 
 
 class GridImportTariffTests(unittest.TestCase):
+    def test_previous_week_requires_all_seven_complete_days(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(
+                Path(directory) / "grid_import.json",
+                datetime(2026, 9, 14, 8, tzinfo=ZoneInfo("Europe/Kyiv")),
+            )
+            service.date = "2026-09-14"
+            for day in range(7, 14):
+                service.daily_tariff_history[f"2026-09-{day:02d}"] = {
+                    "night_kwh": 1, "normal_kwh": 2,
+                    "night_cost_uah": 2.5, "normal_cost_uah": 10,
+                    "complete": True,
+                }
+            self.assertEqual(21, service.previous_week()["total_kwh"])
+            service.daily_tariff_history.pop("2026-09-10")
+            self.assertEqual({}, service.previous_week())
+
     def make_service(self, path: Path, now: datetime) -> GridImportService:
         return GridImportService(
             path=path,
@@ -20,6 +37,7 @@ class GridImportTariffTests(unittest.TestCase):
     def integrate(self, service, start, end, power_w=3600, soc=50):
         service.update(
             operating_mode="hybrid_grid_hold",
+            grid_available=True,
             output_power_w=power_w,
             battery_soc=soc,
             now=start,
@@ -32,6 +50,7 @@ class GridImportTariffTests(unittest.TestCase):
         ):
             service.update(
                 operating_mode="hybrid_grid_hold",
+                grid_available=True,
                 output_power_w=power_w,
                 battery_soc=soc,
                 now=end,
@@ -73,9 +92,8 @@ class GridImportTariffTests(unittest.TestCase):
             )
             self.assertAlmostEqual(0.01, service.night_energy_kwh, places=6)
             self.assertAlmostEqual(0.01, service.yesterday_energy_kwh, places=6)
-            self.assertEqual(
-                "unknown",
-                service.mqtt_values()["grid_import_night_yesterday_estimated"],
+            self.assertIsNone(
+                service.mqtt_values()["grid_import_night_yesterday_estimated"]
             )
             self.assertIn(
                 ("2026-08-22", 0.01),
@@ -150,18 +168,44 @@ class GridImportTariffTests(unittest.TestCase):
             )
             service.update(
                 operating_mode="hybrid_charging",
+                grid_available=True,
                 output_power_w=0,
                 battery_soc=50,
                 now=datetime.fromisoformat("2026-08-22T06:00:00+03:00"),
             )
             service.update(
                 operating_mode="hybrid_charging",
+                grid_available=True,
                 output_power_w=0,
                 battery_soc=55,
                 now=datetime.fromisoformat("2026-08-22T06:00:10+03:00"),
             )
             self.assertAlmostEqual(0.8, service.night_energy_kwh)
             self.assertAlmostEqual(2.0, service.daily_cost_uah)
+
+    def test_solar_only_hold_soc_gain_is_not_grid_battery_import(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(
+                Path(directory) / "grid_import.json",
+                datetime.fromisoformat("2026-08-22T12:00:00+03:00"),
+            )
+            for mode, soc, second in (
+                ("hybrid_charging", 40, 0),
+                ("hybrid_grid_hold", 45, 10),
+                ("hybrid_grid_hold", 50, 20),
+                ("hybrid_charging", 50, 30),
+                ("hybrid_charging", 51, 40),
+            ):
+                service.update(
+                    operating_mode=mode,
+                    grid_available=True,
+                    output_power_w=0,
+                    battery_soc=soc,
+                    now=datetime.fromisoformat(
+                        f"2026-08-22T12:00:{second:02d}+03:00"
+                    ),
+                )
+            self.assertAlmostEqual(0.16, service.battery_energy_kwh)
 
     def test_both_fall_back_ambiguous_hours_remain_night_tariff(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -177,6 +221,23 @@ class GridImportTariffTests(unittest.TestCase):
             self.assertEqual("night", service._tariff_for(first))
             self.assertEqual("night", service._tariff_for(second))
 
+    def test_outage_preserves_sub_interval_without_billing_the_gap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(
+                Path(directory) / "grid_import.json",
+                datetime.fromisoformat("2026-08-22T12:00:00+03:00"),
+            )
+            first = datetime.fromisoformat("2026-08-22T12:00:00+03:00")
+            service.update(operating_mode="hybrid_grid_hold", output_power_w=1200,
+                           battery_soc=40, grid_available=True, now=first)
+            service.update(operating_mode="hybrid_grid_hold", output_power_w=1200,
+                           battery_soc=40, grid_available=False, now=first)
+            self.assertTrue(service.sub_active)
+            self.assertEqual(0, service.house_energy_kwh)
+            service.update(operating_mode="hybrid_grid_hold", output_power_w=1200,
+                           battery_soc=40, grid_available=True, now=first)
+            self.assertEqual(0, service.house_energy_kwh)
+
     def test_spring_clock_jump_uses_monotonic_poll_interval(self):
         with tempfile.TemporaryDirectory() as directory:
             timezone = ZoneInfo("Europe/Kyiv")
@@ -187,6 +248,7 @@ class GridImportTariffTests(unittest.TestCase):
 
             service.update(
                 operating_mode="hybrid_grid_hold",
+                grid_available=True,
                 output_power_w=3600,
                 battery_soc=50,
                 now=before,
@@ -199,6 +261,7 @@ class GridImportTariffTests(unittest.TestCase):
             ):
                 service.update(
                     operating_mode="hybrid_grid_hold",
+                    grid_available=True,
                     output_power_w=3600,
                     battery_soc=50,
                     now=after,

@@ -1,6 +1,6 @@
 # EnergyHub 1.3.14 — Grid-Available Reserve Guard
 
-EnergyHub 1.3.14 is the public closure release for the coordinated
+EnergyHub 1.3.14 is the corrected public-review candidate for the coordinated
 1.3 release line. It preserves the 1.3.13 daytime ownership and Normal-grid
 hysteresis while making grid availability an explicit entry condition.
 

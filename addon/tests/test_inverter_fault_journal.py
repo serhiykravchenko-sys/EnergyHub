@@ -60,6 +60,13 @@ class InverterFaultJournalTests(unittest.TestCase):
         self.assertEqual(["over_load"], journal.active_messages)
         self.assertIsNone(journal.recent_event(1)["cleared_at"])
 
+    def test_metadata_only_and_malformed_reads_do_not_clear_fault(self):
+        journal = InverterFaultJournal(path=None, clock=Clock())
+        journal.observe_qpiws({"over_load": "1"})
+        for value in ({"_command": "QPIWS"}, {"over_load": "?"}):
+            self.assertFalse(journal.observe_qpiws(value))
+            self.assertEqual(["over_load"], journal.active_messages)
+
     def test_direct_fault_change_marks_prior_incident_superseded(self):
         clock = Clock()
         journal = InverterFaultJournal(path=None, clock=clock)

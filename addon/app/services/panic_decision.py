@@ -1,17 +1,7 @@
-from datetime import datetime
+from math import isfinite
 
 
-PANIC_START_TIME = (7, 0)
-PANIC_END_TIME = (23, 50)
-
-PANIC_TARGETS = {
-    "normal": 20,
-    "unstable": 60,
-    "risk": 80,
-    "panic": 95,
-}
-
-NORMAL_GRID_RELEASE_SOC = 30
+GRID_CONFIDENCE_LEVELS = {"normal", "unstable", "risk", "panic"}
 
 PANIC_MODES = {
     "panic",
@@ -25,14 +15,12 @@ HYBRID_MODES = {
 
 
 class PanicDecisionEngine:
-    """Conservative daytime reserve recovery driven by Grid Confidence."""
+    """Conservative 24/7 control of the applied Battery Reserve."""
 
     def __init__(self):
         self.status = "not_evaluated"
         self.reason = "Automatic Panic has not been evaluated yet"
         self.target_soc = None
-        self.grid_target_soc = None
-        self.ahm_target_soc = None
         self.target_source = None
         self.release_soc = None
         self.phase = "inactive"
@@ -45,26 +33,13 @@ class PanicDecisionEngine:
         grid_confidence,
         battery_soc,
         grid_available,
-        ahm_target_soc=None,
+        manual_reserve_soc=20,
         now=None,
     ):
-        current_time = now or datetime.now()
-
         if not autopilot_enabled:
             return self._result(
                 status="skipped",
                 reason="Autopilot is disabled",
-                phase="inactive",
-            )
-
-        if not self._inside_evaluation_window(current_time):
-            return self._result(
-                status="skipped",
-                reason=(
-                    "Outside Panic evaluation window "
-                    f"{self._format_time(PANIC_START_TIME)}–"
-                    f"{self._format_time(PANIC_END_TIME)}"
-                ),
                 phase="inactive",
             )
 
@@ -96,7 +71,7 @@ class PanicDecisionEngine:
                 phase="unknown",
             )
 
-        if grid_confidence not in PANIC_TARGETS:
+        if grid_confidence not in GRID_CONFIDENCE_LEVELS:
             return self._result(
                 status="skipped",
                 reason=(
@@ -106,40 +81,23 @@ class PanicDecisionEngine:
             )
 
         battery_soc = float(battery_soc)
-        grid_target_soc = PANIC_TARGETS[grid_confidence]
-        valid_ahm_target = (
-            float(ahm_target_soc)
-            if self._valid_number(ahm_target_soc)
-            else None
-        )
-        target_soc = max(
-            grid_target_soc,
-            valid_ahm_target or 0,
-        )
-        normal_reserve_cycle = (
-            grid_confidence == "normal"
-            and valid_ahm_target is None
-        )
+        if not self._valid_reserve(manual_reserve_soc):
+            return self._result(status="skipped", reason="Manual Battery Reserve is unavailable", phase="unknown")
+        manual_reserve_soc = float(manual_reserve_soc)
+        # Grid and forecast/weather allowances are already folded into the
+        # applied Battery Reserve. Never apply a second confidence ladder or
+        # inherited overnight target here.
+        target_soc = manual_reserve_soc
+        normal_reserve_cycle = target_soc < 95
         release_soc = (
-            NORMAL_GRID_RELEASE_SOC
+            min(100, target_soc + 10)
             if normal_reserve_cycle
             else None
         )
 
-        target_sources = [
-            f"Grid Confidence {grid_confidence}={grid_target_soc}%"
-        ]
-        if (
-            valid_ahm_target is not None
-            and valid_ahm_target > grid_target_soc
-        ):
-            target_sources.append(
-                f"unmet AHM target={valid_ahm_target:.1f}%"
-            )
+        target_sources = [f"applied Battery Reserve={manual_reserve_soc:g}%"]
         target_source = "; ".join(target_sources)
 
-        self.grid_target_soc = grid_target_soc
-        self.ahm_target_soc = valid_ahm_target
         self.target_soc = round(target_soc, 2)
         self.target_source = target_source
         self.release_soc = release_soc
@@ -240,11 +198,7 @@ class PanicDecisionEngine:
                 phase=phase,
             )
 
-        if (
-            normal_reserve_cycle
-            and operating_mode == "solar"
-            and battery_soc <= target_soc
-        ):
+        if operating_mode == "solar" and battery_soc <= target_soc:
             if not grid_available:
                 return self._result(
                     status="waiting_for_grid",
@@ -262,8 +216,9 @@ class PanicDecisionEngine:
                 status="trigger_grid_hold",
                 reason=(
                     f"SOC={battery_soc:.1f}% reached the Normal-grid "
-                    f"reserve floor={target_soc:.1f}%; hold until "
-                    f"SOC reaches {release_soc}%"
+                    f"reserve floor={target_soc:.1f}%; "
+                    + (f"hold until SOC reaches {release_soc}%"
+                       if release_soc is not None else "hold at the 95% cap")
                 ),
                 request="panic_grid_hold",
                 target_soc=target_soc,
@@ -313,10 +268,7 @@ class PanicDecisionEngine:
                         f"preserve reserve until SOC reaches the "
                         f"{release_soc}% Normal-grid Solar release threshold"
                         if normal_reserve_cycle
-                        else (
-                            "preserve reserve until AHM takes ownership "
-                            "at 23:50"
-                        )
+                        else "preserve the capped Battery Reserve"
                     )
                 ),
                 phase="grid_hold" if grid_available else "reserve_support",
@@ -340,12 +292,6 @@ class PanicDecisionEngine:
 
         optional_values = {
             "panic_target_soc": self.target_soc,
-            "panic_grid_target_soc": self.grid_target_soc,
-            "panic_ahm_target_soc": (
-                self.ahm_target_soc
-                if self.ahm_target_soc is not None
-                else "None"
-            ),
             "panic_target_source": self.target_source,
         }
 
@@ -362,29 +308,29 @@ class PanicDecisionEngine:
         grid_confidence,
         battery_soc,
         grid_available,
-        ahm_target_soc=None,
+        manual_reserve_soc=20,
         now=None,
     ):
         """Wake the Normal-grid hysteresis at its exact SOC boundaries."""
-        current_time = now or datetime.now()
-        if not self._inside_evaluation_window(current_time):
-            return False
-        if grid_confidence != "normal" or self._valid_number(ahm_target_soc):
+        if grid_confidence not in GRID_CONFIDENCE_LEVELS:
             return False
         if not self._valid_number(battery_soc):
             return False
+        if not self._valid_reserve(manual_reserve_soc):
+            return False
 
         soc = float(battery_soc)
+        floor = float(manual_reserve_soc)
         if (
             operating_mode == "solar"
             and grid_available
-            and soc <= PANIC_TARGETS["normal"]
+            and soc <= floor
         ):
             return True
         return (
             operating_mode == "panic_grid_hold"
             and grid_available
-            and soc >= NORMAL_GRID_RELEASE_SOC
+            and (soc >= min(100, floor + 10) or soc < floor)
         )
 
     def _result(
@@ -408,22 +354,15 @@ class PanicDecisionEngine:
             "reason": reason,
             "request": request,
             "target_soc": self.target_soc,
-            "grid_target_soc": self.grid_target_soc,
-            "ahm_target_soc": self.ahm_target_soc,
             "target_source": self.target_source,
             "release_soc": self.release_soc,
             "phase": self.phase,
         }
 
-    def _inside_evaluation_window(self, current_time):
-        minutes_now = current_time.hour * 60 + current_time.minute
-        start_minutes = PANIC_START_TIME[0] * 60 + PANIC_START_TIME[1]
-        end_minutes = PANIC_END_TIME[0] * 60 + PANIC_END_TIME[1]
-        return start_minutes <= minutes_now < end_minutes
-
     @staticmethod
-    def _format_time(value):
-        return f"{value[0]:02d}:{value[1]:02d}"
+    def _valid_reserve(value):
+        return (PanicDecisionEngine._valid_number(value)
+                and 20 <= float(value) <= 95 and float(value) % 5 == 0)
 
     @staticmethod
     def _valid_number(value):
@@ -431,7 +370,6 @@ class PanicDecisionEngine:
             return False
 
         try:
-            float(value)
-            return True
+            return isfinite(float(value))
         except (TypeError, ValueError):
             return False

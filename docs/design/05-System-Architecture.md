@@ -4,12 +4,17 @@
 
 EnergyHub connects the physical energy system, Home Assistant, MQTT, decision services, and persistent state.
 
-![EnergyHub technical overview](../Images/Infographic%E2%84%962_details.png)
+![EnergyHub system architecture](../Images/system-architecture-current.png)
 
-The infographic is a release-neutral implementation map of the architecture
-validated through EnergyHub 1.3.14. It should be read together with
-[Developer Architecture](10-Developer-Architecture.md) for file-by-file
-responsibilities and extension guidance.
+![EnergyHub control ownership and safety boundaries](../Images/control-boundaries-current.png)
+
+![EnergyHub telemetry, memory, and recovery](../Images/telemetry-resilience-current.png)
+
+These infographics are the version-neutral visual specification. Together with
+the [current reserve contract](BATTERY_RESERVE_CURRENT.md) and
+[Developer Architecture](10-Developer-Architecture.md), they show the physical
+inputs, local core, safety boundary, control ownership, failure behavior, and
+extension boundary needed to recreate the design.
 
 ## External systems
 
@@ -69,6 +74,8 @@ The PV2 operation is fixed to slave 5, function 03, and registers 4563-4564. It 
 - starts in `awaiting_sample` after every restart and never reconstructs a retained value as fresh.
 
 `GridMonitor` derives current grid availability from normalized inverter state.
+An absent or invalid grid-voltage field invalidates that control sample; it is
+never treated as a confirmed outage.
 
 ### 3. Health and reliability
 
@@ -92,9 +99,13 @@ System Health aggregates communication, battery, freshness, and inverter-warning
 
 ### 5. Decision layer
 
-- `HybridDecisionEngine` calculates the adaptive night target and chooses
-  Solar, Hybrid Charging, or Hybrid Grid Hold.
-- `PanicDecisionEngine` decides whether daytime reserve protection is required.
+- `WeatherBufferDryRun` calculates one dated, evidence-based Battery Reserve
+  recommendation. Automatic HA authority checks availability, plan date and
+  evidence age before applying it.
+- `PanicDecisionEngine` (a retained code name) evaluates the applied reserve
+  continuously, day and night, and requests Solar, Charging or Grid Hold.
+- `PeakLoadGuardController` owns overload and outage-battery load actions, with
+  Home Assistant acting as a separately guarded executor.
 - `AutopilotState` is the master permission gate.
 
 Decision services return requests and reasons. They do not write inverter settings.
@@ -186,141 +197,90 @@ Decision result or manual request
 → MQTT state and notification event
 ```
 
-## Operating strategies
+## Current operating strategy
 
-| Mode | Menu 01 | Menu 16 | Exit |
-|---|---|---|---|
-| Solar | SBU | OSO | default |
-| Hybrid Charging | SUB | SNU | adaptive SOC target, currently 20-95% |
-| Hybrid Grid Hold | SUB | OSO | confirmed guarded early Solar or 07:00 Panic handoff |
-| Panic Charging | SUB | SNU | SOC reaches the 20/60/80/95% effective target |
-| Panic Grid Hold | SUB | OSO | Normal SOC reaches 30%, or AHM takeover at 23:50 |
+The applied Battery Reserve (20–95%, five-point steps) is the only reserve target
+all day and night. A dated forecast, consumption history, grid reliability,
+official warning evidence and enabled Smart Heating can modify the
+recommendation. In Manual, the family retains the selected floor. In Automatic,
+the HA bridge applies only a current, available and dated recommendation with
+a control-evidence timestamp no older than 90 seconds.
 
-## Autopilot behavior
+The Inverter Controller owns these physical combinations:
 
-Autopilot is stored in Home Assistant and mirrored to EnergyHub via retained MQTT input.
+| Strategy | Menu 01 | Menu 16 | Current meaning |
+| --- | --- | --- | --- |
+| Solar First | SBU | OSO | Default and safe recovery |
+| Battery Reserve Charging | SUB | SNU | Charge when SOC is below the applied reserve and grid is available |
+| Battery Reserve Grid Hold | SUB | OSO | Preserve the recovered floor; return to Solar at floor +10 (95% cap is held until reserve decreases) |
 
-When Autopilot becomes disabled:
+Internal `panic` and `hybrid_*` names remain in persistence and MQTT for
+compatibility. They are not separate day/night reserve authorities. Legacy
+Hybrid context may be read during restart reconstruction, but no new night
+Hybrid plan is created.
 
-- if the current strategy is active, unknown, inconsistent, transitioning, or failed, one `safe_solar` request is queued;
-- that request cannot be overwritten by an ordinary request;
-- after Solar recovery, EnergyHub performs no further automatic strategy changes.
+## Home Assistant and household-load boundary
 
-## Forecast ownership
+EnergyHub emits only allowlisted, expiring intents to the HA load executor. The
+executor independently checks schema, bridge session, freshness, expected state
+and context, intent revision, load conditions and device availability. A
+confirmed state transition and matching context acknowledge an action; a fresh
+contradictory power sample can veto confirmation.
 
-Two forecast paths are intentionally separate:
+Overload protection starts at 85% inverter Load or a recently verified QPIWS
+overload warning, sheds one eligible device at a time toward 75%, and restores
+only owned devices after load remains below 50% for five minutes. Outage-battery
+protection uses physical grid availability and fixed 50/40/60% SOC thresholds.
+Historical faults are retained for explanation but cannot serve indefinitely
+as a current overload trigger.
 
-### Live decision inputs
+Smart Heating controls the first-floor native climate. The family's manual OFF
+request suspends optional starts; EnergyHub may resume its own battery or solar
+pause. It does not power-cycle the first-floor plug for normal thermostat
+operation. The separate HA restart path restores remembered-ON first/second-
+floor plugs only with fresh guard/load/grid evidence, five minutes of grid
+recovery, and one plug per attempt with five-minute spacing.
 
-- `solar_forecast_today_live`;
-- `solar_forecast_tomorrow_live`.
+## Forecast, weather and accounting
 
-They update whenever Solcast changes and provide Panic inputs plus contextual
-forecast totals. Adaptive Hybrid receives a separate retained plan derived by
-Home Assistant from tomorrow's detailed hourly Solcast forecast.
+The 23:52 preliminary next-day forecast and 05:00 current-day revision update
+forecast evidence, not a separate night strategy. The reserve policy receives
+a dated forecast and completed consumption samples. The Telegram Family
+Assistant may publish normalized, read-only official warning evidence; it
+cannot request inverter or device actions.
 
-### Daily Summary inputs
+Grid Import is estimated only while a confirmed grid-prioritized strategy and
+fresh physical grid presence coexist. House load plus inferred grid charging
+are assigned to fixed night/normal tariffs. An outage or unknown grid sample
+breaks integration; a direct utility meter and source-separated solar
+contribution are not available. These values are not billing grade.
 
-Scheduled retained inputs and the 23:51 atomic JSON payload provide a coherent historical snapshot. Individual retained input updates never create a Daily Summary snapshot.
+## Health, persistence and recovery
 
-## Grid Confidence
+Grid history tracks physical transitions and derives rolling 24/48-hour
+reliability. Valid telemetry requires finite SOC, nonnegative load and PV1,
+and nonnegative grid voltage; a missing required field invalidates the sample.
+PV2 remains a separate optional bounded read-only capability with its own
+availability. QPIWS replies must contain valid warning bits before they can
+clear a journal incident or refresh the overload-warning control signal.
 
-```text
-weighted availability = (availability 24h + availability 48h) / 2
-```
+Controller context, load ownership, fault and SOC journals, grid history,
+daily summaries and tariff estimates are written atomically. Startup compares
+the persisted confirmed mode and last ACK-known Menu 16 against actual
+Menu 01 readback. Unsupported or malformed persisted fields are ignored
+conservatively. EnergyHub does not automatically restart the inverter.
 
-Thresholds:
+`energyhub/status` reflects the application; `powmr/status` reflects valid
+raw inverter communication. Raw sensors require both availability paths.
+Home Assistant live state, retained MQTT messages and repository files must
+be checked independently during deployment.
 
-- normal: ≥ 90%;
-- unstable: ≥ 60%;
-- risk: ≥ 30%;
-- panic: < 30%.
+## Capability limits and future extensions
 
-## Grid Import architecture
-
-Accounting is active only for confirmed SUB-based modes:
-
-- Hybrid Charging;
-- Hybrid Grid Hold;
-- Panic Charging;
-- Panic Grid Hold.
-
-The service stores separate house and battery contributions. At midnight it:
-
-1. closes the previous date;
-2. queues a persistent finalization record;
-3. resets the new day;
-4. asks Daily Summary to update the previous date;
-5. acknowledges the queue item only after a valid reconciliation result.
-
-This hand-off survives an add-on restart.
-
-## Availability architecture
-
-### `energyhub/status`
-
-Used by EnergyHub intelligence and diagnostic sensors.
-
-### `powmr/status`
-
-Used by raw inverter telemetry. It becomes offline when a valid inverter response is unavailable.
-
-Raw sensors require both topics online. EnergyHub diagnostic sensors require only the process topic.
-
-## Persistence
-
-All current service JSON writes use the shared atomic writer.
-
-| File | Save behavior |
-|---|---|
-| controller state | immediately on confirmed/remembered strategy changes |
-| grid history | immediately on grid transition |
-| daily summary | on snapshot/finalization |
-| grid import | immediately at important boundaries, otherwise at most once per minute |
-| raw telemetry snapshot | at most once per minute |
-
-## Restart reconstruction
-
-The current inverter exposes Menu 01 through QPIRI but not Menu 16.
-
-EnergyHub reconstructs from:
-
-```text
-actual Menu 01
-+ persisted ACK-confirmed Menu 16
-+ persisted confirmed mode
-+ persisted Panic target
-+ persisted AHM target, dated night enforcement, and dated morning debt
-```
-
-Recognized combinations:
-
-- SBU + OSO → Solar;
-- SUB + OSO + valid Hybrid context → Hybrid Grid Hold;
-- SUB + OSO + valid Panic context → Panic Grid Hold;
-- SUB + SNU + persisted Panic target/context → Panic;
-- SUB + SNU + Hybrid context → Hybrid Charging.
-
-Ambiguous or inconsistent state is not silently treated as correct. With Autopilot enabled, one safe Solar recovery is queued.
-
-## Current hardware boundary
-
-Known limitations:
-
-- PV2 telemetry is unavailable through the verified protocol path;
-- output 2 and lifetime energy counters are unavailable;
-- Menu 16 cannot be read back;
-- direct reliable grid import power is unavailable;
-- Grid Import is estimated;
-- the current adapter supports one PowMr model/protocol path.
-
-## Future architecture
-
-- **1.1:** add Zigbee2MQTT-backed smart-plug monitoring, focused dashboards, manual auto-off controls, and Home Assistant reserve-only OFF guards. Zigbee2MQTT owns coordinator/device communication; Home Assistant owns user controls and the narrow reserve automations; the EnergyHub inverter runtime remains unchanged.
-- **1.2:** move strategy values into validated configuration.
-- **1.3:** formalize recovery ownership and external watchdog behavior.
-- **1.3.5:** add optional read-only PV2 and Total PV telemetry.
-- **1.4:** introduce a capability-based Smart Thermal controller for tested automatic multi-load operation.
-- **2.0:** add Telegram-first text/voice intents through the safe EnergyHub control boundary.
-- **2.x:** generalize fixed tariff scheduling.
-- **3.0:** separate policy from additional validated vendor adapters and add optional economic/export planning.
+The current public hardware boundary is the verified PowMr PI30MAX installation
+with optional read-only Modbus PV2 telemetry. Menu 16 cannot be independently
+read back; output 2 management, additional vendors, EV charging, export,
+multiple cheap tariff windows, CO/CO2/BMS automated actions and conversational
+Mission Control remain future/unverified work. Future voice or AI interfaces
+must submit authenticated structured intents through EnergyHub's deterministic
+safety boundary.

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs><style>
+    .title{font:700 52px Arial,sans-serif;fill:#102452}.sub{font:27px Arial,sans-serif;fill:#43516a}.head{font:700 29px Arial,sans-serif;fill:#102452}.label{font:700 22px Arial,sans-serif;fill:#152541}.body{font:18px Arial,sans-serif;fill:#2b3b54}.small{font:16px Arial,sans-serif;fill:#4b5b70}
+    .blue{fill:#f5f9ff;stroke:#2864ad;stroke-width:3}.red{fill:#fff4f4;stroke:#c43e3e;stroke-width:3}.orange{fill:#fff8ec;stroke:#e08a23;stroke-width:3}.green{fill:#f2fbf5;stroke:#30895b;stroke-width:3}.gray{fill:#f7f8fb;stroke:#9aa8bb;stroke-width:2}
+  </style></defs>
+  <rect width="1600" height="1000" fill="#fcfdff"/>
+  <text x="800" y="70" text-anchor="middle" class="title">EnergyHub — Control Ownership and Safety Boundaries</text>
+  <text x="800" y="111" text-anchor="middle" class="sub">Every action has one owner, one guarded path, and an evidence-based release</text>
+
+  <text x="55" y="170" class="head">CONTROL PRIORITY — highest authority wins</text>
+  <rect x="55" y="195" width="360" height="125" rx="20" class="red"/><text x="80" y="235" class="label">1 · Overload Protection</text><text x="80" y="270" class="body">85% load or valid fresh warning</text><text x="80" y="300" class="small">Shed to 75%; restore &lt;50% after 5 min</text>
+  <rect x="430" y="195" width="360" height="125" rx="20" class="orange"/><text x="455" y="235" class="label">2 · Outage Battery Protection</text><text x="455" y="270" class="body">Warn 50% · stop flexible loads 40%</text><text x="455" y="300" class="small">Restore 60% or verified grid recovery</text>
+  <rect x="805" y="195" width="360" height="125" rx="20" class="blue"/><text x="830" y="235" class="label">3 · Family OFF</text><text x="830" y="270" class="body">Blocks optional heating restart</text><text x="830" y="300" class="small">Protection may still stop a load</text>
+  <rect x="1180" y="195" width="365" height="125" rx="20" class="green"/><text x="1205" y="235" class="label">4 · Smart Heating</text><text x="1205" y="270" class="body">First-floor native climate only</text><text x="1205" y="300" class="small">Pause 40%; owned Eco restore 50%</text>
+
+  <rect x="55" y="360" width="470" height="430" rx="24" class="blue"/>
+  <text x="290" y="405" text-anchor="middle" class="head">INVERTER STRATEGY PATH</text>
+  <rect x="85" y="438" width="410" height="80" rx="15" class="gray"/><text x="108" y="472" class="label">Battery Reserve decision</text><text x="108" y="500" class="small">20–95% applied target · 24/7</text>
+  <text x="290" y="548" text-anchor="middle" class="body">↓ one queued request</text>
+  <rect x="85" y="570" width="410" height="98" rx="15" class="gray"/><text x="108" y="604" class="label">InverterController only</text><text x="108" y="634" class="body">POP/PCP writes · retries · ACK</text><text x="108" y="660" class="small">Menu 01 independently read back</text>
+  <text x="290" y="701" text-anchor="middle" class="body">↓ confirmed state or failure</text>
+  <rect x="85" y="724" width="410" height="43" rx="12" class="green"/><text x="290" y="753" text-anchor="middle" class="label">Solar · Charging · Grid Hold</text>
+
+  <rect x="565" y="360" width="470" height="430" rx="24" class="orange"/>
+  <text x="800" y="405" text-anchor="middle" class="head">HOUSEHOLD LOAD PATH</text>
+  <rect x="595" y="438" width="410" height="92" rx="15" class="gray"/><text x="618" y="472" class="label">EnergyHub intent</text><text x="618" y="502" class="body">Schema 5 · allow-listed · expiring</text>
+  <text x="800" y="560" text-anchor="middle" class="body">↓ MQTT command</text>
+  <rect x="595" y="582" width="410" height="115" rx="15" class="gray"/><text x="618" y="616" class="label">Home Assistant executor</text><text x="618" y="646" class="body">Rechecks ownership and evidence</text><text x="618" y="676" class="small">Switch → acknowledgement → fresh confirmation</text>
+  <text x="800" y="728" text-anchor="middle" class="body">↓ accepted / blocked / unconfirmed</text>
+  <text x="800" y="760" text-anchor="middle" class="small">Guarded restart: owned loads, one at a time</text>
+
+  <rect x="1075" y="360" width="470" height="430" rx="24" class="green"/>
+  <text x="1310" y="405" text-anchor="middle" class="head">SMART HEATING PATH</text>
+  <rect x="1105" y="438" width="410" height="105" rx="15" class="gray"/><text x="1128" y="472" class="label">Policy gates</text><text x="1128" y="502" class="body">Enabled · fresh telemetry · no higher owner</text><text x="1128" y="530" class="small">Solar-only adds Solar/daylight/PV/SOC gates</text>
+  <text x="1310" y="575" text-anchor="middle" class="body">↓ native climate action</text>
+  <rect x="1105" y="597" width="410" height="100" rx="15" class="gray"/><text x="1128" y="631" class="label">First-floor heat pump</text><text x="1128" y="661" class="body">Normal · Quiet 23:00–08:00 · Eco off-grid</text><text x="1128" y="688" class="small">Smart plug stays ON for measurement/isolation</text>
+  <text x="1310" y="733" text-anchor="middle" class="body">↓ owned state only</text>
+  <text x="1310" y="760" text-anchor="middle" class="small">No control of floors 2–3 in Smart Heating</text>
+
+  <rect x="165" y="835" width="1270" height="110" rx="22" class="red"/>
+  <text x="800" y="877" text-anchor="middle" class="label">Safety invariants</text>
+  <text x="800" y="910" text-anchor="middle" class="body">Stale evidence blocks authority · no raw AI commands · no undocumented Modbus writes · restart reconstructs confirmed ownership</text>
+</svg>

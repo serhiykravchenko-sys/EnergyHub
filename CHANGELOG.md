@@ -1,8 +1,276 @@
 # Changelog
 
+## [EnergyHub 2.4.12 / Family Assistant 2.4.15] - 2026-10-01 (monitored candidate)
+
+Close the 2.x candidate with continuous forecast/weather/grid-informed Battery
+Reserve, guarded overload/outage load control, family-owned heating settings,
+and Telegram briefings. Correct persistence uncertainty before inverter writes,
+family OFF intent eviction, timer expiry/pause, missing-device snapshots,
+numeric MQTT states and delayed fault wording. Both apps started on 2026-09-29;
+the homeowner reports the agreed monitoring window passed with no new Core or
+Supervisor errors. Public promotion is prepared separately. Cold-weather
+heating and rare negative cases remain explicitly unverified on hardware.
+
+See [EnergyHub notes](RELEASE_NOTES_2.4.12.md),
+[Family notes](RELEASE_NOTES_FAMILY_2.4.15.md), and
+[validation](docs/validation/RELEASE_2.4.12.md).
+
+## [EnergyHub 2.4.10 / Family Assistant 2.4.13] - 2026-09-26 (private candidate)
+
+Apply one 20-point solar-deficit reserve allowance, align the beacon color
+boundary with 40% battery protection, clarify DTEK/solar charging and Grid
+Hold messages, improve overnight reserve and UHMC morning summaries, and
+exclude solar-only hold SOC gain from the estimated grid-import battery
+component. Replace forbidden Supervisor log requests with Core's existing API. No live
+deployment, public release, or Xiaomi Miot integration change is included.
+
+## [2.4.9 / Family 2.4.11] - 2026-09-22 (prepared corrective candidate)
+
+Correct overload acknowledgement and ownership, separate online availability
+from unchanged watts, and preserve both trigger and post-action load evidence.
+The 08:00 technical report now measures a rolling 24-hour window, masks parent
+outages from child devices, applies meaningful HA/inverter/Zigbee thresholds,
+and deduplicates Core plus Supervisor warnings. See
+[release notes](RELEASE_NOTES_2.4.9.md).
+
+## [2.4.8 / Family 2.4.10] - 2026-09-22 (private corrective candidate)
+
+Make official weather reserve independent of current Grid Confidence, add a
+prominent dashboard Grid Confidence panel and larger mission-control buttons,
+pair Zigbee2MQTT offline/recovery notices at two minutes, and improve compact
+morning weather/solar presentation. Family notifications
+now preserve actionable UHMC wording and combine DTEK confidence transitions
+with the confirmed or pending Battery Reserve reaction. See
+[release notes](RELEASE_NOTES_2.4.8.md).
+
+## [2.4.7 / Family 2.4.9] - 2026-09-21 (private corrective candidate)
+
+Derive Zigbee plug availability from their existing Home Assistant switch
+entities, ignore retired input topics without startup noise, and present morning
+control ownership as clean Automatic and Manual groups. Future Smart Heating
+assigns only the first-floor heat pump to EnergyHub. See
+[release notes](RELEASE_NOTES_2.4.7.md).
+
+## [2.4.6] - 2026-09-21 (private corrective candidate)
+
+Separate Zigbee device availability from unchanged plug watts while retaining
+strict command acknowledgement and post-command verification. Document global
+Zigbee2MQTT availability as the online/offline authority and add bounded online
+telemetry diagnosis/recovery to the 3.x roadmap. See
+[release notes](RELEASE_NOTES_2.4.6.md).
+
+## [2.4.5 / Family 2.4.8] - 2026-09-20 (private candidate)
+
+Remove retired night-planning and reserve-advisor artifacts, align dashboard
+sensor lineage, keep last-known overload watts visible with honest freshness,
+and streamline family/restart messages. The private 08:00 technical report now
+includes a deduplicated 24-hour HA Core warning/error digest. See
+[release notes](RELEASE_NOTES_2.4.5.md).
+
+## [2.4.3 / Family 2.4.6] - 2026-09-19 (private corrective candidate)
+
+Simplify Smart Heating to Normal, Quiet and Eco with owned 40/50 SOC pause and
+recovery; correct EV/forecast reporting; move tariff detail to weekly/monthly
+summaries; add morning grid-support estimates; and reduce MQTT/Recorder churn
+without slowing the control loop. See [release notes](RELEASE_NOTES_2.4.3.md).
+
+## [Family 2.4.5] - 2026-09-14 (private corrective candidate)
+
+Keep the family chat silent overnight, summarize collected events in the 08:00
+report, suppress repeated Grid Hold messages within one reserve episode, use a
+short current Grid Hold status, and show the current month's night/normal tariff
+split. EnergyHub remains 2.4.2. See
+[Family release notes](RELEASE_NOTES_FAMILY_2.4.5.md).
+
+## [Family 2.4.3 / HA cleanup] - 2026-09-13 (private corrective candidate)
+
+Remove retired 23:50 Low-Tariff, 06:05 Early Solar, and morning-learning
+automations and their obsolete Home Assistant notification branches. Preserve
+23:49/23:51 accounting and 23:52/05:00 Battery Reserve forecast updates. Replace
+Family Assistant Dry Run and Effective Reserve presentation with current
+Battery Reserve and confirmed protection terminology. Includes the corrected
+quoted Smart Heating schedule. See
+[release notes](RELEASE_NOTES_FAMILY_2.4.3.md).
+
+## [Family 2.4.2] - 2026-09-13 (private corrective candidate)
+
+Correct the optional technical-chat option migration and add paired family
+messages for reaching minimum Battery Reserve Grid Hold and returning to Solar.
+EnergyHub remains 2.4.2. See [Family release notes](RELEASE_NOTES_FAMILY_2.4.2.md).
+
+## [2.4.2] - 2026-09-13 (private candidate)
+
+Make load protection continue past unavailable or unconfirmed participants,
+restore only confirmed EnergyHub ownership, add simplified beacon signalling,
+and enforce Smart Heating Quiet mode from 23:00 through 07:00. Family Assistant
+2.4.1 separates technical delivery and reports Grid Hold and confirmed appliance
+actions more clearly. See [release notes](RELEASE_NOTES_2.4.2.md).
+
+## [2.4.1] - 2026-09-12 (private corrective candidate)
+
+Battery Reserve becomes the sole 24/7 reserve controller. The separate 23:50
+night target, 06:05 early-Solar gamble, 07:00 ownership handoff, and morning
+learning automations are retired. See [release notes](RELEASE_NOTES_2.4.1.md).
+
+## [2.3.2] - 2026-09-12 (private candidate)
+
+Add a preliminary next-day Battery Reserve plan at 23:52, a replacing 05:00
+revision, and mode-aware dashboard controls. See
+[release notes](RELEASE_NOTES_2.3.2.md).
+
+## [2.3.1] - 2026-09-12 (private corrective candidate)
+
+Recover completed consumption evidence stored with Home Assistant Unix
+timestamps and make the family restart summary wait for current-boot state.
+See [release notes](RELEASE_NOTES_2.3.1.md).
+
+## [2.3.0] - 2026-09-12 (private candidate)
+
+One additive Battery Reserve calculation, guarded Manual/Automatic authority,
+one-to-three-day consumption evidence, and fixed 50/40/60 outage discharge
+protection over schema 5. See [release notes](RELEASE_NOTES_2.3.0.md).
+
+## [2.2.5] - 2026-09-09 (prepared, not deployed)
+
+Shared battery/overload ownership, schema-4 HA boundary, actual-grid exception,
+default 50/40/60 discharge thresholds and native first-floor HP stop. Family 2.2.6
+uses confirmed battery-action messages. [Scope and gates](RELEASE_NOTES_2.2.5.md).
+
+## [2.2.3] - 2026-09-08 (prepared)
+
+Sequential 85/75/50 overload policy without mandatory watt allowances; five-minute
+recovery, one-minute restore spacing, telemetry timeout notice. [Notes](RELEASE_NOTES_2.2.3.md).
+
+## [2.2.1] - 2026-09-07 (private correction)
+
+Single overload Automatic switch, production warnings-only mode and old trial
+notification retirement. See [release notes](RELEASE_NOTES_2.2.1.md). Not deployed.
+
+## [2.4.0-dev] - 2026-09-07 (parked, not installable)
+
+Offline first-floor Smart Heating planner and scenario tests. Waits for 2.3;
+no deployed-tree or app-version changes. See draft notes (private development record).
+
+## [2.2.0] - 2026-09-07 (private candidate)
+
+Opt-in acknowledged overload control and compact Family 2.2.0 notifications.
+Default disarmed; Battery Reserve calculation unchanged. See [release notes](RELEASE_NOTES_2.2.0.md).
+
+## [2.1.4] - 2026-09-06 (private corrective candidate)
+
+Daytime manual Battery Reserve correction and compact UHMC warning messages in
+Family 2.1.7. No automatic advisory control. See [release notes](RELEASE_NOTES_2.1.4.md).
+
+## [2.1.3] - 2026-09-06 (private naming candidate)
+
+Battery Reserve and clear strategy names, coordinated with Family Assistant
+2.1.6. No control or Dry Run changes. See [release notes](RELEASE_NOTES_2.1.3.md).
+
+## [2.1.2] - 2026-09-06 (private corrective candidate)
+
+Manual Battery Reserve ownership and Family Assistant 2.1.5 condition-only advice.
+See [release notes](RELEASE_NOTES_2.1.2.md).
+
 All notable EnergyHub changes are recorded here.
 
+## [2.1.1] - 2026-09-06 (private candidate)
+
+- Harden the 40/30/20 observer-only Peak Load Guard with continuous 60-second
+  recovery confirmation, a persisted 64-event journal, and stable cycle IDs.
+- Freeze the first valid daily forecast at/after 05:00. Retain urgent weather
+  and grid reevaluation without restarting the daily plan on every forecast.
+- Separate Battery Reserve baseline and applied minimum; reject stale retained
+  inputs and hold advised buffers when evidence becomes unknown.
+- Require three recent end-of-day consumption samples for the deficit rule.
+- Add a backend-locked OFF Battery Reserve Auto indicator; no new control path.
+- Pair with Family Assistant 2.1.4 for journal delivery, one morning reserve
+  recommendation, quiet-hour-aware target changes and safer UHMC parsing.
+- Existing Hybrid/Panic control targets, morning monitoring and Threat Monitor
+  are unchanged. No deployment, commit, push or publication is included.
+
+## [2.1.0] - 2026-09-05
+
+### Added
+
+- Added an Effective Reserve Dry Run that evaluates today's Solcast forecast
+  at 05:00 against the average of up to three newest valid completed
+  consumption days.
+- Added a 20-point forecast-deficit modifier, cumulative 0/20/40/60 Grid
+  Confidence modifiers, conditional 20-point official UHMC Level II–III
+  weather risk, and a 95% cap.
+- Added persisted warning/update/cancellation/expiry handling, conservative
+  Unknown source semantics, Manual/Advisory authority, dashboard evidence, and
+  Ukrainian daytime and morning explanations.
+- Assigned official `uhmc1921` preview ingestion and normalized retained MQTT
+  evidence publishing to Telegram Family Assistant 2.1.2. Telegram Threat
+  Monitor remains the independent 0.1.9 air-threat service.
+
+### Changed
+
+- Guarded the 23:49/23:51 Home Assistant Daily Summary publication against
+  brief source-entity gaps. It now waits up to 90 seconds for numeric house
+  consumption and aborts instead of converting `unavailable` to `0 kWh`.
+- Temporarily lowered the observer-only Peak Load Guard profile to 40% trigger,
+  30% relief, and 20% restoration for a one-week household Dry Run. Dashboard
+  and Ukrainian Telegram explanations use the event's trial thresholds.
+- Grouped the Peak Load Guard card with the Effective Reserve controls.
+- Placed Heat Pumps and Appliances & Water daily/weekly/monthly charts in
+  three-column rows and added current-week/current-month/current-year totals
+  for every displayed load.
+- Corrected Home Assistant smart-plug authority so calculated Grid Confidence
+  `normal` always preserves family control. Brief instantaneous grid-voltage
+  or telemetry transitions can no longer activate a remembered boiler or
+  heat-pump reserve lockout while confidence remains Normal.
+
+### Safety
+
+- Version 2.1.0 never changes the selected AHM minimum, inverter settings, or
+  smart plugs. Missing forecast evidence is not interpreted as clear weather.
+- Automatic weather authority is deliberately deferred until Dry Run evidence
+  has been reviewed.
+
+## [2.0.0] - 2026-08-27
+
+### Added
+
+- Introduced the observer-only Peak Load Guard foundation using native
+  inverter Load %, W, VA, and QPIWS overload-warning evidence.
+- Added a retained Home Assistant participant snapshot for six explicitly
+  listed smart plugs, a persisted recommendation cycle, MQTT status/event
+  entities, and a Mission Control Dry Run card.
+- Added Ukrainian Telegram notifications for shed, restore, and no-candidate
+  recommendations. Every notification states that EnergyHub switched nothing.
+
+### Behavior
+
+- At 85% load, recommend smart plugs one by one in this order: water pump,
+  water boiler, second-floor heat pump, first-floor heat pump, third-floor
+  heat pump, and microwave. Include an ON plug even when its instantaneous
+  power is zero, but do not count zero watts as estimated relief.
+- Continue through the ordered list until observed participant power could
+  reduce the triggering load toward 75%. Hold the cycle and recommend
+  restoring the recorded pre-event states in the same order at 60%.
+- Reject stale inverter telemetry and participant snapshots. Native overload
+  warnings can start a cycle independently, and one warning episode creates
+  at most one recommendation cycle.
+
+### Safety
+
+- Version 2.0.0 is Dry Run only. It contains no smart-plug switching path and
+  adds no inverter command.
+- The 85/75/60 policy is an explicit household trial configuration, not a
+  proven hardware safety limit. Promotion to physical control remains gated
+  by 1.3.10+ fault evidence, attended validation, acknowledgement, appliance
+  timing, ownership, and conservative restoration.
+
 ## [1.3.14] - 2026-08-26
+
+### Added
+
+- Expanded the Water Systems dashboard into Appliances & Water with a
+  first-floor microwave switch/live-power section, first-floor bathroom
+  temperature/humidity, and locally integrated microwave consumption in the
+  daily, weekly, and monthly charts.
 
 ### Fixed
 

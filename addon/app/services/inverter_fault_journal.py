@@ -42,6 +42,17 @@ def active_qpiws_messages(data):
     )
 
 
+def valid_qpiws_response(data):
+    """A metadata-only or malformed reply cannot prove that faults cleared."""
+    return (isinstance(data, dict) and any(
+        key not in IGNORED_QPIWS_KEYS and str(value) in {"0", "1"}
+        for key, value in data.items()
+    ) and all(
+        str(value) in {"0", "1"}
+        for key, value in data.items() if key not in IGNORED_QPIWS_KEYS
+    ))
+
+
 def display_name(value):
     return str(value or "unknown").replace("_", " ").strip().title()
 
@@ -159,7 +170,7 @@ class InverterFaultJournal:
         })
 
     def observe_qpiws(self, data):
-        if not isinstance(data, dict) or not data:
+        if not valid_qpiws_response(data):
             return False
         messages = active_qpiws_messages(data)
         if messages == self.active_messages:

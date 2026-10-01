@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <style>
+      .title{font:700 52px Arial,sans-serif;fill:#102452}.sub{font:28px Arial,sans-serif;fill:#40516f}
+      .head{font:700 28px Arial,sans-serif;fill:#102452}.label{font:700 22px Arial,sans-serif;fill:#12213f}
+      .body{font:19px Arial,sans-serif;fill:#273852}.small{font:16px Arial,sans-serif;fill:#42526b}
+      .box{fill:#fff;stroke:#1f5da8;stroke-width:3}.soft{fill:#f6f9ff;stroke:#9bb8df;stroke-width:2}
+      .green{fill:#f2fbf5;stroke:#2e8b57;stroke-width:3}.orange{fill:#fff8ed;stroke:#e38a21;stroke-width:3}
+      .red{fill:#fff5f5;stroke:#c94040;stroke-width:3}.dash{fill:#f8f7ff;stroke:#7457b8;stroke-width:3;stroke-dasharray:12 8}
+      .arrow{stroke:#245aa5;stroke-width:5;fill:none;marker-end:url(#a)}
+    </style>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#245aa5"/></marker>
+  </defs>
+  <rect width="1600" height="1000" fill="#fbfcff"/>
+  <text x="800" y="70" text-anchor="middle" class="title">EnergyHub — Local Energy Control Architecture</text>
+  <text x="800" y="112" text-anchor="middle" class="sub">Verified telemetry → explainable policy → guarded execution → Home Assistant and family</text>
+
+  <rect x="35" y="155" width="330" height="665" rx="24" class="box"/>
+  <text x="200" y="200" text-anchor="middle" class="head">1 · INPUTS</text>
+  <rect x="60" y="225" width="280" height="108" rx="16" class="soft"/>
+  <text x="80" y="260" class="label">PowMr 10.2M</text><text x="80" y="290" class="body">PI30MAX telemetry + settings</text><text x="80" y="318" class="small">USB–RS232 · local only</text>
+  <rect x="60" y="350" width="280" height="108" rx="16" class="soft"/>
+  <text x="80" y="385" class="label">PV2 read-only Modbus</text><text x="80" y="415" class="body">Fixed registers 4563–4564</text><text x="80" y="443" class="small">No generic register writes</text>
+  <rect x="60" y="475" width="280" height="132" rx="16" class="soft"/>
+  <text x="80" y="510" class="label">HA evidence</text><text x="80" y="540" class="body">Solcast · UHMC warnings</text><text x="80" y="568" class="body">helpers · device states</text><text x="80" y="595" class="small">MQTT integration bus</text>
+  <rect x="60" y="624" width="280" height="166" rx="16" class="soft"/>
+  <text x="80" y="659" class="label">Evidence rules</text><text x="80" y="692" class="body">Validate ranges and age</text><text x="80" y="722" class="body">Unknown stays unknown</text><text x="80" y="752" class="body">PV1 + PV2 must align</text><text x="80" y="780" class="small">Never invent missing capability</text>
+
+  <rect x="425" y="155" width="430" height="665" rx="24" class="green"/>
+  <text x="640" y="200" text-anchor="middle" class="head">2 · LOCAL CORE</text>
+  <rect x="452" y="225" width="376" height="88" rx="16" class="soft"/><text x="475" y="260" class="label">Serialized hardware adapter</text><text x="475" y="291" class="body">One lock for PI30MAX and PV2</text>
+  <rect x="452" y="328" width="376" height="108" rx="16" class="soft"/><text x="475" y="363" class="label">Telemetry + health</text><text x="475" y="394" class="body">Freshness · faults · SOC anomalies</text><text x="475" y="422" class="small">Failures remain isolated and visible</text>
+  <rect x="452" y="451" width="376" height="108" rx="16" class="soft"/><text x="475" y="486" class="label">Knowledge + history</text><text x="475" y="517" class="body">Grid reliability · import tariffs</text><text x="475" y="545" class="small">Daily summaries · atomic persistence</text>
+  <rect x="452" y="574" width="376" height="108" rx="16" class="soft"/><text x="475" y="609" class="label">Policy services</text><text x="475" y="640" class="body">Battery Reserve · load protection</text><text x="475" y="668" class="small">Smart Heating evidence and reasons</text>
+  <rect x="452" y="697" width="376" height="93" rx="16" class="soft"/><text x="475" y="732" class="label">Orchestration</text><text x="475" y="763" class="body">One queue · ownership · restart state</text>
+
+  <rect x="915" y="155" width="320" height="665" rx="24" class="red"/>
+  <text x="1075" y="200" text-anchor="middle" class="head">3 · SAFETY GATE</text>
+  <rect x="942" y="225" width="266" height="128" rx="16" class="soft"/><text x="965" y="260" class="label">InverterController</text><text x="965" y="292" class="body">Verified commands only</text><text x="965" y="321" class="body">ACK + Menu 01 readback</text><text x="965" y="345" class="small">Bounded recovery on failure</text>
+  <rect x="942" y="371" width="266" height="150" rx="16" class="soft"/><text x="965" y="406" class="label">HA load executor</text><text x="965" y="438" class="body">Schema-5 expiring intents</text><text x="965" y="467" class="body">Allow-list + ACK</text><text x="965" y="496" class="small">Fresh state confirms result</text>
+  <rect x="942" y="539" width="266" height="112" rx="16" class="soft"/><text x="965" y="574" class="label">Conservative failure</text><text x="965" y="606" class="body">Stale or contradictory data</text><text x="965" y="635" class="small">cannot authorize unsafe action</text>
+  <rect x="942" y="669" width="266" height="121" rx="16" class="soft"/><text x="965" y="704" class="label">No bypass</text><text x="965" y="736" class="body">AI uses validated intents</text><text x="965" y="765" class="small">Family action releases ownership</text>
+
+  <rect x="1295" y="155" width="270" height="665" rx="24" class="dash"/>
+  <text x="1430" y="200" text-anchor="middle" class="head">4 · SURFACES</text>
+  <rect x="1320" y="225" width="220" height="100" rx="16" class="soft"/><text x="1340" y="262" class="label">HA dashboard</text><text x="1340" y="293" class="body">Status · reasons · controls</text>
+  <rect x="1320" y="343" width="220" height="124" rx="16" class="soft"/><text x="1340" y="380" class="label">Family Assistant</text><text x="1340" y="411" class="body">Morning plan + alerts</text><text x="1340" y="441" class="small">No control commands</text>
+  <rect x="1320" y="485" width="220" height="124" rx="16" class="soft"/><text x="1340" y="522" class="label">MQTT Discovery</text><text x="1340" y="553" class="body">Stable entities and</text><text x="1340" y="582" class="body">availability states</text>
+  <rect x="1320" y="627" width="220" height="163" rx="16" class="soft"/><text x="1340" y="664" class="label">Mission Control</text><text x="1340" y="697" class="body">Ukrainian/English</text><text x="1340" y="727" class="body">text, then voice</text><text x="1340" y="758" class="small">Future · safe intents only</text>
+
+  <path d="M365 480 H415" class="arrow"/><path d="M855 480 H905" class="arrow"/><path d="M1235 480 H1285" class="arrow"/>
+  <rect x="130" y="855" width="1340" height="103" rx="20" class="orange"/>
+  <text x="800" y="897" text-anchor="middle" class="label">Core architectural rule</text>
+  <text x="800" y="932" text-anchor="middle" class="body">Interfaces request intent; EnergyHub validates policy; only guarded executors touch the inverter or household loads.</text>
+</svg>

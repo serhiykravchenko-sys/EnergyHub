@@ -1,6 +1,6 @@
 energyhub_start_panic:
-  alias: EnergyHub - Start Panic
-  description: Starts manual Panic charging when Autopilot is enabled.
+  alias: EnergyHub - Build Emergency Reserve
+  description: Starts manual Reserve Protection charging when Autopilot is enabled.
   mode: single
   sequence:
   - choose:
@@ -17,9 +17,9 @@ energyhub_start_panic:
     default:
     - action: persistent_notification.create
       data:
-        title: 'EnergyHub: Panic not started'
+        title: 'EnergyHub: Reserve Protection not started'
         notification_id: energyhub_manual_panic_blocked
         message: >-
-          Manual Panic was not started because Autopilot is disabled.
+          Manual Reserve Protection was not started because Autopilot is disabled.
 
-          Enable EnergyHub Autopilot and press Start Panic again.
+          Enable EnergyHub Autopilot and press Build Emergency Reserve again.

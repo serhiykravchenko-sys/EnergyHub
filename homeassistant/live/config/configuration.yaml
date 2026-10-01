@@ -7,7 +7,37 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
+# Keep raw state history compact while preserving long-term statistics for
+# energy and chart entities. Diagnostic payloads remain available live/MQTT.
+recorder:
+  purge_keep_days: 10
+  auto_purge: true
+  exclude:
+    entities:
+      - sensor.energyhub_peak_load_guard
+      - sensor.energyhub_peak_load_guard_event
+      - input_text.energyhub_load_last_command
+      - input_text.energyhub_heat_pump_restart_event
+
 input_boolean:
+  energyhub_smart_heating:
+    name: Smart Heating
+    icon: mdi:heat-pump-outline
+  energyhub_solar_only_heating:
+    name: Solar-only Heating
+    icon: mdi:solar-power-variant
+  energyhub_hp1_battery_paused:
+    name: First-floor HP Paused by Battery Protection
+    icon: mdi:battery-lock
+  energyhub_hp1_auto_resume:
+    name: First-floor HP Automatic Start Authorized
+    icon: mdi:heat-pump-outline
+  energyhub_battery_full_today:
+    name: Battery Reached Full Today
+    icon: mdi:battery-check
+  energyhub_load_control_armed:
+    name: Overload Protection Automatic
+    icon: mdi:shield-bolt
   energyhub_water_boiler_soc_lockout:
     name: Water Boiler SOC Lockout
     icon: mdi:water-boiler-off
@@ -15,9 +45,105 @@ input_boolean:
     name: Heat Pump SOC Lockout
     icon: mdi:heat-pump-outline
 
+input_number:
+  energyhub_intent_water_pump:
+    name: Load control intent revision water_pump
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+  energyhub_intent_water_boiler:
+    name: Load control intent revision water_boiler
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+  energyhub_intent_heat_pump_floor_1:
+    name: Load control intent revision heat_pump_floor_1
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+  energyhub_intent_heat_pump_floor_2:
+    name: Load control intent revision heat_pump_floor_2
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+  energyhub_intent_heat_pump_floor_3:
+    name: Load control intent revision heat_pump_floor_3
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+  energyhub_intent_microwave:
+    name: Load control intent revision microwave
+    min: 0
+    max: 1000000000
+    step: 1
+    mode: box
+input_text:
+  energyhub_load_bridge_session:
+    name: Load Control Bridge Session
+    initial: ''
+    max: 100
+  energyhub_load_last_command:
+    name: Load Control Last Command
+    max: 100
+  energyhub_heat_pump_manual_states:
+    name: Heat Pump Plug Manual States
+    max: 100
+  energyhub_heat_pump_restart_completed_session:
+    name: Heat Pump Restart Completed Session
+    max: 100
+  energyhub_heat_pump_restart_attempt:
+    name: Heat Pump Restart Last Attempt
+    max: 100
+  energyhub_heat_pump_restart_event:
+    name: Heat Pump Restart Event
+    max: 255
+
+input_datetime:
+  energyhub_heat_pump_grid_recovery_started:
+    name: Heat Pump Grid Recovery Started
+    has_date: true
+    has_time: true
+
+input_select:
+  energyhub_ahm_weather_authority:
+    name: Battery Reserve Control
+    icon: mdi:battery-heart-variant
+    options:
+      - Manual
+      - Automatic
+  energyhub_smart_heating_status:
+    name: Smart Heating Status
+    icon: mdi:heat-pump-outline
+    options:
+      - Manual
+      - Waiting
+      - Battery paused
+      - Solar paused
+      - Eco
+      - Quiet
+      - Normal
+
+timer:
+  energyhub_smart_heating_beacon_pulse:
+    name: Smart Heating Beacon Pulse
+    duration: "00:00:02"
+
 sensor:
+  - platform: statistics
+    name: EnergyHub Solar Power 15m Average
+    unique_id: energyhub_solar_power_15m_average
+    state_characteristic: average_step
+    sampling_size: 180
+    max_age:
+      minutes: 15
+    entity_id: sensor.powmr_10_2m_total_pv_power
   - platform: integration
-    source: sensor.energyhub_heat_pump_floor_3_power
+    source: sensor.third_floor_heat_pump_plug_electric_power
     name: Third Floor Heat Pump Energy Calculated
     unique_id: energyhub_third_floor_heat_pump_energy_calculated
     unit_prefix: k
@@ -27,7 +153,7 @@ sensor:
     max_sub_interval:
       minutes: 5
   - platform: integration
-    source: sensor.energyhub_water_boiler_power
+    source: sensor.water_boiler_plug_electric_power
     name: Water Boiler Energy Calculated
     unique_id: energyhub_water_boiler_energy_calculated
     unit_prefix: k
@@ -37,9 +163,19 @@ sensor:
     max_sub_interval:
       minutes: 5
   - platform: integration
-    source: sensor.energyhub_basement_water_pump_power
+    source: sensor.water_pump_plug_electric_power
     name: Basement Water Pump Energy Calculated
     unique_id: energyhub_basement_water_pump_energy_calculated
+    unit_prefix: k
+    unit_time: h
+    method: left
+    round: 3
+    max_sub_interval:
+      minutes: 5
+  - platform: integration
+    source: sensor.microwave_plug_electric_power
+    name: Microwave Energy Calculated
+    unique_id: energyhub_microwave_energy_calculated
     unit_prefix: k
     unit_time: h
     method: left
@@ -148,6 +284,114 @@ utility_meter:
     source: sensor.energyhub_total_solar_energy
     name: Total Solar Generated This Year
     unique_id: energyhub_total_solar_generation_yearly
+    cycle: yearly
+    periodically_resetting: false
+  floor_1_heat_pump_weekly:
+    source: sensor.first_floor_heat_pump_plug_energy
+    name: Floor 1 Heat Pump This Week
+    unique_id: energyhub_floor_1_heat_pump_weekly
+    cycle: weekly
+    periodically_resetting: false
+  floor_1_heat_pump_monthly:
+    source: sensor.first_floor_heat_pump_plug_energy
+    name: Floor 1 Heat Pump This Month
+    unique_id: energyhub_floor_1_heat_pump_monthly
+    cycle: monthly
+    periodically_resetting: false
+  floor_1_heat_pump_yearly:
+    source: sensor.first_floor_heat_pump_plug_energy
+    name: Floor 1 Heat Pump This Year
+    unique_id: energyhub_floor_1_heat_pump_yearly
+    cycle: yearly
+    periodically_resetting: false
+  floor_2_heat_pump_weekly:
+    source: sensor.second_floor_heat_pump_plug_energy
+    name: Floor 2 Heat Pump This Week
+    unique_id: energyhub_floor_2_heat_pump_weekly
+    cycle: weekly
+    periodically_resetting: false
+  floor_2_heat_pump_monthly:
+    source: sensor.second_floor_heat_pump_plug_energy
+    name: Floor 2 Heat Pump This Month
+    unique_id: energyhub_floor_2_heat_pump_monthly
+    cycle: monthly
+    periodically_resetting: false
+  floor_2_heat_pump_yearly:
+    source: sensor.second_floor_heat_pump_plug_energy
+    name: Floor 2 Heat Pump This Year
+    unique_id: energyhub_floor_2_heat_pump_yearly
+    cycle: yearly
+    periodically_resetting: false
+  floor_3_heat_pump_weekly:
+    source: sensor.third_floor_heat_pump_energy_calculated
+    name: Floor 3 Heat Pump This Week
+    unique_id: energyhub_floor_3_heat_pump_weekly
+    cycle: weekly
+    periodically_resetting: false
+  floor_3_heat_pump_monthly:
+    source: sensor.third_floor_heat_pump_energy_calculated
+    name: Floor 3 Heat Pump This Month
+    unique_id: energyhub_floor_3_heat_pump_monthly
+    cycle: monthly
+    periodically_resetting: false
+  floor_3_heat_pump_yearly:
+    source: sensor.third_floor_heat_pump_energy_calculated
+    name: Floor 3 Heat Pump This Year
+    unique_id: energyhub_floor_3_heat_pump_yearly
+    cycle: yearly
+    periodically_resetting: false
+  basement_water_pump_weekly:
+    source: sensor.basement_water_pump_energy_calculated
+    name: Water Pump This Week
+    unique_id: energyhub_basement_water_pump_weekly
+    cycle: weekly
+    periodically_resetting: false
+  basement_water_pump_monthly:
+    source: sensor.basement_water_pump_energy_calculated
+    name: Water Pump This Month
+    unique_id: energyhub_basement_water_pump_monthly
+    cycle: monthly
+    periodically_resetting: false
+  basement_water_pump_yearly:
+    source: sensor.basement_water_pump_energy_calculated
+    name: Water Pump This Year
+    unique_id: energyhub_basement_water_pump_yearly
+    cycle: yearly
+    periodically_resetting: false
+  microwave_weekly:
+    source: sensor.microwave_energy_calculated
+    name: Microwave This Week
+    unique_id: energyhub_microwave_weekly
+    cycle: weekly
+    periodically_resetting: false
+  microwave_monthly:
+    source: sensor.microwave_energy_calculated
+    name: Microwave This Month
+    unique_id: energyhub_microwave_monthly
+    cycle: monthly
+    periodically_resetting: false
+  microwave_yearly:
+    source: sensor.microwave_energy_calculated
+    name: Microwave This Year
+    unique_id: energyhub_microwave_yearly
+    cycle: yearly
+    periodically_resetting: false
+  water_boiler_weekly:
+    source: sensor.water_boiler_energy_calculated
+    name: Water Boiler This Week
+    unique_id: energyhub_water_boiler_weekly
+    cycle: weekly
+    periodically_resetting: false
+  water_boiler_monthly:
+    source: sensor.water_boiler_energy_calculated
+    name: Water Boiler This Month
+    unique_id: energyhub_water_boiler_monthly
+    cycle: monthly
+    periodically_resetting: false
+  water_boiler_yearly:
+    source: sensor.water_boiler_energy_calculated
+    name: Water Boiler This Year
+    unique_id: energyhub_water_boiler_yearly
     cycle: yearly
     periodically_resetting: false
 

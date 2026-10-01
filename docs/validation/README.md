@@ -1,9 +1,9 @@
-# Validation Records
+# Release validation
 
-Use this directory for supervised test plans and results that span multiple hardware or software components. Hardware-specific validation may remain beside the corresponding document under `hardware/` when that is the clearest source of truth.
+[EnergyHub 2.4.12 / Family Assistant 2.4.15 evidence](RELEASE_2.4.12.md)
+distinguishes repository regressions, supplied live observations, routine
+monitoring and remaining installation-specific checks.
 
-Every result should identify the tested version, preconditions, expected outcome, observed outcome, and any remaining limitation.
-
-Public release evidence is summarized in the root README and release notes.
-Private candidate records, household validation evidence, and internal release
-checklists are intentionally excluded from the public distribution repository.
+Private development review packets, household engineering records and raw
+deployment details are deliberately excluded from public distribution.
+Repository tests are not a guarantee of compatibility with unverified hardware.

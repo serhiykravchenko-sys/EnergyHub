@@ -34,7 +34,7 @@ class WeatherSelectionTests(unittest.TestCase):
         config = SimpleNamespace(weather_entity="", timezone="Europe/Kyiv", strong_wind_threshold_ms=15)
         now = datetime(2026, 8, 11, 10, 0, tzinfo=ZoneInfo("Europe/Kyiv"))
         lines = fetch_weather(config, FakeWeatherClient(), now)
-        self.assertIn("сонячно", lines[0])
+        self.assertIn("Сонячно", lines[0])
 
 
 if __name__ == "__main__":

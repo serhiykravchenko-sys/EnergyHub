@@ -1,145 +1,49 @@
-# Home Assistant Configuration
+# Home Assistant integration examples
 
-This directory contains the versioned Home Assistant part of EnergyHub.
+EnergyHub 2.4.12 / Family Assistant 2.4.15 use Home Assistant for household
+inputs, device service calls, acknowledgements, helpers and dashboards.
+These files are reference examples, not a drop-in configuration for every home.
 
-For full behavior, see [`docs/operations/12-HomeAssistant-Configuration.md`](../docs/operations/12-HomeAssistant-Configuration.md).
+## Installation boundary
 
-## Directory structure
+Back up your installation. Merge the required helpers and automations instead
+of replacing your complete configuration. Map every entity to your actual
+device and test its availability and service behavior before enabling control.
+The example load roles are water pump, water boiler, first-floor native heat
+pump, second-/third-floor heat pumps and microwave. Battery protection excludes
+the microwave; overload protection has a separate ordered list. Never map an
+essential, medical or safety-critical load to a controllable role.
 
-```text
-homeassistant/
-  live/
-    config/
-      configuration.yaml
-      automations.yaml
-      scripts.yaml
-      scenes.yaml
-    storage/
-      input_boolean
-      input_number
-      timer
-      lovelace.dashboard_powmr1
-      lovelace_dashboards
-      lovelace_resources
-```
+Family Assistant's optional environment-sensor and smart-plug lists are empty
+by default in the public manifest. Populate them with your own entity IDs.
+Generic aliases in this directory and tests are examples, not discovered devices.
 
-## What is versioned
+## Responsibilities
 
-- EnergyHub YAML automations and scripts;
-- selected helpers;
-- the EnergyHub dashboard;
-- required dashboard resources.
+- EnergyHub evaluates reserve, grid, overload and heating policies and requests
+  structured actions. It owns inverter control and load ownership.
+- Home Assistant supplies fresh inputs and executes supported device actions.
+  Acknowledgements and fresh snapshots are required; a sent request is not
+  proof that a device switched.
+- Family Assistant sends Ukrainian reports and alerts. It does not control
+  Home Assistant, plugs or the inverter.
 
-## What is not versioned
+Keep load control off until attended checks pass: family manual OFF, missing
+devices, stale snapshots, timers, shedding and owned-load restoration.
+Three family heat-pump auto-off timers retain the selected hours across a
+protective OFF; a later ON starts that full duration again, rather than preserving
+the original wall-clock deadline. Smart Heating
+preserves family temperature and fan choices, using quiet mode at night
+(23:00–08:00) and Eco when supported on battery.
 
-- secrets;
-- entity registry exports;
-- recorder database;
-- tokens;
-- unrelated `.storage` state;
-- temporary backups.
+## Configuration changes
 
-## Current HA-owned functions
+After merging YAML, run `ha core check` and perform the appropriate YAML reload
+or configuration restart. Stop Core before replacing any `.storage` file;
+do not copy another home's storage files indiscriminately. An app-only update
+does not require a Core stop/start.
 
-- Autopilot helper;
-- Adaptive Hybrid schedule at 23:50, a guarded 06:05 early-Solar check from
-  Grid Hold, and a Panic ownership evaluation at 07:00;
-- live Solcast publication, including the first tomorrow hourly forecast at
-  or above 300 W for the adaptive morning-gap target;
-- atomic Daily Summary publication;
-- manual Panic script;
-- transition notifications;
-- beacon;
-- first-, second-, and third-floor heat-pump auto-off controls;
-- a compact Heat Pumps view with switch, live power, 0–12 h auto-off, absolute turn-off time, and consumption history for all three floors;
-- a compact Mission Control view without duplicated floor cards;
-- a dedicated Energy Statistics view with PV1/PV2 generation and estimated
-  night/normal tariff import across daily, weekly, and monthly periods;
-- separate Heat Pumps and Water Systems views for compact manual control and daily/weekly/monthly locally recorded consumption history.
-- family heat-pump and water-boiler permission whenever Grid Confidence is
-  Normal, the grid is present, and telemetry is fresh; otherwise the existing
-  reserve shed/lockout/recovery bands apply. Permission never starts a load and
-  preserves remembered SOC lockouts underneath.
-- restart reconciliation for boiler and heat-pump lockout creation,
-  enforcement, and clearance;
-  already-latched OFF enforcement remains conservative if telemetry becomes
-  stale, but new SOC-derived latches and clearances still require fresh data;
-- Mission Control PV2 health/sample-age visibility, separate SOC-anomaly
-  diagnostics, 48-hour grid availability, and an explicit non-billing-grade
-  Grid Import notice;
-- Heat Pumps and Water Systems cards that distinguish current family/EnergyHub
-  authority from a remembered dormant lockout.
-
-## Current EnergyHub-owned functions
-
-- telemetry and health;
-- history and Grid Confidence;
-- Hybrid/Panic decisions;
-- inverter transitions and verification;
-- Grid Import and Daily Summary persistence;
-- restart reconstruction;
-- MQTT state;
-- reserve-only OFF guards for the boiler and heat pumps, with no automatic starts.
-
-## Synchronize live HA to Git
-
-```powershell
-.\tools\dev\sync-from-ha.ps1
-```
-
-Review all changes before committing. Do not commit `core.entity_registry` or CSV exports created for audits.
-
-## Deploy Git to HA
-
-The deployment entry point supports separate scopes. Its default remains the historical add-on-only workflow:
-
-```powershell
-.\tools\dev\deploy-to-ha.ps1
-```
-
-This mirrors `addon/` only. Rebuild and restart the local Energy Hub add-on, then inspect its logs.
-
-Deploy selected Home Assistant YAML while HA Core is running:
-
-```powershell
-.\tools\dev\deploy-to-ha.ps1 `
-    -Scope HomeAssistant `
-    -ConfigFiles automations.yaml
-```
-
-Reload only Automations afterward. Use the matching YAML reload for scripts or scenes; a `configuration.yaml` change requires a configuration check and HA Core restart.
-
-Deploy YAML plus selected `.storage` objects:
-
-```powershell
-.\tools\dev\deploy-to-ha.ps1 `
-    -Scope HomeAssistant `
-    -ConfigFiles automations.yaml `
-    -StorageFiles input_number,timer,lovelace.dashboard_powmr1 `
-    -HomeAssistantStopped
-```
-
-HA Core must already be stopped. The script backs up every replaced target under `\\homeassistant\config\energyhub-deploy-backups\<timestamp>`. After the copy, run `ha core check`, start HA Core, and inspect the logs. Startup loads both YAML and `.storage`, so no separate YAML reload is needed.
-
-Preview either workflow without contacting or changing Home Assistant by adding `-DryRun`.
-
-`sync-to-ha.ps1` remains the proven lower-level add-on mirror used by the add-on deployment scope. Prefer `deploy-to-ha.ps1` as the normal entry point because it selects the correct workflow and prints the required rebuild, restart, or reload actions.
-
-## Editing safety
-
-- Edit dashboards/helpers through HA UI where possible.
-- Do not overwrite live `.storage` files while HA is running.
-- `-HomeAssistantStopped` is an explicit operator assertion; the script cannot stop or verify HA Core remotely.
-- Replace YAML files as complete files, then reload automations/scripts.
-- A conditional dashboard card displays all branches in edit mode; test the final view outside edit mode.
-
-## Current dashboard dependencies
-
-- ApexCharts Card custom resource;
-- MQTT integration;
-- Solcast entities;
-- listed room sensors and smart plugs.
-
-## Security
-
-The repository must not contain real passwords or tokens. Published add-on defaults still require hardening before external release.
+See [installation](../docs/operations/INSTALLATION.md),
+[HA configuration](../docs/operations/12-HomeAssistant-Configuration.md),
+[reserve policy](../docs/design/BATTERY_RESERVE_CURRENT.md), and
+[release evidence](../docs/validation/RELEASE_2.4.12.md).

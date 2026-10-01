@@ -13,8 +13,11 @@ class HomeAssistantError(RuntimeError):
 
 
 class HomeAssistantClient:
-    def __init__(self, base_url: str | None = None, token: str | None = None, timeout: int = 20):
+    def __init__(self, base_url: str | None = None, token: str | None = None, timeout: int = 20,
+                 supervisor_url: str | None = None):
         self.base_url = (base_url or os.environ.get("HA_API_URL") or "http://supervisor/core/api").rstrip("/")
+        self.supervisor_url = (supervisor_url or os.environ.get("SUPERVISOR_API_URL")
+                               or "http://supervisor").rstrip("/")
         self.token = token if token is not None else os.environ.get("SUPERVISOR_TOKEN", "")
         self.timeout = timeout
 
@@ -28,7 +31,8 @@ class HomeAssistantClient:
         )
         try:
             with urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+                content = response.read().decode("utf-8")
+                return json.loads(content) if content.strip() else None
         except HTTPError as exc:
             try:
                 details = exc.read().decode("utf-8", errors="replace").strip()
@@ -38,6 +42,38 @@ class HomeAssistantClient:
             raise HomeAssistantError(f"Home Assistant returned HTTP {exc.code} for {path}{suffix}") from None
         except URLError as exc:
             raise HomeAssistantError(f"Home Assistant connection failed: {exc.reason}") from None
+
+    def _request_text(self, path: str) -> str:
+        return self._request_text_url(f"{self.base_url}{path}")
+
+    def _request_text_url(self, url: str) -> str:
+        request = Request(
+            url,
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except HTTPError as exc:
+            raise HomeAssistantError(
+                f"Home Assistant returned HTTP {exc.code} for {url}"
+            ) from None
+        except URLError as exc:
+            raise HomeAssistantError(
+                f"Home Assistant connection failed: {exc.reason}"
+            ) from None
+
+    def error_log(self) -> str:
+        """Return the read-only Home Assistant Core error log."""
+        return self._request_text("/error_log")
+
+    def core_log(self) -> str:
+        """Return Home Assistant Core logs through the Supervisor API."""
+        return self._request_text_url(f"{self.supervisor_url}/core/logs")
+
+    def supervisor_log(self) -> str:
+        """Return Supervisor logs through the Supervisor API."""
+        return self._request_text_url(f"{self.supervisor_url}/supervisor/logs")
 
     def states(self) -> list[dict[str, Any]]:
         return list(self._request("/states"))
@@ -63,3 +99,18 @@ class HomeAssistantClient:
 
     def hourly_forecast(self, entity_id: str) -> list[dict[str, Any]]:
         return self.forecast(entity_id, "hourly")
+
+    def publish_mqtt(
+        self,
+        topic: str,
+        payload: dict[str, Any],
+        retain: bool = True,
+    ) -> None:
+        self._request(
+            "/services/mqtt/publish",
+            {
+                "topic": topic,
+                "payload": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                "retain": retain,
+            },
+        )

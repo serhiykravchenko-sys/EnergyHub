@@ -1,4 +1,4 @@
-from app.services.inverter_fault_journal import active_qpiws_messages
+from app.services.inverter_fault_journal import active_qpiws_messages, valid_qpiws_response
 
 
 class InverterHealthMonitor:
@@ -8,7 +8,7 @@ class InverterHealthMonitor:
         self.reason = "not_checked"
 
     def update(self, data):
-        if not data:
+        if not valid_qpiws_response(data):
             self.status = "warning"
             self.reason = "warning_read_failed"
             return

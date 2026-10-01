@@ -4,6 +4,7 @@ from pathlib import Path
 
 OPTIONS_FILE = Path("/data/options.json")
 LAST_FILE = Path("/data/energy_hub_powmr_last.json")
+WEATHER_BUFFER_FILE = Path("/data/energyhub_weather_buffer.json")
 
 BASE_TOPIC = "powmr"
 

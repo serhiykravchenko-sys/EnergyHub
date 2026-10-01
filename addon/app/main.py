@@ -4,7 +4,7 @@ import subprocess
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import date, datetime
 
 from app.adapters.powmr import PowMrLocalAdapter
 from app.config import (
@@ -22,16 +22,12 @@ from app.mqtt.publisher import (
     publish_daily_summary,
     publish_daily_summary_discovery,
     publish_discovery,
-    publish_early_solar_handover,
-    publish_early_solar_handover_discovery,
     publish_grid_discovery,
     publish_grid_history,
     publish_grid_import,
     publish_grid_import_discovery,
     publish_health,
     publish_health_discovery,
-    publish_hybrid_decision,
-    publish_hybrid_decision_discovery,
     publish_inverter_health,
     publish_inverter_health_discovery,
     publish_inverter_fault_journal,
@@ -43,40 +39,35 @@ from app.mqtt.publisher import (
     publish_operating_mode_discovery,
     publish_panic_decision,
     publish_panic_decision_discovery,
+    publish_peak_load_guard,
+    publish_peak_load_guard_discovery,
     publish_pv2_discovery,
     publish_pv2_telemetry,
-    publish_reserve_advisor,
-    publish_reserve_advisor_discovery,
+    publish_retired_entity_cleanup,
     publish_soc_anomaly_journal,
     publish_soc_anomaly_journal_discovery,
     publish_system_health,
     publish_system_health_discovery,
     publish_telemetry_freshness,
     publish_telemetry_freshness_discovery,
+    publish_weather_buffer,
+    publish_weather_buffer_discovery,
 )
 from app.services.autopilot import AutopilotState
 from app.services.battery_health import BatteryHealthMonitor
 from app.services.daily_summary import DailySummaryService
-from app.services.early_solar_handover import (
-    EarlySolarHandoverEngine,
-)
 from app.services.event_bus import EventBus
 from app.services.grid_history import GridHistoryService
 from app.services.grid_import import GridImportService
 from app.services.grid_monitor import GridMonitor
 from app.services.grid_stability import GridStabilityEngine
 from app.services.health_monitor import HealthMonitor
-from app.services.hybrid_decision import HybridDecisionEngine
-from app.services.hybrid_night_enforcement import (
-    HybridNightEnforcement,
-)
 from app.services.inverter_controller import InverterController
 from app.services.inverter_health import InverterHealthMonitor
-from app.services.inverter_fault_journal import InverterFaultJournal
-from app.services.morning_load_profile import MorningLoadProfileService
+from app.services.inverter_fault_journal import InverterFaultJournal, valid_qpiws_response
 from app.services.panic_decision import PanicDecisionEngine
+from app.services.peak_load_control import PeakLoadGuardController, COMMAND_TOPIC
 from app.services.pv2_telemetry import PV2TelemetryService
-from app.services.reserve_advisor import ReserveAdvisorService
 from app.services.soc_anomaly_journal import SocAnomalyJournal
 from app.services.system_health import SystemHealthMonitor
 from app.services.telemetry import TelemetryService
@@ -84,6 +75,7 @@ from app.services.telemetry_freshness import (
     TelemetryFreshnessMonitor,
 )
 from app.services.watchdog import CommunicationWatchdog
+from app.services.weather_buffer import WeatherBufferDryRun
 from app.utils.logger import log
 
 
@@ -91,7 +83,6 @@ INVERTER_WARNING_INTERVAL_SECONDS = 60
 INVERTER_SETTINGS_INTERVAL_SECONDS = 60
 PANIC_EVALUATION_INTERVAL_SECONDS = 5 * 60
 
-HYBRID_DEFAULT_TARGET_SOC = 80
 PANIC_DEFAULT_TARGET_SOC = 95
 
 MENU_01_QPIRI_MAP = {
@@ -158,6 +149,19 @@ def main():
     telemetry_freshness = TelemetryFreshnessMonitor()
     inverter_health = InverterHealthMonitor()
     inverter_fault_journal = InverterFaultJournal()
+    def publish_load_intent(command):
+        # One non-retained QoS 0 intent: never replay a retained hardware command.
+        result = client.publish(COMMAND_TOPIC, json.dumps(command), qos=0, retain=False)
+        if result.rc != 0:
+            raise RuntimeError('Load command delivery uncertain')
+
+    # One dashboard switch selects automatic control vs warnings-only. The old
+    # app flag is accepted for saved-options compatibility, not a second mode.
+    peak_load_guard = PeakLoadGuardController(publish_load_intent)
+    log('Overload protection: 85/75/50%; recovery 5 minutes, sequential restore at least 60 seconds; dashboard automatic/warnings-only')
+    weather_buffer = WeatherBufferDryRun(
+        timezone_name=options.get("timezone", "Europe/Kyiv")
+    )
     system_health = SystemHealthMonitor()
     autopilot = AutopilotState()
 
@@ -170,9 +174,8 @@ def main():
     daily_summary = DailySummaryService(
         history,
         grid_import,
+        timezone_name=options.get("timezone", "Europe/Kyiv"),
     )
-    morning_load_profile = MorningLoadProfileService()
-    reserve_advisor = ReserveAdvisorService()
     soc_anomaly_journal = SocAnomalyJournal()
 
     # Live decision inputs are kept separate from Daily Summary snapshot
@@ -181,14 +184,7 @@ def main():
     # snapshot publications.
     decision_inputs = {}
 
-    hybrid_decision = HybridDecisionEngine(
-        inverter_controller.hybrid_target_soc
-    )
-    hybrid_night_enforcement = HybridNightEnforcement()
-    early_solar_handover = EarlySolarHandoverEngine()
     panic_decision = PanicDecisionEngine()
-
-    hybrid_target_soc = inverter_controller.hybrid_target_soc
 
     mode_requests = queue.Queue(maxsize=1)
     mode_request_lock = threading.Lock()
@@ -199,14 +195,13 @@ def main():
     )
 
     last_warning_read = 0
+    last_warning_success = None
+    last_reserve_publish = 0
     last_settings_read = 0
     last_panic_evaluation = 0
     communication_interrupted = False
 
-    hybrid_evaluation_requested = False
-    early_solar_evaluation_request = None
     panic_evaluation_requested = False
-    last_hybrid_night_enforcement_signature = None
 
     startup_reconstruction_complete = False
     autopilot_state_received = False
@@ -345,6 +340,14 @@ def main():
             )
             return
 
+        if inverter_controller.transition_pending:
+            startup_recovery_decided = True
+            log(
+                "Startup transition journal is uncertain. Automatic Solar "
+                "recovery is suspended; attended inverter verification is required."
+            )
+            return
+
         if autopilot.is_enabled():
             startup_recovery_decided = True
 
@@ -363,7 +366,6 @@ def main():
         )
 
     def process_mode_request():
-        nonlocal hybrid_evaluation_requested
         nonlocal panic_target_soc
         nonlocal panic_evaluation_requested
 
@@ -387,10 +389,13 @@ def main():
             notification_event = None
 
         if requested_mode == "safe_solar":
-            inverter_controller.set_hybrid_enforcement_until_date(
-                None
-            )
-
+            if inverter_controller.transition_pending:
+                log(
+                    "Autopilot safe Solar recovery blocked: inverter transition "
+                    "journal is uncertain and requires attended verification"
+                )
+                publish_controller_state()
+                return
             if (
                 inverter_controller.mode
                 not in AUTOPILOT_SAFE_RECOVERY_MODES
@@ -402,24 +407,41 @@ def main():
                 return
 
             log(
-                "Autopilot disabled during active or unknown "
-                "strategy. Performing final safe Solar recovery."
+                "Autopilot requires a confirmed strategy. "
+                "Attempting one safe Solar recovery."
             )
 
-            inverter_controller.restore_solar()
+            recovered = inverter_controller.restore_solar()
+            if not recovered:
+                log(
+                    "ATTENTION: Safe Solar recovery failed; inverter strategy "
+                    "is unconfirmed and automatic reserve control is suspended. "
+                    "Attended verification is required."
+                )
             publish_controller_state()
             return
 
         if requested_mode == "evaluate_hybrid":
-            hybrid_evaluation_requested = True
+            panic_evaluation_requested = True
 
-            log("Hybrid evaluation requested")
+            log(
+                "Legacy Hybrid evaluation request redirected to the "
+                "24/7 Battery Reserve controller"
+            )
             return
 
         if requested_mode == "evaluate_panic":
             panic_evaluation_requested = True
 
             log("Panic evaluation requested")
+            return
+
+        if requested_mode in {"hybrid", "hybrid_grid_hold"}:
+            panic_evaluation_requested = True
+            log(
+                f"Retired inverter request {requested_mode} ignored; "
+                "the 24/7 Battery Reserve controller will reevaluate"
+            )
             return
 
         if not autopilot.is_enabled():
@@ -516,19 +538,6 @@ def main():
 
         publish_controller_state()
 
-        if (
-            notification_event is not None
-            and notification_event.get("mode") == "early_solar"
-        ):
-            early_solar_handover.confirm_transition(
-                transition_succeeded,
-                inverter_controller.last_error,
-            )
-            publish_early_solar_handover(
-                client,
-                early_solar_handover,
-            )
-
         if notification_event is not None:
             event = dict(notification_event)
 
@@ -560,22 +569,6 @@ def main():
                     event,
                 )
 
-        if (
-            transition_succeeded
-            and requested_mode == "solar"
-            and (
-                notification_event is None
-                or notification_event.get("mode") != "hybrid"
-            )
-        ):
-            inverter_controller.set_hybrid_enforcement_until_date(
-                None
-            )
-
-            log(
-                "AHM night enforcement completed after Solar handover"
-            )
-
         if inverter_controller.mode == "solar":
             panic_evaluation_requested = True
 
@@ -584,281 +577,18 @@ def main():
                 "after Solar confirmation"
             )
 
-    def evaluate_hybrid(state):
-        nonlocal hybrid_target_soc
-
-        flexible_morning_plan = morning_load_profile.flexible_plan(
-            decision_inputs.get("hybrid_hourly_solar")
-        )
-
-        forecast_tomorrow = decision_inputs.get(
-            "solar_forecast_tomorrow",
-            daily_summary.inputs.get(
-                "solar_forecast_tomorrow"
-            ),
-        )
-
-        consumption_today = daily_summary.inputs.get(
-            "daily_house_consumption"
-        )
-
-        decision = hybrid_decision.evaluate(
-            autopilot_enabled=autopilot.is_enabled(),
-            operating_mode=inverter_controller.mode,
-            battery_soc=state.battery_soc,
-            morning_hours=decision_inputs.get(
-                "hybrid_morning_hours"
-            ),
-            useful_solar_start=decision_inputs.get(
-                "hybrid_useful_solar_start"
-            ),
-            forecast_tomorrow=forecast_tomorrow,
-            consumption_today=consumption_today,
-            solar_forecast_after_07=decision_inputs.get(
-                "hybrid_solar_after_07"
-            ),
-            minimum_soc=decision_inputs.get(
-                "ahm_minimum_soc"
-            ),
-            raw_morning_hours=decision_inputs.get(
-                "hybrid_raw_morning_hours"
-            ),
-            effective_solar_start=decision_inputs.get(
-                "hybrid_effective_solar_start"
-            ),
-            ramp_confirmed=decision_inputs.get(
-                "hybrid_ramp_confirmed",
-                False,
-            ),
-            ramp_credit_hours=decision_inputs.get(
-                "hybrid_ramp_credit_hours",
-                0,
-            ),
-            ramp_start_power_w=decision_inputs.get(
-                "hybrid_ramp_start_power_w"
-            ),
-            ramp_next_power_w=decision_inputs.get(
-                "hybrid_ramp_next_power_w"
-            ),
-            flexible_morning_plan=flexible_morning_plan,
-        )
-
-        if decision.get("target_soc") is not None:
-            hybrid_target_soc = decision["target_soc"]
-            inverter_controller.set_hybrid_target_soc(
-                hybrid_target_soc
-            )
-
-            evaluation_time = datetime.now().astimezone()
-            enforcement_date = (
-                hybrid_night_enforcement.enforcement_date(
-                    evaluation_time
-                )
-            )
-            if enforcement_date is not None:
-                inverter_controller.set_hybrid_enforcement_until_date(
-                    enforcement_date
-                )
-
-        publish_hybrid_decision(
-            client,
-            hybrid_decision,
-        )
-
-        log(
-            "Hybrid evaluation: "
-            f"status={decision['status']}, "
-            f"reason={decision['reason']}"
-        )
-
-        requested_mode = decision.get("request")
-
-        if requested_mode is None:
-            return
-
-        log(
-            "Hybrid decision triggered: "
-            f"request={requested_mode}, "
-            f"target_soc={hybrid_target_soc:.1f}%, "
-            f"useful_solar="
-            f"{decision['useful_solar_start']}"
-        )
-
-        queue_mode_request(
-            requested_mode,
-            notification_event={
-                "mode": "hybrid",
-                "requested_mode": requested_mode,
-                "soc": state.battery_soc,
-                "forecast": forecast_tomorrow,
-                "projected_soc_at_07": (
-                    decision["projected_soc_at_07"]
-                ),
-                "morning_hours": decision["morning_hours"],
-                "raw_morning_hours": (
-                    decision["raw_morning_hours"]
-                ),
-                "useful_solar_start": (
-                    decision["useful_solar_start"]
-                ),
-                "effective_solar_start": (
-                    decision["effective_solar_start"]
-                ),
-                "ramp_confirmed": decision["ramp_confirmed"],
-                "ramp_credit_hours": (
-                    decision["ramp_credit_hours"]
-                ),
-                "ramp_start_power_w": (
-                    decision["ramp_start_power_w"]
-                ),
-                "ramp_next_power_w": (
-                    decision["ramp_next_power_w"]
-                ),
-                "minimum_soc": decision["minimum_soc"],
-                "morning_model_source": (
-                    decision["morning_model_source"]
-                ),
-                "morning_model_reason": (
-                    decision["morning_model_reason"]
-                ),
-                "morning_model_samples": (
-                    decision["morning_model_samples"]
-                ),
-                "morning_expected_load_kwh": (
-                    decision["morning_expected_load_kwh"]
-                ),
-                "morning_forecast_solar_kwh": (
-                    decision["morning_forecast_solar_kwh"]
-                ),
-                "morning_net_deficit_kwh": (
-                    decision["morning_net_deficit_kwh"]
-                ),
-                "target_soc": hybrid_target_soc,
-                "target_capped": decision["target_capped"],
-                "expected_consumption_after_07": (
-                    decision["expected_consumption_after_07"]
-                ),
-                "solar_forecast_after_07": (
-                    decision["solar_forecast_after_07"]
-                ),
-                "daytime_deficit_kwh": (
-                    decision["daytime_deficit_kwh"]
-                ),
-                "daytime_deficit_soc": (
-                    decision["daytime_deficit_soc"]
-                ),
-                "forecast_fallback": (
-                    decision["used_fallback"]
-                ),
-                "reason": decision["reason"],
-            },
-        )
-
-    def evaluate_early_solar(state, request):
-        decision = early_solar_handover.evaluate(
-            autopilot_enabled=autopilot.is_enabled(),
-            operating_mode=inverter_controller.mode,
-            battery_soc=state.battery_soc,
-            hybrid_target_soc=hybrid_target_soc,
-            telemetry_freshness=telemetry_freshness.status,
-            total_solar_fresh=pv2_telemetry.total_is_fresh(),
-            total_solar_power_w=pv2_telemetry.last_total_power,
-            forecast_energy_kwh=request.get("forecast_kwh"),
-            grid_available=grid.is_available,
-            request_date=request.get("date"),
-        )
-
-        publish_early_solar_handover(
-            client,
-            early_solar_handover,
-        )
-
-        log(
-            "Early Solar evaluation: "
-            f"status={decision['status']}, "
-            f"reason={decision['reason']}"
-        )
-
-        if decision.get("request") != "solar":
-            return
-
-        queue_mode_request(
-            "solar",
-            notification_event={
-                "mode": "early_solar",
-                "requested_mode": "solar",
-                "soc": decision["battery_soc"],
-                "target_soc": decision["target_soc"],
-                "live_solar_w": decision["live_solar_w"],
-                "forecast_energy_kwh": (
-                    decision["forecast_energy_kwh"]
-                ),
-                "reason": decision["reason"],
-            },
-        )
-
     def evaluate_panic(state):
         nonlocal panic_target_soc
 
         grid_confidence = stability.level()
-        evaluation_time = datetime.now().astimezone()
-        evaluation_date = evaluation_time.strftime("%Y-%m-%d")
-        evaluation_minutes = (
-            evaluation_time.hour * 60
-            + evaluation_time.minute
-        )
-        inside_panic_window = (
-            7 * 60 <= evaluation_minutes < 23 * 60 + 50
-        )
-
-        if (
-            inside_panic_window
-            and inverter_controller.ahm_debt_date != evaluation_date
-        ):
-            ahm_debt_target = None
-
-            if (
-                hybrid_target_soc is not None
-                and state.battery_soc is not None
-                and state.battery_soc < hybrid_target_soc
-            ):
-                ahm_debt_target = hybrid_target_soc
-
-            inverter_controller.set_ahm_debt(
-                evaluation_date,
-                ahm_debt_target,
-            )
-
-            log(
-                "AHM morning debt evaluated: "
-                f"date={evaluation_date}, "
-                f"target={ahm_debt_target}"
-            )
-
-        elif (
-            inside_panic_window
-            and
-            inverter_controller.ahm_debt_target_soc is not None
-            and state.battery_soc is not None
-            and state.battery_soc
-            >= inverter_controller.ahm_debt_target_soc
-        ):
-            inverter_controller.set_ahm_debt(
-                evaluation_date,
-                None,
-            )
-
-            log("AHM morning debt has been recovered")
 
         decision = panic_decision.evaluate(
+            manual_reserve_soc=decision_inputs.get("ahm_minimum_soc"),
             autopilot_enabled=autopilot.is_enabled(),
             operating_mode=inverter_controller.mode,
             grid_confidence=grid_confidence,
             battery_soc=state.battery_soc,
             grid_available=grid.is_available,
-            ahm_target_soc=(
-                inverter_controller.ahm_debt_target_soc
-            ),
         )
 
         if (
@@ -911,54 +641,6 @@ def main():
             },
         )
 
-    def enforce_hybrid_night_target(state):
-        nonlocal last_hybrid_night_enforcement_signature
-
-        decision = hybrid_night_enforcement.evaluate(
-            autopilot_enabled=autopilot.is_enabled(),
-            enforcement_until_date=(
-                inverter_controller.hybrid_enforcement_until_date
-            ),
-            operating_mode=inverter_controller.mode,
-            battery_soc=state.battery_soc,
-            target_soc=hybrid_target_soc,
-            grid_available=grid.is_available,
-            telemetry_freshness=telemetry_freshness.status,
-        )
-
-        requested_mode = decision.get("request")
-        if requested_mode is None:
-            last_hybrid_night_enforcement_signature = None
-            return
-
-        request_signature = (
-            inverter_controller.hybrid_enforcement_until_date,
-            inverter_controller.mode,
-            requested_mode,
-        )
-        if request_signature == last_hybrid_night_enforcement_signature:
-            return
-
-        log(
-            "AHM night target enforcement triggered: "
-            f"request={requested_mode}, reason={decision['reason']}"
-        )
-
-        queued = queue_mode_request(
-            requested_mode,
-            notification_event={
-                "mode": "hybrid_night_enforcement",
-                "requested_mode": requested_mode,
-                "soc": state.battery_soc,
-                "target_soc": hybrid_target_soc,
-                "reason": decision["reason"],
-            },
-        )
-        if queued:
-            last_hybrid_night_enforcement_signature = (
-                request_signature
-            )
-
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
             log("MQTT connected")
@@ -967,9 +649,13 @@ def main():
                 "energyhub/input/ha/#"
             )
 
+            client.subscribe(
+                "energyhub/input/weather/uhmc"
+            )
+
             log(
                 "Subscribed to "
-                "energyhub/input/ha/#"
+                "energyhub/input/ha/# and energyhub/input/weather/uhmc"
             )
 
             client.publish(
@@ -995,13 +681,20 @@ def main():
 
     def on_message(client, userdata, msg):
         nonlocal autopilot_state_received
-        nonlocal early_solar_evaluation_request
+        nonlocal panic_evaluation_requested
 
         topic = msg.topic
         payload = msg.payload.decode("utf-8")
 
-        prefix = "energyhub/input/ha/"
+        if topic == "energyhub/input/weather/uhmc":
+            if weather_buffer.update_weather(payload):
+                publish_weather_buffer(client, weather_buffer)
+                log("Official UHMC weather-warning snapshot updated")
+            else:
+                log("Reserve Policy ignored an invalid UHMC snapshot")
+            return
 
+        prefix = "energyhub/input/ha/"
         if not topic.startswith(prefix):
             return
 
@@ -1047,206 +740,47 @@ def main():
             queue_mode_request(requested_mode)
             return
 
-        if key == "early_solar_check":
-            try:
-                request = json.loads(payload)
-                request_date = str(request["date"]).strip()
-                forecast_kwh = request.get("forecast_kwh")
-                if forecast_kwh is not None:
-                    forecast_kwh = round(float(forecast_kwh), 3)
-            except (
-                json.JSONDecodeError,
-                KeyError,
-                TypeError,
-                ValueError,
-            ):
-                log(
-                    "Early Solar request ignored invalid payload: "
-                    f"{payload}"
-                )
-                return
-
-            early_solar_evaluation_request = {
-                "date": request_date,
-                "forecast_kwh": forecast_kwh,
-            }
-
-            log(
-                "Early Solar evaluation requested: "
-                f"date={request_date}, "
-                f"forecast_06_07={forecast_kwh} kWh"
-            )
+        if key == "peak_load_control_plugs":
+            if peak_load_guard.update_load_snapshot(payload):
+                publish_peak_load_guard(client, peak_load_guard)
+                log("Peak Load Guard participant snapshot updated")
+            else:
+                log("Peak Load Guard ignored an invalid participant snapshot")
             return
 
-        if key == "adaptive_hybrid_plan":
-            try:
-                plan = json.loads(payload)
-                morning_hours = round(
-                    float(plan["morning_hours"]),
-                    2,
-                )
-                raw_morning_hours = round(
-                    float(
-                        plan.get(
-                            "raw_morning_hours",
-                            morning_hours,
-                        )
-                    ),
-                    2,
-                )
-                useful_solar_start = str(
-                    plan["useful_solar_start"]
-                ).strip()
-                effective_solar_start = str(
-                    plan.get(
-                        "effective_solar_start",
-                        useful_solar_start,
-                    )
-                ).strip()
-                ramp_confirmed = (
-                    plan.get("ramp_confirmed") is True
-                )
-                ramp_credit_hours = round(
-                    float(plan.get("ramp_credit_hours", 0)),
-                    2,
-                )
-                ramp_start_power_w = plan.get(
-                    "ramp_start_power_w"
-                )
-                if ramp_start_power_w is not None:
-                    ramp_start_power_w = round(
-                        float(ramp_start_power_w),
-                        1,
-                    )
-                ramp_next_power_w = plan.get(
-                    "ramp_next_power_w"
-                )
-                if ramp_next_power_w is not None:
-                    ramp_next_power_w = round(
-                        float(ramp_next_power_w),
-                        1,
-                    )
-                solar_after_07 = plan.get("solar_after_07_kwh")
-                if solar_after_07 is not None:
-                    solar_after_07 = round(
-                        float(solar_after_07),
-                        2,
-                    )
-                hourly_solar = []
-                for item in plan.get("hourly_solar", []):
-                    hourly_solar.append({
-                        "hour": int(item["hour"]),
-                        "power_w": round(
-                            float(item["power_w"]),
-                            1,
-                        ),
-                    })
-            except (
-                json.JSONDecodeError,
-                KeyError,
-                TypeError,
-                ValueError,
-            ):
-                log(
-                    "Decision input ignored invalid "
-                    f"adaptive_hybrid_plan: {payload}"
-                )
-                return
-
-            decision_inputs["hybrid_morning_hours"] = (
-                morning_hours
-            )
-            decision_inputs["hybrid_raw_morning_hours"] = (
-                raw_morning_hours
-            )
-            decision_inputs["hybrid_useful_solar_start"] = (
-                useful_solar_start
-            )
-            decision_inputs["hybrid_effective_solar_start"] = (
-                effective_solar_start
-            )
-            decision_inputs["hybrid_ramp_confirmed"] = (
-                ramp_confirmed
-            )
-            decision_inputs["hybrid_ramp_credit_hours"] = (
-                ramp_credit_hours
-            )
-            decision_inputs["hybrid_ramp_start_power_w"] = (
-                ramp_start_power_w
-            )
-            decision_inputs["hybrid_ramp_next_power_w"] = (
-                ramp_next_power_w
-            )
-            if solar_after_07 is not None:
-                decision_inputs["hybrid_solar_after_07"] = (
-                    solar_after_07
-                )
-            decision_inputs["hybrid_hourly_solar"] = hourly_solar
-
-            log(
-                "Adaptive Hybrid plan input updated: "
-                f"raw_morning_hours={raw_morning_hours}, "
-                f"ramp_credit={ramp_credit_hours}, "
-                f"morning_hours={morning_hours}, "
-                f"useful_solar_start={useful_solar_start}, "
-                f"effective_solar_start={effective_solar_start}, "
-                f"ramp_confirmed={ramp_confirmed}, "
-                f"solar_after_07_kwh={solar_after_07}, "
-                f"hourly_solar_periods={len(hourly_solar)}"
-            )
+        if key == 'peak_load_guard_ack' and isinstance(peak_load_guard, PeakLoadGuardController):
+            peak_load_guard.update_ack(payload)
+            return
+        if key == 'peak_load_guard_intent' and isinstance(peak_load_guard, PeakLoadGuardController):
+            peak_load_guard.update_intent(payload)
             return
 
-        if key == "morning_load_snapshot":
+        if key == "weather_buffer_forecast":
             try:
-                snapshot = json.loads(payload)
-            except (json.JSONDecodeError, TypeError):
-                log(
-                    "Morning load snapshot ignored invalid JSON: "
-                    f"{payload}"
+                evaluation_date = date.fromisoformat(
+                    str(json.loads(payload)["date"])
                 )
-                return
-
-            result = morning_load_profile.record_snapshot(snapshot)
-            if result["accepted"]:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                evaluation_date = None
+            consumption_samples = (
+                daily_summary.recent_consumption(evaluation_date, limit=3, require_final=True)
+                if evaluation_date is not None
+                else []
+            )
+            if weather_buffer.update(payload, consumption_samples):
+                publish_weather_buffer(client, weather_buffer)
+                attributes = weather_buffer.status_attributes()
                 log(
-                    "Morning load snapshot accepted: "
-                    f"hour={snapshot.get('hour')}, "
-                    f"essential_sample_kwh="
-                    f"{result.get('sample_kwh')}"
+                    "Battery Reserve evaluated: "
+                    f"date={attributes.get('date')}, "
+                    f"plan={attributes.get('forecast_plan_stage')}, "
+                    f"transition={attributes.get('transition')}, "
+                    f"baseline={attributes.get('baseline_soc')}%, "
+                    f"consumption_average={attributes.get('consumption_average_kwh')} kWh, "
+                    f"recommended={attributes.get('recommended_soc')}%"
                 )
             else:
-                log(
-                    "Morning load snapshot ignored: "
-                    f"{result['reason']}"
-                )
-            return
-
-        if key == "ahm_reserve_observation":
-            try:
-                observation = json.loads(payload)
-            except (json.JSONDecodeError, TypeError):
-                log(
-                    "AHM reserve observation ignored invalid JSON: "
-                    f"{payload}"
-                )
-                return
-
-            result = reserve_advisor.observe(observation)
-            if not result["accepted"]:
-                log(
-                    "AHM reserve observation ignored: "
-                    f"{result['reason']}"
-                )
-                return
-            publish_reserve_advisor(client, reserve_advisor)
-            advice = result["advisor"]
-            log(
-                "AHM reserve advice updated: "
-                f"status={advice['status']}, "
-                f"current={advice['current_soc']}%, "
-                f"suggested={advice['suggested_soc']}%, "
-                f"samples={advice['sample_count']}"
-            )
+                log("Battery Reserve Policy ignored invalid daily inputs")
             return
 
         if key == "ahm_minimum_soc":
@@ -1260,7 +794,7 @@ def main():
                 return
 
             if (
-                not 20 <= value <= 50
+                not 20 <= value <= 95
                 or value % 5 != 0
             ):
                 log(
@@ -1269,11 +803,11 @@ def main():
                 )
                 return
 
+            # Process the family setting on the next valid telemetry loop;
+            # MQTT callbacks must never issue inverter commands directly.
+            if decision_inputs.get("ahm_minimum_soc") != value:
+                panic_evaluation_requested = True
             decision_inputs["ahm_minimum_soc"] = value
-
-            reserve_advisor.current = reserve_advisor.evaluate(value)
-            reserve_advisor.save()
-            publish_reserve_advisor(client, reserve_advisor)
 
             log(f"AHM minimum SOC updated: {value}%")
             return
@@ -1286,33 +820,6 @@ def main():
                 "solar_forecast_tomorrow"
             ),
         }
-
-        if key == "hybrid_useful_solar_start":
-            decision_inputs[key] = payload.strip()
-
-            log(
-                "Decision input updated: "
-                f"{key}={decision_inputs[key]}"
-            )
-            return
-
-        if key == "hybrid_morning_hours":
-            try:
-                value = round(float(payload), 2)
-            except (TypeError, ValueError):
-                log(
-                    "Decision input ignored invalid value "
-                    f"{key}: {payload}"
-                )
-                return
-
-            decision_inputs[key] = value
-
-            log(
-                "Decision input updated: "
-                f"{key}={value}"
-            )
-            return
 
         if key in live_forecast_keys:
             decision_key = live_forecast_keys[key]
@@ -1342,10 +849,17 @@ def main():
                 )
             return
 
-        if key in {
+        daily_summary_keys = {
+            "daily_house_consumption",
             "solar_forecast_today",
             "solar_forecast_tomorrow",
-        }:
+            "daily_solar_surplus_estimated",
+        }
+
+        if key not in daily_summary_keys:
+            return
+
+        if key in {"solar_forecast_today", "solar_forecast_tomorrow"}:
             try:
                 decision_inputs[key] = round(
                     float(payload),
@@ -1399,19 +913,13 @@ def main():
     publish_inverter_health_discovery(client)
     publish_inverter_fault_journal_discovery(client)
     publish_inverter_fault_journal(client, inverter_fault_journal)
+    publish_peak_load_guard_discovery(client)
+    publish_peak_load_guard(client, peak_load_guard)
+    publish_weather_buffer_discovery(client)
+    publish_weather_buffer(client, weather_buffer)
     publish_inverter_settings_discovery(client)
     publish_operating_mode_discovery(client)
-    publish_hybrid_decision_discovery(client)
-    # Replace any retained pre-1.3.4 reason before Home Assistant can keep
-    # presenting an overlong state after a later Core restart.
-    publish_hybrid_decision(client, hybrid_decision)
-    publish_early_solar_handover_discovery(client)
-    publish_early_solar_handover(
-        client,
-        early_solar_handover,
-    )
-    publish_reserve_advisor_discovery(client)
-    publish_reserve_advisor(client, reserve_advisor)
+    publish_retired_entity_cleanup(client)
     publish_soc_anomaly_journal_discovery(client)
     publish_soc_anomaly_journal(client, soc_anomaly_journal)
     publish_panic_decision_discovery(client)
@@ -1586,12 +1094,17 @@ def main():
                     inverter_health.update(
                         warning_data
                     )
+                    if valid_qpiws_response(warning_data):
+                        last_warning_success = time.monotonic()
+                    else:
+                        last_warning_success = None
                     fault_changed = inverter_fault_journal.observe_qpiws(
                         warning_data
                     )
 
                 except Exception as e:
                     inverter_health.failure()
+                    last_warning_success = None
 
                     log(
                         "ERROR: QPIWS warning "
@@ -1609,6 +1122,26 @@ def main():
                     )
 
                 last_warning_read = now
+
+            peak_load_guard.evaluate(
+                telemetry_valid=state.valid,
+                battery_soc=state.battery_soc,
+                telemetry_freshness=telemetry_freshness.status,
+                load_percent=(state.raw or {}).get("ac_output_load"),
+                load_w=state.load_power,
+                load_va=(state.raw or {}).get("ac_output_apparent_power"),
+                grid_available=state.grid_available,
+                operating_mode=inverter_controller.mode,
+                overload_warning=(
+                    last_warning_success is not None
+                    and 0 <= time.monotonic() - last_warning_success <= 90
+                    and (
+                        "over_load" in inverter_fault_journal.active_messages
+                        or "overload" in inverter_fault_journal.active_messages
+                    )
+                ),
+            )
+            publish_peak_load_guard(client, peak_load_guard)
 
             if (
                 now - last_settings_read
@@ -1707,6 +1240,24 @@ def main():
                     grid.is_available
                 )
 
+                reserve_policy_changed = weather_buffer.update_grid_confidence(
+                    stability.level(),
+                    datetime.now().astimezone(),
+                )
+                reserve_policy_changed |= weather_buffer.refresh(
+                    datetime.now().astimezone()
+                )
+                if reserve_policy_changed or now - last_reserve_publish >= 30:
+                    publish_weather_buffer(client, weather_buffer)
+                    last_reserve_publish = now
+                if reserve_policy_changed:
+                    attributes = weather_buffer.status_attributes()
+                    log(
+                        "Battery Reserve reevaluated: "
+                        f"grid={attributes.get('grid_confidence')}, "
+                        f"recommended={attributes.get('recommended_soc')}%"
+                    )
+
                 if grid_state_changed:
                     panic_evaluation_requested = True
 
@@ -1719,6 +1270,7 @@ def main():
                     operating_mode=inverter_controller.mode,
                     output_power_w=state.load_power,
                     battery_soc=state.battery_soc,
+                    grid_available=state.grid_available,
                 )
 
                 if reconcile_grid_import_finalizations():
@@ -1732,60 +1284,24 @@ def main():
                     grid_import,
                 )
 
-                if hybrid_evaluation_requested:
-                    evaluate_hybrid(state)
-                    hybrid_evaluation_requested = False
-
-                if early_solar_evaluation_request is not None:
-                    request = early_solar_evaluation_request
-                    early_solar_evaluation_request = None
-                    evaluate_early_solar(state, request)
-
-                enforce_hybrid_night_target(state)
-
                 if panic_decision.requires_immediate_evaluation(
+                    manual_reserve_soc=decision_inputs.get("ahm_minimum_soc"),
                     operating_mode=inverter_controller.mode,
                     grid_confidence=stability.level(),
                     battery_soc=soc,
                     grid_available=grid.is_available,
-                    ahm_target_soc=(
-                        inverter_controller.ahm_debt_target_soc
-                    ),
                 ):
                     if not panic_evaluation_requested:
                         log(
                             "Immediate Normal-grid reserve evaluation "
-                            "requested at a 20%/30% boundary"
+                            "requested at the selected reserve boundary"
                         )
                     panic_evaluation_requested = True
 
                 if (
                     autopilot.is_enabled()
-                    and inverter_controller.mode
-                    == "hybrid_charging"
-                    and soc is not None
-                    and soc >= (
-                        hybrid_target_soc
-                        or HYBRID_DEFAULT_TARGET_SOC
-                    )
-                ):
-                    active_hybrid_target = (
-                        hybrid_target_soc
-                        or HYBRID_DEFAULT_TARGET_SOC
-                    )
-                    log(
-                        "Hybrid target reached: "
-                        f"SOC={soc}%, "
-                        f"target={active_hybrid_target:.1f}%. "
-                        "Switching to Grid Hold."
-                    )
-
-                    inverter_controller.enter_hybrid_grid_hold()
-                    publish_controller_state()
-
-                if (
-                    autopilot.is_enabled()
                     and inverter_controller.mode == "panic"
+                    and not panic_evaluation_requested
                     and soc is not None
                     and soc >= panic_target_soc
                 ):
@@ -1810,6 +1326,7 @@ def main():
                 if (
                     autopilot.is_enabled()
                     and inverter_controller.mode == "panic_grid_hold"
+                    and not panic_evaluation_requested
                     and soc is not None
                     and soc < panic_target_soc
                 ):
@@ -1849,6 +1366,15 @@ def main():
                 )
 
         except subprocess.TimeoutExpired:
+            communication_interrupted = True
+            client.publish(
+                INVERTER_AVAILABILITY_TOPIC,
+                "offline",
+                retain=True,
+            )
+            peak_load_guard.evaluate(telemetry_valid=False, telemetry_freshness='stale',
+                                     load_percent=None, load_w=None)
+            publish_peak_load_guard(client, peak_load_guard)
             pv2_telemetry.refresh()
             publish_pv2_telemetry(client, pv2_telemetry)
 
@@ -1871,14 +1397,17 @@ def main():
 
             log("ERROR: mpp-solar timeout")
 
+        except Exception:
+            communication_interrupted = True
             client.publish(
                 INVERTER_AVAILABILITY_TOPIC,
                 "offline",
                 retain=True,
             )
-
-        except Exception:
             pv2_telemetry.refresh()
+            peak_load_guard.evaluate(telemetry_valid=False, telemetry_freshness='stale',
+                                     load_percent=None, load_w=None)
+            publish_peak_load_guard(client, peak_load_guard)
             publish_pv2_telemetry(client, pv2_telemetry)
 
             telemetry_freshness.update_status()
@@ -1900,12 +1429,6 @@ def main():
 
             log("ERROR:")
             log(traceback.format_exc())
-
-            client.publish(
-                INVERTER_AVAILABILITY_TOPIC,
-                "offline",
-                retain=True,
-            )
 
         time.sleep(
             int(options["poll_interval"])

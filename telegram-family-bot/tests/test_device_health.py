@@ -5,9 +5,12 @@ from zoneinfo import ZoneInfo
 
 from app.device_health import (
     DeviceHealthMonitor,
+    acknowledge_health_report,
     doorbell_report_line,
     environment_report_lines,
     parse_environment_sensors,
+    parse_smart_plugs,
+    smart_plug_report_lines,
 )
 
 
@@ -68,20 +71,55 @@ class DeviceHealthTests(unittest.TestCase):
         self.client = FakeClient(self.values)
         self.state = {}
 
-    def test_peer_outlier_requires_persistence_and_basement_is_excluded(self):
+    def test_smart_plugs_report_only_unavailable_unknown_or_missing(self):
+        config = SimpleNamespace(smart_plugs=parse_smart_plugs(
+            "Heat pump 1|switch.hp1;"
+            "Heat pump 2|switch.hp2;"
+            "Boiler|switch.boiler;"
+            "Pump|switch.pump"
+        ))
+        client = FakeClient({
+            "switch.hp1": entity("switch.hp1", "on"),
+            "switch.hp2": entity("switch.hp2", "off"),
+            "switch.boiler": entity("switch.boiler", "unavailable"),
+        })
+
+        self.assertEqual(
+            ["⚠️ Недоступна: Boiler", "⚠️ Недоступна: Pump"],
+            smart_plug_report_lines(config, client),
+        )
+
+    def test_smart_plug_labels_are_escaped_for_telegram_html(self):
+        config = SimpleNamespace(
+            smart_plugs=parse_smart_plugs("Pump <critical>|switch.pump")
+        )
+        self.assertEqual(
+            ["⚠️ Недоступна: Pump &lt;critical&gt;"],
+            smart_plug_report_lines(config, FakeClient({})),
+        )
+
+    def test_each_sensor_uses_only_its_own_previous_day_reading(self):
+        self.state["environment_hourly_snapshots"] = {
+            "2026-08-19T08": {
+                "a": {"temperature": 20, "humidity": 50},
+                "d": {"temperature": 20, "humidity": 80},
+            }
+        }
         self.monitor.observe(self.client, self.state, NOW, force=True)
         self.assertNotIn("a:temperature", self.state["environment_active"])
-        self.assertNotIn("d:temperature", self.state["environment_candidates"])
+        self.assertIn("a:temperature", self.state["environment_candidates"])
+        self.assertIn("d:temperature", self.state["environment_candidates"])
 
         later = NOW + timedelta(minutes=60)
         for item in self.values.values():
             item["last_updated"] = later.isoformat()
         self.monitor.observe(self.client, self.state, later, force=True)
 
-        issue = self.state["environment_active"]["a:temperature"]
-        self.assertEqual("outlier", issue["kind"])
-        self.assertEqual(20, issue["peer"])
-        self.assertEqual(60, issue["duration_minutes"])
+        for key in ("a:temperature", "d:temperature"):
+            issue = self.state["environment_active"][key]
+            self.assertEqual("change", issue["kind"])
+            self.assertEqual(60, issue["duration_minutes"])
+            self.assertNotIn("peer", issue)
 
     def test_unavailable_is_immediate_and_recovery_is_reported(self):
         self.values["sensor.b_humidity"]["state"] = "unavailable"
@@ -97,7 +135,10 @@ class DeviceHealthTests(unittest.TestCase):
         )
         self.monitor.observe(self.client, self.state, recovered, force=True)
         lines = environment_report_lines(self.state, recovered)
-        self.assertTrue(any("Room B" in line and "✅" in line for line in lines))
+        self.assertTrue(any(
+            "✅ Room B: датчик знову передає актуальні дані." == line
+            for line in lines
+        ))
 
     def test_stale_pair_is_not_treated_as_a_numeric_peer(self):
         old = NOW - timedelta(hours=25)
@@ -150,32 +191,57 @@ class DeviceHealthTests(unittest.TestCase):
 
         self.assertNotIn("d:availability", self.state["environment_active"])
 
-    def test_recoveries_are_collapsed_per_sensor_and_name_metrics(self):
+    def test_numeric_changes_do_not_create_recovery_messages(self):
         self.state["environment_recoveries"] = [
-            {"label": "Bathroom", "kind": "outlier", "metric": "temperature"},
-            {"label": "Bathroom", "kind": "outlier", "metric": "humidity"},
-            {"label": "Bathroom", "kind": "outlier", "metric": "temperature"},
-            {"label": "Bathroom", "kind": "outlier", "metric": "humidity"},
+            {"label": "Bathroom", "kind": "change", "metric": "temperature"},
+            {"label": "Bathroom", "kind": "change", "metric": "humidity"},
         ]
-
-        lines = environment_report_lines(self.state, NOW)
-
-        bathroom_lines = [line for line in lines if "Bathroom" in line]
-        self.assertEqual(1, len(bathroom_lines))
-        self.assertIn("відхилення температури", bathroom_lines[0])
-        self.assertIn("відхилення вологості", bathroom_lines[0])
+        self.assertFalse(any(
+            "Bathroom" in line
+            for line in environment_report_lines(self.state, NOW)
+        ))
 
     def test_legacy_recoveries_without_metrics_are_also_collapsed(self):
         self.state["environment_recoveries"] = [
-            {"label": "Bathroom", "kind": "outlier"},
-            {"label": "Bathroom", "kind": "outlier"},
-            {"label": "Bathroom", "kind": "outlier"},
-            {"label": "Bathroom", "kind": "outlier"},
+            {"label": "Bathroom", "kind": "unavailable"},
+            {"label": "Bathroom", "kind": "unavailable"},
         ]
 
         lines = environment_report_lines(self.state, NOW)
 
         self.assertEqual(1, len([line for line in lines if "Bathroom" in line]))
+
+    def test_change_report_shows_values_direction_and_is_acknowledged_once(self):
+        self.state["environment_active"] = {
+            "d:humidity": {
+                "kind": "change",
+                "label": "Basement",
+                "metric": "humidity",
+                "yesterday": 58,
+                "value": 81,
+                "yesterday_deviation": 23,
+            },
+            "a:temperature": {
+                "kind": "change",
+                "label": "Room A",
+                "metric": "temperature",
+                "yesterday": 23,
+                "value": 17,
+                "yesterday_deviation": -6,
+            },
+        }
+        lines = environment_report_lines(self.state, NOW)
+        self.assertTrue(any(
+            "зросла з 58% до 81% (+23 п.п. порівняно з учора)" in line
+            for line in lines
+        ))
+        self.assertTrue(any(
+            "знизилась з 23°C до 17°C (-6°C порівняно з учора)" in line
+            for line in lines
+        ))
+
+        acknowledge_health_report(self.state)
+        self.assertEqual([], environment_report_lines(self.state, NOW))
 
     def test_previous_day_same_hour_detects_basement_change(self):
         self.state["environment_hourly_snapshots"] = {

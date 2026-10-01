@@ -23,6 +23,7 @@ SUB_OPERATING_MODES = {
     "panic",
     "panic_grid_hold",
 }
+GRID_CHARGING_MODES = {"hybrid_charging", "panic"}
 
 
 class GridImportService:
@@ -276,7 +277,8 @@ class GridImportService:
         except Exception as e:
             log(f"Failed to save grid import: {e}")
 
-    def update(self, *, operating_mode, output_power_w, battery_soc, now=None):
+    def update(self, *, operating_mode, output_power_w, battery_soc,
+               grid_available, now=None):
         current_time = self._normalize_time(now or self._now())
 
         if not self._valid_number(output_power_w) or not self._valid_number(
@@ -293,11 +295,16 @@ class GridImportService:
 
         # During startup/transition, do not destroy a persisted active SUB
         # interval until the operating mode is known.
-        if operating_mode in {"unknown", "transitioning"}:
+        if operating_mode in {"unknown", "transitioning"} or grid_available is not True:
             self._check_new_day(current_time, battery_soc, self.sub_active)
             self.current_power_w = 0.0
             self.last_update_monotonic = None
             self.last_update_at = None
+            self.sub_start_soc = battery_soc
+            self.sub_max_soc = battery_soc
+            self.sub_battery_accounted_kwh = 0.0
+            # An outage does not prove that the inverter left SUB. Preserve
+            # the interval, but never integrate energy across the evidence gap.
             return True
 
         if not is_sub:
@@ -320,7 +327,14 @@ class GridImportService:
 
         self.current_power_w = round(output_power_w, 1)
         self._integrate_house_energy(current_time, battery_soc)
-        self._update_battery_energy(battery_soc, current_time)
+        if operating_mode in GRID_CHARGING_MODES:
+            self._update_battery_energy(battery_soc, current_time)
+        else:
+            # OSO hold charges the battery from solar only. Reset the SOC
+            # baseline so that gain during hold is not billed on re-entry.
+            self.sub_start_soc = battery_soc
+            self.sub_max_soc = battery_soc
+            self.sub_battery_accounted_kwh = 0.0
         self._save_if_needed()
         return True
 
@@ -491,6 +505,8 @@ class GridImportService:
 
     def mqtt_values(self):
         month = self.month_to_date()
+        previous_week = self.previous_week()
+        previous_month = self.previous_month()
         return {
             "grid_import_power_estimated": round(self.current_power_w, 0),
             "daily_grid_import_estimated": round(self.daily_energy_kwh, 3),
@@ -516,6 +532,14 @@ class GridImportService:
             "grid_import_normal_month_estimated": round(month["normal_kwh"], 3),
             "grid_import_month_estimated": round(month["total_kwh"], 3),
             "grid_import_cost_month_estimated": round(month["cost_uah"], 2),
+            "grid_import_night_previous_week_estimated": self._mqtt_optional(previous_week.get("night_kwh")),
+            "grid_import_normal_previous_week_estimated": self._mqtt_optional(previous_week.get("normal_kwh")),
+            "grid_import_previous_week_estimated": self._mqtt_optional(previous_week.get("total_kwh")),
+            "grid_import_cost_previous_week_estimated": self._mqtt_optional(previous_week.get("cost_uah")),
+            "grid_import_night_previous_month_estimated": self._mqtt_optional(previous_month.get("night_kwh")),
+            "grid_import_normal_previous_month_estimated": self._mqtt_optional(previous_month.get("normal_kwh")),
+            "grid_import_previous_month_estimated": self._mqtt_optional(previous_month.get("total_kwh")),
+            "grid_import_cost_previous_month_estimated": self._mqtt_optional(previous_month.get("cost_uah")),
             "grid_import_night_price": NIGHT_PRICE_UAH_PER_KWH,
             "grid_import_normal_price": NORMAL_PRICE_UAH_PER_KWH,
         }
@@ -543,6 +567,41 @@ class GridImportService:
             "normal_kwh": normal_kwh,
             "total_kwh": night_kwh + normal_kwh,
             "cost_uah": cost_uah,
+        }
+
+    def previous_week(self):
+        today = datetime.fromisoformat(self.date).date()
+        end = today - timedelta(days=today.weekday() + 1)
+        start = end - timedelta(days=6)
+        return self._completed_period(start, end)
+
+    def previous_month(self):
+        today = datetime.fromisoformat(self.date).date()
+        end = today.replace(day=1) - timedelta(days=1)
+        start = end.replace(day=1)
+        return self._completed_period(start, end)
+
+    def _completed_period(self, start, end):
+        records = []
+        cursor = start
+        while cursor <= end:
+            record = self.daily_tariff_history.get(cursor.isoformat())
+            if not isinstance(record, dict) or not record.get("complete"):
+                return {}
+            records.append(record)
+            cursor += timedelta(days=1)
+        night = sum(self._nonnegative(item.get("night_kwh")) for item in records)
+        normal = sum(self._nonnegative(item.get("normal_kwh")) for item in records)
+        cost = sum(
+            self._nonnegative(item.get("night_cost_uah"))
+            + self._nonnegative(item.get("normal_cost_uah"))
+            for item in records
+        )
+        return {
+            "night_kwh": round(night, 3),
+            "normal_kwh": round(normal, 3),
+            "total_kwh": round(night + normal, 3),
+            "cost_uah": round(cost, 2),
         }
 
     def get_pending_day_finalizations(self):
@@ -696,4 +755,4 @@ class GridImportService:
 
     @staticmethod
     def _mqtt_optional(value):
-        return "unknown" if value is None else round(value, 3)
+        return None if value is None else round(value, 3)

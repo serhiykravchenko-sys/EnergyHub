@@ -66,6 +66,21 @@ class TelemetryValidationTests(unittest.TestCase):
 
         self.assertFalse(state.valid)
 
+    def test_missing_grid_and_negative_required_power_invalidate_control_state(self):
+        service = TelemetryService(FakeMqttClient())
+        sample = {
+            "battery_capacity": 60,
+            "ac_output_active_power": 500,
+            "pv1_charging_power": 700,
+            "ac_input_voltage": 230,
+        }
+        for field, value in (("ac_input_voltage", None),
+                             ("ac_input_voltage", math.nan),
+                             ("ac_output_active_power", -1),
+                             ("pv1_charging_power", -1)):
+            with self.subTest(field=field, value=value):
+                self.assertFalse(service.create_state({**sample, field: value}).valid)
+
     def test_battery_health_reports_non_finite_and_out_of_range_soc(self):
         for value in (math.nan, math.inf, -1, 101):
             with self.subTest(value=value):
