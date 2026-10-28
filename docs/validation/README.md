@@ -1,9 +1,5 @@
-# Release validation
+# Public source validation
 
-[EnergyHub 2.4.12 / Family Assistant 2.4.15 evidence](RELEASE_2.4.12.md)
-distinguishes repository regressions, supplied live observations, routine
-monitoring and remaining installation-specific checks.
-
-Private development review packets, household engineering records and raw
-deployment details are deliberately excluded from public distribution.
-Repository tests are not a guarantee of compatibility with unverified hardware.
+[3.6.37 evidence](RELEASE_3.6.37.md) separates repository checks, supplied startup
+observations and owner-reported monitoring acceptance. Private audit packets and household records
+are deliberately omitted. Do not infer exhaustive safety certification.

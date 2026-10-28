@@ -26,7 +26,7 @@ class ReserveHardeningTests(TestCase):
         self.now += timedelta(hours=1)
         self.update(solar=30, applied_minimum_soc=40)
         state = self.policy.status_attributes()
-        self.assertEqual(40, state["recommended_soc"])
+        self.assertEqual(20, state["recommended_soc"])
         self.assertEqual(20, state["baseline_soc"])
         self.assertEqual(40, state["applied_minimum_soc"])
         self.assertEqual(1, state["solar_forecast_kwh"])
@@ -35,8 +35,8 @@ class ReserveHardeningTests(TestCase):
         self.update()
         self.now += timedelta(days=1)
         self.update(solar=None)
-        self.assertEqual(40, self.policy.status_attributes()["recommended_soc"])
-        self.assertIn("forecast_unknown", self.policy.status_attributes()["evidence_issues"])
+        self.assertEqual(20, self.policy.status_attributes()["recommended_soc"])
+        self.assertNotIn("forecast_unknown", self.policy.status_attributes()["evidence_issues"])
 
     def test_stale_retained_input_rejected(self):
         self.now += timedelta(days=1)
@@ -52,24 +52,24 @@ class ReserveHardeningTests(TestCase):
         self.assertEqual("unknown", state["weather_source_status"])
         self.assertFalse(state["daily_plan_fresh"])
 
-    def test_fresh_clear_source_releases_weather_buffer(self):
+    def test_fresh_clear_source_keeps_allowance_for_the_warning_day(self):
         self.update(solar=30)
         self.policy.update_weather(weather(warning()))
         self.policy.update_weather(weather())
-        self.assertEqual(20, self.policy.status_attributes()["recommended_soc"])
+        self.assertEqual(40, self.policy.status_attributes()["recommended_soc"])
 
     def test_automatic_path_requires_complete_evidence_and_matching_applied_value(self):
         self.update(mode="Automatic", automatic_control_enabled=True)
         state = self.policy.status_attributes()
         self.assertTrue(state["automatic_control_enabled"])
         self.assertTrue(state["automatic_control_available"])
-        self.assertFalse(state["control_applied"])
-        self.update(mode="Automatic", applied_minimum_soc=40)
+        self.assertTrue(state["control_applied"])
+        self.update(mode="Automatic", applied_minimum_soc=20)
         state = self.policy.status_attributes()
         self.assertTrue(state["control_applied"])
-        self.assertTrue(state["applied_change_confirmed"])
+        self.assertFalse(state["applied_change_confirmed"])
         self.assertEqual(20, state["previous_applied_soc"])
-        self.assertTrue(state["applied_change_id"])
+        self.assertFalse(state["applied_change_id"])
 
     def test_pre_five_recovery_captures_and_restart_preserves_plan(self):
         self.now -= timedelta(hours=1)
@@ -101,7 +101,7 @@ class ReserveHardeningTests(TestCase):
         state = self.policy.status_attributes()
         self.assertTrue(state["daily_plan_fresh"])
         self.assertEqual("preliminary", state["forecast_plan_stage"])
-        self.assertEqual(40, state["recommended_soc"])
+        self.assertEqual(20, state["recommended_soc"])
 
         refresh = dict(preliminary, observed_at=self.now.isoformat(),
                        forecast_plan_stage="refresh", applied_minimum_soc=40,
@@ -110,7 +110,7 @@ class ReserveHardeningTests(TestCase):
         state = self.policy.status_attributes()
         self.assertEqual("preliminary", state["forecast_plan_stage"])
         self.assertEqual(4, state["solar_forecast_kwh"])
-        self.assertEqual(40, state["recommended_soc"])
+        self.assertEqual(20, state["recommended_soc"])
 
         self.now = datetime.fromisoformat("2026-09-06T05:00:00+03:00")
         self.policy.update_grid_confidence("normal", self.now)
@@ -140,7 +140,7 @@ class ReserveHardeningTests(TestCase):
         self.policy.update(morning, completed)
         state = self.policy.status_attributes()
         self.assertEqual(4, state["solar_forecast_kwh"])
-        self.assertEqual(40, state["recommended_soc"])
+        self.assertEqual(20, state["recommended_soc"])
         self.assertEqual("morning_unavailable_preliminary_retained",
                          state["forecast_revision_status"])
 
@@ -150,8 +150,8 @@ class ReserveHardeningTests(TestCase):
         payload = daily(solar=30)
         payload.update(date=self.now.date().isoformat(), observed_at=self.now.isoformat())
         self.policy.update(payload, [{"date": "2026-09-05", "kwh": 2, "complete": False}])
-        self.assertEqual(40, self.policy.status_attributes()["recommended_soc"])
-        self.assertIn("consumption_history_incomplete", self.policy.status_attributes()["evidence_issues"])
+        self.assertEqual(20, self.policy.status_attributes()["recommended_soc"])
+        self.assertNotIn("consumption_history_incomplete", self.policy.status_attributes()["evidence_issues"])
 
     def test_final_daily_samples_require_end_of_day_evidence(self):
         service = DailySummaryService.__new__(DailySummaryService)

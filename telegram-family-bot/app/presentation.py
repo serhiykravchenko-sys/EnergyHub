@@ -53,7 +53,7 @@ def strategy_lines(mode, target, *, now, fresh, grid_online):
     if not fresh:
         return [f"⚠️ О {now:%H:%M}: дані про живлення застарілі."]
     if mode == 'solar':
-        return [f"☀️ О {now:%H:%M} будинок у <b>пріоритеті сонця</b>"]
+        return [f"🏠 О {now:%H:%M} будинок працює <b>без допомоги ДТЕК</b>"]
     if mode not in {"hybrid_charging", "hybrid_grid_hold", "panic", "panic_grid_hold"}:
         return lines
     if not grid_online:
@@ -64,23 +64,23 @@ def strategy_lines(mode, target, *, now, fresh, grid_online):
     except (TypeError, ValueError):
         valid = False
     if mode == "hybrid_grid_hold":
-        return [f"🔌 О {now:%H:%M} режим <b>сонце + ДТЕК</b> · батарею заряджає лише сонце"]
+        return [f"🔌 О {now:%H:%M} будинок працює <b>з допомогою ДТЕК</b> · батарею заряджає лише сонце"]
     if mode == "panic_grid_hold":
         if valid and value < 95:
             release = min(100, value + 10)
             return [
-                f"🔌 О {now:%H:%M} режим <b>сонце + ДТЕК</b> · "
-                f"резерв <b>{value:g}%</b> · пріоритет сонця при <b>{release:g}%</b>",
+                f"🔌 О {now:%H:%M} будинок працює <b>з допомогою ДТЕК</b> · "
+                f"повернення до сонця при <b>{release:g}%</b>",
             ]
         if valid:
             return [
-                f"🔌 О {now:%H:%M} будинок живиться від <b>ДТЕК</b>",
-                "EnergyHub зберігає резерв <b>95%</b>; повернення до пріоритету сонця "
+                f"🔌 О {now:%H:%M} будинок працює <b>з допомогою ДТЕК</b>",
+                "EnergyHub зберігає резерв <b>95%</b>; повернення до сонця "
                 "очікує зниження вибраного резерву.",
             ]
-        return [f"🔌 О {now:%H:%M} будинок живиться від <b>ДТЕК</b> · резерв невідомий"]
+        return [f"🔌 О {now:%H:%M} будинок працює <b>з допомогою ДТЕК</b> · резерв невідомий"]
     goal = f" до <b>{value:g}%</b>" if valid else " (ціль недоступна)"
     return [
-        f"⚡ О {now:%H:%M} будинок живиться від <b>ДТЕК</b> · "
+        f"⚡ О {now:%H:%M} будинок працює <b>з допомогою ДТЕК</b> · "
         f"заряджання батареї{goal} · {tariff_label(now)}"
     ]

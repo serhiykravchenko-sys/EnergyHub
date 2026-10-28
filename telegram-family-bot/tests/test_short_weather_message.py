@@ -4,6 +4,7 @@ from app.events import weather_warning_message
 
 class ShortWeatherMessageTests(TestCase):
     event = dict(severity=1, hazards=["strong_wind", "thunderstorm"],
+                 grid_relevant=True, valid_until='2026-09-24T23:59:59+03:00',
                  url="https://t.me/uhmc1921/5995", summary=(
                      "Попередження про небезпечні метеорологічні явища\n\n"
                      "До кінця доби значні дощі.\n\n"
@@ -56,7 +57,7 @@ class ShortWeatherMessageTests(TestCase):
 
     def test_recommendation_does_not_claim_action_or_stack_on_manual(self):
         message = weather_warning_message(dict(self.event, severity=2),
-                                         self.reserve(recommended_soc=40))
+                                         self.reserve(recommended_soc=40, weather_modifier_percent=20))
         self.assertIn("рекомендовано вручну 40%", message)
         message = weather_warning_message(
             dict(self.event, severity=2),

@@ -2,14 +2,14 @@
 from datetime import datetime, timedelta
 from math import isfinite
 import logging
+from html import escape
 from .home_assistant import HomeAssistantError
 from .control_notifications import control_view
 
 LABELS = {'ha':'Home Assistant', 'inverter':'інвертора', 'pv2':'сонячної генерації PV2',
-          'bridge':'зв’язку із захистом навантаження', 'weather':'УГМЦ',
-          'zigbee':'Zigbee2MQTT',
+          'bridge':'зв’язку з керуванням ТН 1-го поверху', 'weather':'УГМЦ',
           'forecast':'прогнозу генерації', 'reserve':'розрахунку запасу батареї',
-          'control':'стану автозахисту'}
+          'control':'стану HA-захисту від перевантаження'}
 LOGGER = logging.getLogger(__name__)
 DEVICES = {'water_pump':'насоса','water_boiler':'бойлера','heat_pump_floor_1':'теплового насоса 1-го поверху',
            'heat_pump_floor_2':'теплового насоса 2-го поверху','heat_pump_floor_3':'теплового насоса 3-го поверху',
@@ -18,11 +18,13 @@ LABELS.update({'load_'+k:'споживання '+v for k,v in DEVICES.items()})
 
 
 def alert_after(key):
-    if key == 'zigbee':
-        return 120
     if key in ('inverter', 'bridge'):
         return 300
     return 180
+
+
+def label(state, key):
+    return escape(state.get('data_source_labels', {}).get(key, LABELS.get(key, 'джерела даних')))
 
 
 def numeric(value):
@@ -61,29 +63,12 @@ def collect(client, config, state, now):
         # outage while remaining shorter than the three-minute alert window.
         bridge_ok = fresh(attrs.get('load_snapshot_at'), now, 90)
         health['bridge'] = bridge_ok
-        zigbee = entity('binary_sensor.zigbee2mqtt_bridge_connection_state')
-        if zigbee or state.get('data_zigbee_seen'):
-            state['data_zigbee_seen'] = True
-            health['zigbee'] = zigbee.get('state') == 'on'
-        if bridge_ok and health['inverter']:
+        # Native overload readiness is independent of the HP-only bridge.
+        if health['inverter']:
             requested = entity('input_boolean.energyhub_load_control_armed').get('state')
             health['control'] = requested == 'off' or (requested == 'on' and control_view(client,'overload',now) == 'ready')
-        if bridge_ok:
-            rows = {x.get('key'):x for x in (attrs.get('participants') or []) if isinstance(x,dict)}
-            for key in DEVICES:
-                row = rows.get(key,{})
-                if key in ('heat_pump_floor_1', 'heat_pump_floor_2') and health.get('zigbee') is False:
-                    health['load_'+key] = None
-                else:
-                    health['load_'+key] = (
-                        row.get('availability') in ('online', 'not_applicable')
-                        and row.get('state') in ('on','off')
-                        and numeric(row.get('power_w')) and float(row['power_w']) >= 0
-                    )
-        else:
-            # A parent bridge outage is not evidence that every child device
-            # failed. Pause child attribution until the bridge is observable.
-            health.update({'load_'+key: None for key in DEVICES})
+        # Migrated plugs are absent from the HP-only participant snapshot.
+        # Their connectivity belongs to configured household device monitoring.
         forecast = entity(config.solar_forecast_entity)
         health['forecast'] = numeric(forecast.get('state')) and float(forecast['state']) >= 0
         reserve = entity(config.weather_buffer_entity)
@@ -114,14 +99,26 @@ def observe(state, health, now):
     records = state.setdefault('data_incidents', {})
     history = state.setdefault('data_incident_history', [])
     stamp = now.timestamp()
+    if health.get('ha') is False:
+        health = {**{key: None for key in records if key != 'ha'}, **health}
     for key, good in health.items():
         record = records.get(key)
+        if key.startswith('device:') and record is not None and stamp-record.get('last_seen', stamp) > 90:
+            # Missing observation across bot/HA downtime cannot count towards
+            # either continuous unavailability or stable recovery.
+            if record['bad_since'] is not None:
+                right = record.get('last_seen', stamp)
+                if right > record['bad_since']:
+                    record['intervals'].append([record['bad_since'], right])
+            record['bad_since'] = None
+            record['recovered_since'] = None
         if good is None:
             if record is not None and record['bad_since'] is not None:
                 right = min(stamp, record.get('last_seen', stamp) + 90)
                 if right > record['bad_since']:
                     record['intervals'].append([record['bad_since'], right])
                 record['bad_since'] = None
+            if record is not None:
                 record['recovered_since'] = None
             continue
         if not good:
@@ -158,6 +155,10 @@ def deliver(state, telegram, config, now, client):
 Only confirmed Telegram delivery marks warned. A crash after send before save
 may duplicate a notification; there is no exactly-once Telegram API contract.
 """
+    from .message_schedule import quiet_phase
+    destination = getattr(config, 'technical_chat_id', '') or config.destination_chat_id
+    if destination == config.destination_chat_id and quiet_phase(now, config) is not None:
+        return False
     stamp = now.timestamp()
     records = state.setdefault('data_incidents',{})
     current = lambda r: 0 <= stamp-r.get('last_seen',0) <= 90
@@ -165,7 +166,7 @@ may duplicate a notification; there is no exactly-once Telegram API contract.
                and r['bad_since'] is not None
                and stamp-r['bad_since'] >= alert_after(k)]
     if warning:
-        labels = ', '.join(f"{LABELS.get(k,'джерела даних')} (>{alert_after(k)//60} хв)"
+        labels = ', '.join(f"{label(state,k)} (>{alert_after(k)//60} хв)"
                            for k in warning)
         if any(k in ('ha', 'inverter', 'bridge') for k in warning):
             tail = 'Спільні дані не підтверджені; нові команди EH можуть бути призупинені. Перевірте панель EH.'
@@ -176,33 +177,35 @@ may duplicate a notification; there is no exactly-once Telegram API contract.
         else:
             tail = 'Оцінки EH обмежені; перевірте джерела даних.'
         technical_chat = getattr(config, 'technical_chat_id', '') or config.destination_chat_id
-        telegram.send_message(technical_chat,
+        message_id = telegram.send_message(technical_chat,
             f'⚠️ EH: дані недоступні: {labels}. {tail}')
         for k in warning:
             records[k]['warned']=True
-        LOGGER.info('Data warning delivered: sources=%s',','.join(warning))
+        LOGGER.info('Data warning delivered: sources=%s message_id=%s',','.join(warning),message_id)
     recovered = [k for k,r in records.items() if current(r) and r['warned'] and r['bad_since'] is None
                  and r['recovered_since'] is not None and stamp-r['recovered_since'] >= 300]
     if recovered:
-        # A current read is required before claiming anything about control.
-        try:
-            status = control_view(client,'overload',now)
-        except (HomeAssistantError,OSError):
-            return bool(warning)
-        affects_control = any(k in ('ha','inverter','bridge','control')
-                              or k.startswith('load_') for k in recovered)
-        suffix = ({'ready':'Захист від перевантаження знову готовий.',
-                   'off':'Автозахист вимкнений вручну; налаштування не змінено.',
-                   'blocked':'Автозахист поки обмежений; перевірте панель EH.'}.get(status,
-                   'Готовність автокерування ще не підтверджена.')
-                  if affects_control else 'Стан джерела знову стабільний.')
+        affects_control = any(k in ('ha', 'inverter', 'control') for k in recovered)
+        suffix = 'Стан джерела знову стабільний.'
+        if affects_control:
+            # Read native readiness only when reporting its dependencies.
+            try:
+                status = control_view(client, 'overload', now)
+            except (HomeAssistantError, OSError):
+                return bool(warning)
+            suffix = {'ready': 'HA-захист від перевантаження знову готовий.',
+                      'off': 'Автозахист вимкнений вручну; налаштування не змінено.',
+                      'blocked': 'Автозахист поки обмежений; перевірте панель EH.'}.get(
+                          status, 'Готовність автокерування ще не підтверджена.')
+        elif 'bridge' in recovered:
+            suffix = 'Зв’язок із керуванням ТН відновлено; це не підтвердження роботи насоса.'
         technical_chat = getattr(config, 'technical_chat_id', '') or config.destination_chat_id
-        telegram.send_message(technical_chat,
-            '✅ Дані '+', '.join(LABELS.get(k,'джерела даних') for k in recovered)+
+        message_id = telegram.send_message(technical_chat,
+            '✅ Дані '+', '.join(label(state,k) for k in recovered)+
             ' відновлено (стабільні 5 хв). '+suffix)
         for key in recovered:
             state.setdefault('data_incident_history',[]).append(dict(records.pop(key),key=key,end=stamp))
-        LOGGER.info('Data recovery delivered after stable window: sources=%s',','.join(recovered))
+        LOGGER.info('Data recovery delivered after stable window: sources=%s message_id=%s',','.join(recovered),message_id)
     return bool(warning or recovered)
 
 
@@ -221,7 +224,7 @@ def morning_lines(state, now):
             if clipped[1] > clipped[0]:
                 groups.setdefault(r['key'],[]).append(clipped)
     thresholds = {
-        'ha': (120, 300), 'zigbee': (120, 300), 'bridge': (300, 600),
+        'ha': (120, 300), 'bridge': (300, 600),
         'inverter': (300, 600),
     }
     lines=[]
@@ -240,6 +243,6 @@ def morning_lines(state, now):
             continue
         active = state.get('data_incidents',{}).get(key)
         status = 'дані ще недоступні' if active and active['bad_since'] is not None else 'перебій завершився'
-        lines.append(f'📡 За 24 год, дані {LABELS.get(key,"джерела")}: перебоїв — {len(durations)}; '
+        lines.append(f'📡 За 24 год, дані {label(state,key)}: перебоїв — {len(durations)}; '
                      f'разом {sum(durations)/60:.0f} хв, найдовший {max(durations)/60:.0f} хв; {status}.')
     return lines[:4] + ([f'📡 Ще джерел із перебоями: {len(lines)-4}. Подробиці — у журналі.'] if len(lines)>4 else [])

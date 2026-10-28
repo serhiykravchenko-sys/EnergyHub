@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 from datetime import datetime, time as datetime_time, timedelta
@@ -11,7 +12,7 @@ from app.utils.logger import log
 
 GRID_IMPORT_FILE = Path("/data/grid_import.json")
 SCHEMA_VERSION = 3
-BATTERY_CAPACITY_KWH = 16.0
+
 PERSIST_INTERVAL_SECONDS = 60
 HISTORY_RETENTION_DAYS = 400
 NIGHT_PRICE_UAH_PER_KWH = 2.5
@@ -59,6 +60,8 @@ class GridImportService:
         self.daily_tariff_history = {}
         self.tariff_accounting_started_at = now.isoformat()
 
+        self.capacity_kwh = None
+        self.sub_capacity_kwh = None
         self.sub_active = False
         self.sub_start_soc = None
         self.sub_max_soc = None
@@ -194,6 +197,7 @@ class GridImportService:
             )
             self.sub_active = bool(data.get("sub_active", False))
             self.sub_start_soc = self._optional_float(data.get("sub_start_soc"))
+            self.sub_capacity_kwh = self._optional_float(data.get("sub_capacity_kwh"))
             self.sub_max_soc = self._optional_float(data.get("sub_max_soc"))
             self.sub_battery_accounted_kwh = self._nonnegative(
                 data.get("sub_battery_accounted_kwh", 0.0)
@@ -227,6 +231,7 @@ class GridImportService:
             setattr(self, name, self._nonnegative(data.get(name, 0.0)))
         self.sub_active = bool(data.get("sub_active", False))
         self.sub_start_soc = self._optional_float(data.get("sub_start_soc"))
+        self.sub_capacity_kwh = self._optional_float(data.get("sub_capacity_kwh"))
         self.sub_max_soc = self._optional_float(data.get("sub_max_soc"))
         self.sub_battery_accounted_kwh = self._nonnegative(
             data.get("sub_battery_accounted_kwh", 0.0)
@@ -260,6 +265,7 @@ class GridImportService:
             "daily_tariff_history": self.daily_tariff_history,
             "sub_active": self.sub_active,
             "sub_start_soc": self.sub_start_soc,
+            "sub_capacity_kwh": self.sub_capacity_kwh,
             "sub_max_soc": self.sub_max_soc,
             "sub_battery_accounted_kwh": round(
                 self.sub_battery_accounted_kwh, 6
@@ -339,6 +345,7 @@ class GridImportService:
         return True
 
     def _start_sub_interval(self, battery_soc, current_time=None):
+        self.sub_capacity_kwh = self.capacity_kwh
         self.sub_active = True
         self.sub_start_soc = battery_soc
         self.sub_max_soc = battery_soc
@@ -349,12 +356,21 @@ class GridImportService:
         self.save()
 
     def _stop_sub_interval(self):
+        self.sub_capacity_kwh = None
         self.sub_active = False
         self.sub_start_soc = None
         self.sub_max_soc = None
         self.sub_battery_accounted_kwh = 0.0
         self.last_update_monotonic = None
         self.last_update_at = None
+
+    def set_capacity(self, value):
+        # Active sessions keep their original conversion; edits affect new ones.
+        try:
+            value = float(value)
+            self.capacity_kwh = value if math.isfinite(value) and 1 <= value <= 1000 else None
+        except (ValueError, TypeError):
+            self.capacity_kwh = None
 
     def _update_battery_energy(self, battery_soc, current_time):
         if self.sub_start_soc is None:
@@ -363,7 +379,9 @@ class GridImportService:
             self.sub_max_soc = battery_soc
 
         soc_gain = max(0.0, self.sub_max_soc - self.sub_start_soc)
-        interval_battery_energy_kwh = BATTERY_CAPACITY_KWH * soc_gain / 100.0
+        if self.sub_capacity_kwh is None:
+            return
+        interval_battery_energy_kwh = self.sub_capacity_kwh * soc_gain / 100.0
         new_battery_energy_kwh = max(
             0.0,
             interval_battery_energy_kwh - self.sub_battery_accounted_kwh,
@@ -446,6 +464,7 @@ class GridImportService:
         self._reset_today()
         if is_sub:
             self.current_power_w = active_power_w
+            self.sub_capacity_kwh = self.capacity_kwh
             self.sub_active = True
             self.sub_start_soc = battery_soc
             self.sub_max_soc = battery_soc
@@ -486,6 +505,7 @@ class GridImportService:
         self.normal_battery_energy_kwh = 0.0
         self.night_cost_uah = 0.0
         self.normal_cost_uah = 0.0
+        self.sub_capacity_kwh = None
         self.sub_active = False
         self.sub_start_soc = None
         self.sub_max_soc = None

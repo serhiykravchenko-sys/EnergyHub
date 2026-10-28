@@ -198,7 +198,7 @@ class ReportTests(unittest.TestCase):
             battery_charge_current_a=30, battery_efficiency=0.9,
             house_reference_current_a=16,
         )
-        self.assertTrue(any("підтримки від ДТЕК" in line for line in support))
+        self.assertTrue(any("Допомога від ДТЕК" in line for line in support))
         self.assertFalse(any("електромобіля" in line for line in support))
 
         surplus = morning_energy_lines(
@@ -473,25 +473,48 @@ class ReportTests(unittest.TestCase):
             "kind": "grid_hold_started",
             "created_at": "2026-09-14T00:50:00+03:00",
             "message": "long live message",
+            "soc": 20,
             "reserve_soc": 20,
             "release_soc": 30,
         }, {
             "kind": "grid_hold_released",
             "created_at": "2026-09-14T07:15:00+03:00",
+            "soc": 35,
             "release_soc": 30,
         }]
         lines = overnight_family_event_lines(events)
         self.assertEqual(2, len(lines))
         self.assertIn("00:50", lines[0])
         self.assertIn("20%", lines[0])
-        self.assertIn("30%", lines[1])
-        self.assertIn("пріоритету сонця", lines[1])
+        self.assertIn("35%", lines[1])
+        self.assertNotIn("30%", lines[1])
+        self.assertIn("працює без допомоги ДТЕК", lines[1])
 
     def test_overnight_reserve_change_preserves_reason(self):
         events = [{"kind": "battery_reserve_applied",
                    "created_at": "2026-09-25T23:52:00+03:00",
                    "message": "🔋 Мін. заряд: <b>20% → 40%</b> — прогноз генерації нижчий за споживання."}]
         self.assertIn("прогноз генерації нижчий", overnight_family_event_lines(events)[0])
+
+    def test_overnight_unknown_soc_does_not_substitute_reserve(self):
+        lines = overnight_family_event_lines([dict(kind='grid_hold_started',
+            created_at='2026-10-04T01:30:00+03:00', reserve_soc=20)])
+        self.assertEqual('🔌 01:30 — будинок працює з допомогою ДТЕК', lines[0])
+
+    def test_repeated_profiles_are_condensed_without_losing_grid_event(self):
+        events = [dict(kind='dashboard_control_' + profile,
+                       created_at='2026-10-05T01:30:00+03:00', message='profile toggle')
+                  for profile in ('quiet', 'eco') for _ in range(4)]
+        events.append(dict(kind='grid_hold_started',
+                           created_at='2026-10-05T01:41:00+03:00', soc=20))
+        lines = overnight_family_event_lines(events)
+        self.assertEqual(1, len(lines))
+        self.assertIn('🔌 01:41 — заряд батареї 20%; будинок працює з допомогою ДТЕК', lines[0])
+
+    def test_legacy_heating_status_archives_are_not_replayed(self):
+        lines = overnight_family_event_lines([dict(kind='dashboard_control_smart_status',
+            created_at='2026-10-04T01:30:00+03:00', message='Normal')])
+        self.assertEqual([], lines)
 
     def test_overnight_inverter_fault_uses_current_mode_not_archived_instruction(self):
         events = [{"kind": "technical_inverter_strategy_fault",

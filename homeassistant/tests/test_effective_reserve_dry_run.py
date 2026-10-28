@@ -1,5 +1,6 @@
 from pathlib import Path
 import unittest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,7 +16,8 @@ class EffectiveReserveDryRunTests(unittest.TestCase):
             ROOT / "homeassistant/live/config/automations.yaml"
         ).read_text(encoding="utf-8")
         start = automations.index("- id: '1786023000017'")
-        cls.reserve_automation = automations[start:]
+        cls.reserve_automation = automations[start:].split("\n- id:",1)[0]
+        cls.parsed_reserve = yaml.safe_load(cls.reserve_automation)[0]
         cls.all_automations = automations
 
     def test_authority_exposes_manual_and_automatic(self):
@@ -27,8 +29,9 @@ class EffectiveReserveDryRunTests(unittest.TestCase):
     def test_daily_input_and_separate_guarded_apply_path(self):
         self.assertIn("at: '23:49:00'", self.all_automations)
         self.assertIn("at: '23:51:00'", self.all_automations)
-        self.assertIn("at: '23:52:00'", self.reserve_automation)
-        self.assertIn("at: '05:00:00'", self.reserve_automation)
+        times={str(t.get('at')) for t in self.parsed_reserve['triggers'] if t.get('trigger')=='time'}
+        self.assertIn('23:52:00',times)
+        self.assertIn('05:00:00',times)
         self.assertIn("sensor.solcast_pv_forecast_forecast_today", self.reserve_automation)
         self.assertIn("sensor.solcast_pv_forecast_forecast_tomorrow", self.reserve_automation)
         self.assertIn("'forecast_plan_stage': plan_stage", self.reserve_automation)
@@ -61,7 +64,8 @@ class EffectiveReserveDryRunTests(unittest.TestCase):
 
     def test_only_manual_setting_is_published(self):
         self.assertNotIn("energyhub_battery_reserve_baseline:", self.configuration)
-        self.assertIn("'applied_minimum_soc': states('input_number.ahm_minimum_soc')", self.reserve_automation)
+        payload=next(a['data']['payload'] for a in self.parsed_reserve['actions'] if a.get('action')=='mqtt.publish')
+        self.assertIn("'applied_minimum_soc': states('input_number.ahm_minimum_soc')", payload)
         self.assertNotIn("'baseline_soc':", self.reserve_automation)
 
     def test_auto_indicator_toggles_only_the_authority(self):
@@ -131,7 +135,7 @@ class EffectiveReserveDryRunTests(unittest.TestCase):
 
         visible_mode_cards = [node for node in nodes
                               if node.get("type") == "markdown"
-                              and "Applied Battery Reserve:" in node.get("content", "")]
+                              and "**Резерв батареї:**" in node.get("content", "")]
         self.assertGreaterEqual(len(visible_mode_cards), 1)
         self.assertTrue(all("Low-tariff window" not in node["content"]
                             for node in visible_mode_cards))

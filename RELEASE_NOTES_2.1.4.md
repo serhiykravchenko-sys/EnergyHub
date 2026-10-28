@@ -44,4 +44,4 @@ Do not deliberately discharge or cycle equipment to test. Existing queued Telegr
 messages retain their already-rendered text; newly generated warnings use the
 short format. Monitoring and live behavior are not proven by repository tests.
 
-Validation (private development record)
+Validation (historical reference: docs/validation/ENERGYHUB_2.1.4_PRIVATE_CANDIDATE.md)

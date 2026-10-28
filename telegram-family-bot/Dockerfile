@@ -10,7 +10,7 @@ LABEL \
     io.hass.type="app" \
     io.hass.arch="${BUILD_ARCH}"
 
-RUN apk add --no-cache bash ca-certificates tzdata
+RUN apk add --no-cache bash ca-certificates tzdata tesseract-ocr tesseract-ocr-data-ukr tesseract-ocr-data-eng
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt

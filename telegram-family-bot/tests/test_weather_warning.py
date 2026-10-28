@@ -22,6 +22,40 @@ def post(text: str, message_id: int = 1, published_at: datetime = NOW) -> Source
 
 
 class WeatherWarningTests(unittest.TestCase):
+    def test_uhmc_6075_ground_frost_is_recognized_with_two_day_validity(self):
+        warning = normalize_warning(post(
+            '‼️Попередження про небезпечні метеорологічні явища по території Київщини‼️\n'
+            'Вночі 03-04 жовтня заморозки на поверхні грунту 0-3°\n'
+            'І рівень небезпечності, жовтий🟡\n'
+            'Погодні умови можуть принести шкоду для незібраної городини🌾',
+            6075, datetime(2026, 10, 2, 11, 5, 52, tzinfo=timezone.utc)))
+        self.assertEqual(1, warning['severity'])
+        self.assertEqual(['frost'], warning['hazards'])
+        self.assertFalse(warning['grid_relevant'])
+        zone = ZoneInfo('Europe/Kyiv')
+        self.assertEqual('2026-10-03', datetime.fromisoformat(warning['valid_from']).astimezone(zone).date().isoformat())
+        self.assertEqual('2026-10-04', datetime.fromisoformat(warning['valid_until']).astimezone(zone).date().isoformat())
+
+    def test_frost_with_wind_keeps_grid_relevance(self):
+        warning = normalize_warning(post('Попередження у Києві: заморозки та сильний вітер. II рівень небезпечності.'))
+        self.assertEqual(['frost', 'strong_wind'], warning['hazards'])
+        self.assertTrue(warning['grid_relevant'])
+
+    def test_frost_snapshot_and_telegram_observer_keep_level_one(self):
+        from types import SimpleNamespace
+        from app.main import observe_weather_warnings
+        text = 'Попередження на Київщині: 03-04 жовтня заморозки. І рівень небезпечності.'
+        now = datetime(2026, 10, 3, 12, tzinfo=ZoneInfo('Europe/Kyiv'))
+        snapshot = build_warning_snapshot([post(text, 6075, now)], now)
+        self.assertEqual('fresh', snapshot['source_status'])
+        self.assertEqual(1, len(snapshot['warnings']))
+        client = SimpleNamespace(state=lambda key: {'attributes': {'weather_source_warnings': snapshot['warnings']}})
+        state = {}
+        observe_weather_warnings(SimpleNamespace(weather_buffer_entity='weather'), client, state, now)
+        self.assertEqual(1, len(state['pending_notifications']))
+        self.assertIn('заморозки', state['pending_notifications'][0]['message'])
+        self.assertFalse(observe_weather_warnings(SimpleNamespace(weather_buffer_entity='weather'), client, state, now))
+
     def test_new_combined_warning_replaces_wind_and_keeps_evidence(self):
         wind = post("Попередження. 5 вересня у Києві сильний вітер. I рівень небезпечності.", 10)
         combined = post("Попередження. 5 вересня у Києві сильний вітер та гроза. I рівень небезпечності.", 11)
@@ -73,10 +107,49 @@ class WeatherWarningTests(unittest.TestCase):
         self.assertTrue(warning["region_match"])
         self.assertTrue(warning["grid_relevant"])
 
-    def test_fog_heat_and_other_region_are_excluded(self):
-        self.assertIsNone(normalize_warning(post("Попередження. У Київській області туман. II рівень небезпечності.")))
-        self.assertIsNone(normalize_warning(post("Попередження. У Києві спека. II рівень небезпечності.")))
+    def test_fog_and_heat_are_reportable_without_grid_risk_other_region_excluded(self):
+        for text in ('У Київській області туман.', 'У Києві спека.'):
+            warning = normalize_warning(post('Попередження. '+text+' II рівень небезпечності.'))
+            self.assertIsNotNone(warning)
+            self.assertFalse(warning['grid_relevant'])
         self.assertIsNone(normalize_warning(post("Попередження. У Львівській області гроза. II рівень небезпечності.")))
+
+    def test_all_three_levels_of_unclassified_warning_are_sent_and_have_expiry(self):
+        from types import SimpleNamespace
+        from app.main import observe_weather_warnings
+        now = datetime(2026, 9, 5, 12, tzinfo=ZoneInfo('Europe/Kyiv'))
+        for severity in (1, 2, 3):
+            with self.subTest(severity=severity):
+                warning = normalize_warning(post(f'Попередження для Києва: небезпечне погодне явище. {severity} рівень небезпечності.', published_at=now))
+                self.assertEqual(['other'], warning['hazards'])
+                self.assertFalse(warning['grid_relevant'])
+                self.assertEqual(timedelta(hours=12), datetime.fromisoformat(warning['valid_until'])-now)
+                state = {}
+                client = SimpleNamespace(state=lambda key: {'attributes': {'weather_source_warnings': [warning]}})
+                observe_weather_warnings(SimpleNamespace(weather_buffer_entity='weather'), client, state, now)
+                self.assertEqual(1, len(state['pending_notifications']))
+
+    def test_regional_level_two_fog_includes_confirmed_daily_weather_allowance(self):
+        from app.events import weather_warning_message
+        event = normalize_warning(post('Попередження для Києва: туман. II рівень небезпечності.'))
+        reserve = dict(applied_minimum_soc=40, recommended_soc=40, daily_plan_fresh=True,
+                       weather_source_status='fresh', grid_confidence='normal',
+                       weather_modifier_percent=20, management_mode='automatic', control_applied=True)
+        message = weather_warning_message(event, reserve)
+        self.assertIn('ІІ рівень', message)
+        self.assertIn('Надбавка діє протягом дня', message)
+        self.assertIn('Погодний резерв +20%', message)
+        self.assertIn('EH встановив', message)
+
+    def test_grid_warning_without_active_allowance_does_not_claim_increase(self):
+        from app.events import weather_warning_message
+        event = normalize_warning(post('Попередження для Києва: сильний вітер. II рівень небезпечності.'))
+        reserve = dict(applied_minimum_soc=20, recommended_soc=40, daily_plan_fresh=True,
+                       weather_source_status='fresh', grid_confidence='normal',
+                       weather_modifier_percent=0, management_mode='automatic', control_applied=True)
+        message = weather_warning_message(event, reserve)
+        self.assertNotIn('Погодний резерв +20%', message)
+        self.assertIn('не застосовується', message)
 
     def test_missing_validity_uses_twelve_hour_ttl(self):
         warning = normalize_warning(

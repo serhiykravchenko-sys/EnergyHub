@@ -1,6 +1,410 @@
 # Changelog
 
+## 3.6.37
+
+Remove repetitive participant packet logs, including the misleading invalid-packet
+message for an unchanged/older snapshot. First-floor HP decisions, faults, MQTT
+publication, installed identities and inverter control are unchanged.
+
+## 3.6.36
+
+Align the coordinated private release version with Family/dashboard refinements.
+EH runtime code, inverter/HP control and native protection rules are unchanged.
+
+
+## 3.6.35
+
+Bounded dated daily forecast attributes support weekly/monthly reports. HP1-only bridge inputs retain old six-row/manual-intent and ownership-journal compatibility; action authority remains HP1 only. Battery warnings include the configured OFF threshold. No inverter control policy change.
+
+
+## 3.6.33 — native overload handover
+
+- Correct absolute-time ordering of hourly forecasts across repeated DST hours; add forecast rejection/coverage evidence.
+
+Remove Python overload dispatch; retain HP1-only acknowledged battery commands. Night holding uses the calculated deficit target, with separately persisted selected-owner charging observations. Repository preparation only.
+
+## 3.6.30 — artifact audit patch (October 23, 2026)
+
+- Add regression coverage for BR 70%, SOC 65%, grid absent and normal load:
+  no battery command or discharge warning. Controller runtime is unchanged.
+- Coordinate version with Family's unused legacy formatter cleanup. Existing
+  first-floor climate and overload control remain until their separate migrations.
+
+## 3.6.27 — private candidate (October 23, 2026)
+
+- Move selected plug battery control to one native HA strict <40% OFF / >50%
+  ON rule and direct Mission Control automation toggle; OFF applies only without
+  confirmed grid, and grid return permits restoration even below recovery SOC.
+- Retire migrated-plug battery dispatch, obsolete lockouts, duplicated warnings and
+  floor-2/floor-3 plug timers; preserve overload and first-floor climate behavior.
+- Consolidate daily energy information into the second morning message; keep
+  historical/freshness evidence, weekly forecast quality and compact normal CO.
+- Show five days of forecast with verified point-centered dates and automatic
+  Y maximum. Preparation only; no live deployment or publication.
+
+## 3.6.26
+
+- Coordinate with the messaging-interface/chart release. Controller runtime code
+  is unchanged from 3.6.25; no new inverter or appliance control behavior.
+
+## 3.6.25 — private candidate (October 21, 2026)
+
+- Retire custom fridge execution/status code; preserve the homeowner's native
+  20/30 automations and five-minute minimum OFF rule without ownership helpers.
+- Use complete rolling-hour house load for preparation solar surplus, with
+  conservative fallback and unchanged outage coverage demand. Explain gross
+  solar, household use and grid battery energy before the charging deadline.
+- Repair completed-night reporting, show consumption/night arithmetic in the
+  first morning message and report observed SOC rather than release thresholds.
+- Suppress unchanged/expired regional notices; validate household district and
+  cancellation provenance; omit finished schedule intervals.
+- Center all seven forecast dates; add confirmed live grid status and rename
+  retained automation aliases without release numbers. Preserve helper values.
+- Prepared locally only; native control handover and live HA/add-on deployment
+  remain separate approval and validation steps. No public promotion.
+
+## 3.6.24 — private candidate (October 20, 2026)
+
+- Release acquired scheduled grid hold when current SOC covers remaining
+  conservative demand plus active BR and a five-point margin; retain qualified
+  control/persistence guards and reassess extensions or changed reserve.
+- Shorten charging/restoration notices and suppress routine online window-entry
+  messages. Preserve actual outages and justified charging/completion notices.
+- Remove custom Zigbee plug/hub diagnostics, obsolete options and persisted
+  diagnostic state; preserve functional control checks and real CO alarms.
+- Read yesterday's HA daily energy-change statistics, exactly as the HP
+  chart does; hide valid usage <=0.1 kWh and keep missing data explicit.
+- Show CO's last valid dated reading beyond 24 hours and add tomorrow/day-after
+  solar outlook. Prepare a separate seven-day orange forecast/blue consumption
+  chart without changing existing charts or charging policy.
+
+## 3.6.23 — private candidate (October 19, 2026)
+
+- Add a persisted 23:50–07:00 night-deficit owner, 05:00 reassessment, three-day
+  consumption mean, dated solar totals, two fallback nights then skip, dynamic
+  shared BR/capacity and 95% cap. Retain acquired intent across supply/data gaps.
+- Use the maximum applicable night/scheduled target through the existing queue;
+  release only night ownership at 07:00. Preserve acquired active-window targets
+  until window expiry; do not reduce them solely as remaining duration shrinks.
+- Remove the fixed forecast-deficit BR allowance; keep zero compatibility
+  attribute. Manual Panic and qualified supply/automatic/persistence guards remain.
+
+## 3.6.22 — prepared privately (October 17, 2026)
+
+- Cap waiting depletion at energy above BR; ordinary reserve support handles
+  the floor instead of prematurely acquiring a scheduled full-charge target.
+- Persist authorized preparation start; revalidate legacy future ownership only
+  with fresh automatic/online evidence and persist handback before releasing.
+- Retain genuine ownership and current-outage/manual guards; explicitly release
+  solar-plan ownership. Expand relevant planning diagnostics. All 361 tests pass.
+
+## 3.6.21 — prepared privately (October 17, 2026)
+
+- Persist the confirmed grid episode in the existing grid-instability journal.
+  Requalify for 180 seconds after restart while retaining the same episode ID;
+  a confirmed return/loss creates a new ID. Publish persistence confirmation.
+- A failed new-episode journal write does not grant durable Eco authority.
+  Raw grid detection and three-minute qualification remain unchanged.
+- Pair with the reviewed HA Eco budget/status fix and Family district/message
+  correction. All 353 Energy Hub regression tests pass; no live validation.
+
+## 3.6.20 — prepared privately (October 17, 2026)
+
+- Check a rolling hour of net battery flow on each normal tick. Advance the
+  preparation deadline for observed waiting depletion/BR risk; never reduce
+  configured demand or postpone charging. Restart/invalid history falls back.
+- Publish atomic dated forecast-comparison inputs and preserve unknown daily
+  full-charge status, paired with the HA actual-generation entity correction.
+- Scheduled BR: configured minimum +20 scheduled +20 qualifying weather +20
+  emergency, as applicable, capped at 95%. No confidence/forecast stacking here.
+- Fallback without a usable schedule retains minimum + confidence + weather
+  + forecast deficit + emergency. Regional emergency status adds reserve while
+  preserving preparation for a fresh validated published timetable.
+- Preparation uses the selected BR once; preserve conservative solar coverage,
+  capacity-shortfall reporting, current-based deadlines and guarded ownership.
+- Wait for HA acknowledgement of a new BR before ordinary reserve decisions or
+  new preparation ownership use it. Manual Panic precedence remains effective.
+- Prepared with Family Assistant 3.6.20 and matching dashboard wording; not
+  deployed, restarted, committed, pushed or publicly released.
+
+## 3.6.19 — local preparation, not deployed (October 16, 2026)
+
+- Confirm grid loss and restoration only after 180 continuous seconds of valid
+  telemetry, including cold start; reset qualification on flips or data gaps.
+  Publish pending-transition evidence and preserve the actual transition start.
+- Keep today's valid schedule authoritative until local midnight, even while
+  preparing tomorrow's forecast. Missing tomorrow alone does not raise reserve.
+- Raw telemetry remains available to immediate critical-battery and overload
+  protection. Full release preparation and deployment review remain separate.
+
+## 3.6.15 — private candidate (October 12, 2026)
+
+- Preserve owned outage-preparation targets across missing PV/grid/control
+  evidence; wait without new commands instead of falling back to ordinary BR.
+- Correct HA mode notices: measured SOC is separate from target; 95% never
+  creates a 105% release threshold. Scope Quiet retries to each night and report
+  exhausted acknowledgement once per window.
+- Require commissioned HP metering: stopped below 2 W, running at least 10 W;
+  unknown/deadband readings block recovery. Remove forced running-HP cuts,
+  require fresh relay acknowledgements, retain owned supply restoration and
+  policy-checked HVAC resumption. Shorten family recovery/IP messages.
+- Group Solcast 429 incidents, persist delivery/recovery, follow up once after
+  24 hours, and explain recurring HA ingress errors without guessing an app.
+- Show the approved daily shortfall and charging-equivalent estimate; report
+  apartment rolling 24-hour availability as a Xiaomi Hub approximation.
+- Label an active outage's remaining time until planned restoration; preserve
+  future interval durations and existing emergency schedule suspension.
+- Prepare disabled official DTEK observation with bounded reads, strict slot,
+  group/date/revision validation and mirror comparison; mirrors keep authority.
+- Forecast-assisted Smart heating below 40% remains deferred until the plug
+  swap and trustworthy three-hour Eco consumption evidence. Fridge and BMS
+  observation remain unchanged.
+
+Prepared only. No commit, push, live synchronization, restart or publication.
+
+
+## 3.6.14 — private candidate (October 11, 2026)
+
+- Morning reports name the confirmed regional emergency/fault status, show both
+  locations' fresh published schedules informationally during suspension, and
+  remove repeated measurement time and repetitive missing CO/battery wording.
+- Regional notices include both schedules and the existing +20-point reserve
+  allowance (95% cap). Explicit cancellation restores validated planning;
+  published rows alone cannot restore control authority.
+- Xiaomi cloud read-failure notifications require three continuous minutes;
+  recovery requires five continuous minutes and a delivered preceding alert.
+  Gaps/flapping reset qualification; technical recovery is not grid recovery.
+- Morning Grid Hold can release through existing intents when fresh complete
+  hourly forecasts predict minimum SOC strictly above active BR plus five points.
+  Credit 80% of forecast solar, delay it 30 minutes, assume at least the configured
+  heating consumption rate, require one hour of solar coverage within four hours,
+  and retain Manual Panic/outage-preparation priority and live floor protection.
+- Zigbee power discrepancies and SOC jumps remain under observation. No changes
+  to their measurements, device settings or evidence capture.
+
+Prepared locally only; no commit, push, deployment, restart or publication.
+
+
+## 3.6.12 private candidate — suspended-schedule reserve and apartment alerts
+
+Explicit schedule suspension adds 20 percentage points to the Grid Confidence
+reserve once, before the 95% final cap (40% becomes 60%; 80% becomes 95%). The
+allowance persists through restart and unavailable sources until fresh validated
+current schedule authority explicitly confirms reinstatement. Existing manual
+ownership and Manual Panic priority remain unchanged. Existing reserve diagnostics
+and Telegram explanations expose the extra allowance; no new recurring notice.
+
+Fresh Xiaomi cloud offline status can qualify an initial apartment alert after
+two minutes, with unknown actual onset. Failed/stale/invalid reads and gaps reset
+qualification; read recovery states hub online/offline without claiming power
+recovery. Both source manifests are 3.6.12. Source synchronization is authorized;
+homeowner App store Update and focused live acceptance remain required. CO2
+availability notices and separate fridge HA configuration remain outside scope.
+
+See 3.6.12 release notes (historical reference: ../RELEASE_NOTES_3.6.12.md).
+
+
+## 3.6.11 (private candidate)
+
+- Short family and actionable personal reports; confirmed HP on/off.
+- Read-only Zigbee plug plausibility and bounded isolated Tuya recovery.
+- :15/:45 preparation checks and remaining-window protection for delayed/repeated outages.
+- Separate HA fridge protection: below 20%, restore 30%, minimum five minutes off.
+- Prepared only; deployment and live acceptance remain separate.
+
+## 3.6.10 private candidate — preparation cadence and messages
+
+Prepared locally, not deployed. The next-outage battery assessment runs on
+:00/:30 and immediately on plan change/grid return. Sufficient SOC keeps normal
+operation. Conservative solar reduces the DTEK gap; charging starts by its safe
+deadline and retains ownership for that exact outage. Persisted intent alone is
+insufficient: controller mode and target must also match. Actual charging sends
+one family notification; readiness appears in the one-hour reminder. Shared
+policy text distinguishes scheduled preparation, Grid Confidence, regional
+fault/emergency and manual Panic. Source polling and HP control are unchanged.
+
+
+## 3.6.9 — Configurable Normal reserve (prepared)
+
+Energy Hub adds the dashboard Normal Base Reserve setting: 20–95%, in 5-point
+steps, default 20%. Unstable/Risk/Panic use Normal +20/+40/+60 percentage points,
+capped at 95%. The accepted value persists; invalid/retained commands and failed
+saves preserve the previous setting. Scheduled-day reserve cannot be below the
+selected base. Existing evidence gates, manual authority and manual Panic remain.
+Family stays 3.6.8. No deployment, commit, push or publication yet.
+
+
+## 3.6.7 (private candidate)
+
+- Fresh Xiaomi apartment availability with verified baseline and unknown-on-error.
+- Confirmed grid profiles and retained scheduled preparation through brief loss.
+- :15/:45 schedule checks and conditional evening retries; fault/emergency policy.
+- Concise preparation/restoration messages, private HP details, CO and CO2 labels.
+- Four-level confidence dashboard and explicit bounded Facebook failure handling.
+- Reliable unattended Facebook ingestion remains unverified; no live deployment.
+
+## 3.6.6 — Solar-aware scheduled preparation (private candidate)
+
+Outage preparation now uses the largest accumulated battery deficit during the
+outage, crediting 80% of a complete fresh solar forecast. Later sunshine cannot
+erase an earlier shortfall. The target retains the 40% reserve, weather allowance,
+applied reserve floor and 95% cap. Missing or unreliable forecast evidence uses
+the conservative no-solar calculation. DTEK supplies only the remaining preparation
+deficit after current SOC and usable solar before the charging deadline.
+Manual Panic, source policy and hardware guards retain their existing ownership.
+Prepared only; 3.6.5 remains the homeowner-confirmed running release.
+No Home Assistant YAML/storage change is needed.
+
+## 3.6.5 — Pro Kyiv and apartment grid proxy (private candidate)
+
+Pro Kyiv schedules/notices are primary; Alerts.energy backs up schedules.
+Official website and Telegram polling are disabled. Fault/stabilization follow
+validated schedules unless explicitly invalidated; emergencies use existing
+Grid Confidence until superseded, even after grid return. Optional powered-hub
+availability monitors apartment outages with persisted 120/60-second debounce.
+Power-source wording and restoration/strategy notification duplication are corrected.
+Prepared only; 3.6.4 is the last homeowner-confirmed running release.
+No HA YAML/storage or inverter policy changes.
+
+
+## 3.6.4 — official fault notices (private candidate)
+
+Recognizes Kyiv-region fault notices and preserves fault/emergency wording.
+Banner extraction survives invalid schedule data. Failed source identities are
+reported privately; validated mirrors and 30-minute checks remain active.
+Prepared only; 3.6.3 is the latest homeowner-confirmed running release.
+No HA YAML/storage or hardware-policy changes.
+
+
+## 3.6.3 — private schedule-source candidate (October 8)
+
+Official DTEK embedded JSON with validated Alerts.energy and Pro Kyiv fallbacks
+replaces the active single-mirror reader. Checks remain every 30 minutes; revised
+schedules replace reminders and battery-preparation inputs. Current official
+banner scope, source failure reporting and restart deduplication are covered.
+Prepared only; monitored 3.6.2 remains live. No HA YAML/storage changes.
+See release notes (historical reference: ../RELEASE_NOTES_3.6.3.md).
+
+## 3.6.2 — private corrective candidate (October 8)
+
+The newest Kyiv-region emergency notice replaces older district scope and repairs
+saved 3.6.1 status without duplicate forwarding. At the house, notices remain
+informational with grid available; confirmed grid loss suspends schedules and
+confirmed restoration clears the local override. The reserve dashboard reflects
+that distinction. No HA YAML changes. Prepared only; monitored 3.6.1 stays live.
+See release notes (historical reference: ../RELEASE_NOTES_3.6.2.md).
+
+## 3.6.1 — private corrective candidate (October 8)
+
+Quiet/Eco become mutually exclusive with feedback checks; preserve and restore
+pre-night temperature ownership through mode transitions. Compact overnight
+HP summaries and today-only morning schedules replace misleading aggregation.
+Tomorrow checks run at 20:00/20:30/21:00 with explicit fallback after three
+completed failures. Official DTEK text notices provide emergency overrides,
+cleared by confirmed local grid restoration. Preparation only; 3.6.0 stays live.
+The reserve dashboard separates base reserve and outage preparation targets,
+shows the active authority and source freshness, and flags unconfirmed charging.
+One-card storage deployment requires fresh comparison and confirmed Core stop.
+
+
+## 3.6.0 — prepared private candidate
+
+- Replace active Telegram schedule OCR with validated BezSvitla daily HTML;
+  poll every 30 minutes, check tomorrow at 20:00 and apply notified revisions.
+- Add 15-minute scheduled restoration reminders with refreshed house SOC/HP.
+- Use Eco throughout grid absence; preserve Quiet and manual HP OFF.
+- Persist manual Panic 95% ownership until explicit cancellation.
+- See RELEASE_NOTES_3.6.0.md for separate add-on/HA YAML scopes and acceptance.
+
+## 3.5.3 — prepared 2026-10-07
+
+- Increase full-chart OCR timeout to 20 seconds after the live HA timeout.
+- Keep label/cell limits at 5 seconds; clamp HTTP/OCR to the shared 90-second
+  read deadline and reject late results while preserving all validation.
+- Coordinate both add-on versions; homeowner Reload/Update and live acceptance
+  required. No Core configuration or controller behavior changes.
+- See release notes (historical reference: ../RELEASE_NOTES_3.5.3.md).
+
+## 3.5.2 — prepared 2026-10-07
+
+- Correct current-day regional DTEK selection and yellow badge OCR.
+- Distinguish absent schedules from read failures; private error/recovery notices,
+  morning fallback explanation, 30-minute polling and late reminder catch-up.
+- Apply regional level II/III weather +20 points for the full applicable day;
+  schedule planning replaces grid-confidence/forecast modifiers and includes weather.
+- Add-on-only correction; homeowner Reload/Update and runtime evidence required.
+- See release notes (historical reference: ../RELEASE_NOTES_3.5.2.md).
+
+## 3.5.1 — prepared 2026-10-07
+
+- Prefill/preserve the dashboard HP address and separate edit verification from connection/recovery status.
+- Add bounded single-IP diagnostics and deduplicated family notices after one hour; respect quiet hours and do not assert an IP move from missing HA control.
+- Add observed night/restore/Eco morning summaries and explicit unavailable-control evidence.
+- Recover DTEK session energy from the dashboard lifetime counters and bounded change-only history; remove outage parentheticals.
+- Route recovery notices to Family under configured quiet hours; acknowledge advance pre-night cut notice and support cooling.
+- Keep native power-cycle recovery commissioning separate. Includes scoped HA adapter/helper/dashboard changes; not deployed.
+- See release notes (historical reference: ../RELEASE_NOTES_3.5.1.md).
+
+## 3.5.0 — prepared 2026-10-07
+
+- Replace fixed-demand/clustered outage planning with the next-outage 40% floor plus 20/10 SOC points per hour, net solar and measured-progress charging deadlines.
+- Add one-hour house/apartment reminders; deduplicate acknowledged preparation and ordinary reserve top-up notices, including old morning entries.
+- Preserve quiet hours, stale-source and control guards. Features default OFF pending live acceptance; app-only candidate, not deployed.
+- See coordinated release notes (historical reference: ../RELEASE_NOTES_3.5.0.md).
+
+## 3.4.1 — prepared 2026-10-06
+
+- Correct the dashboard-threshold Eco solar exception and acknowledged outage/solar recovery notices; report unavailable HP control.
+- Coordinate app versions; EH control code is unchanged. HA package reload is a separate scope. Not deployed.
+
+## 3.4.0 — prepared 2026-10-06
+
+- Add official daily outage schedule notices and deadline-aware preparation with solar-first waiting, bounded utility charging and target preservation.
+- Preserve source/telemetry/authority guards; new features default OFF pending actual chart/build and live acceptance.
+- See the coordinated 3.4.0 release notes and validation record; not deployed or publicly released.
+
+## 3.3.0 — 2026-10-06
+
+- Coordinated release with HA climate ownership/night controls and Family
+  notification summaries. Inverter control implementation is unchanged from
+  3.2.0; its grid-present protection boundary remains in force.
+
+
+## 3.2.0 — prepared privately
+
+- Require confirmed grid absence for automatic overload shedding; unknown grid
+  cannot authorize battery shedding. Existing ownership/restoration remains.
+- Align the EH and Family version numbers. HA and companion changes are a
+  separately reviewed deployment scope; hardware recovery starts disabled.
 ## Unreleased
+
+## 3.0.4 (prepared)
+
+- Restrict the 40/50 battery pause to confirmed off-grid operation; grid return
+  releases an owned hold through normal restart and load checks.
+- Coordinate persistent editable solar thresholds, owned-pause context
+  protection and Family 3.1.6 notices. Prepared privately; not deployed.
+- Correct the first-floor HA startup race: unknown operating mode joins bounded
+  input-loss grace and blocks solar starts instead of immediately stopping heat.
+- Preserve confirmed non-solar, sunset, low-SOC and overload protection.
+
+## 3.0.3 (prepared)
+
+- Identify the coordinated first-floor HA telemetry-grace and Family 3.1.3
+  notification/BMS release. Inverter control code is unchanged from 3.0.2.
+
+## 3.0.2 (prepared)
+
+- Remove the heating-specific reserve increment for both Smart and Solar-only.
+  Preserve forecast deficit, grid confidence, dated weather eligibility,
+  conservative evidence handling and the 95% recommendation cap.
+- Coordinate optional schedule dashboard controls and Family 3.1.2 notices.
+  No automatic host reboot or new Panic behavior.
+
+## 3.0.1 (prepared)
+
+- Coordinate the HA reference charging-time numeric availability correction.
+  Inverter runtime behavior is unchanged; Family Assistant stays 3.1.0.
 
 ## 2.4.12
 
@@ -467,3 +871,52 @@
 - Validated rebuild and full Home Assistant host restart on the real installation.
 
 See the repository root `CHANGELOG.md` for complete details.
+
+## EnergyHub 3.6.16 — notification/status candidate
+
+Routine HA mode-success and bridge-recovery persistent notices are removed;
+current strategy belongs on the dashboard. Actionable transition failure,
+Zigbee offline, blocked manual request and Quiet failure alerts remain. MQTT
+mode events for Family Telegram are unchanged. Dashboard cards distinguish base
+reserve, control target, reported inverter settings and actual supply evidence.
+Controller reasons describe settings without claiming available grid or charge
+completion. No control threshold, schedule expiry or inverter command changes.
+
+Prepared only, alongside Family official-primary/fallback work. HA automations
+and dashboard storage are separately authorized deployment scopes; storage
+requires confirmed Core stopped, comparison, backup, check and start. Existing
+historical mode notifications can be dismissed manually; their shared failure
+ID is not blindly cleared. See RELEASE_NOTES_3.6.16.md.
+
+## Prepared 3.6.16 changing-target ownership correction
+
+Validated outage-window ownership survives a changing remaining-window target
+while grid is offline. Persist the target before publication; on save failure
+retain the previous owned target without new commands. Restart can reconstruct
+ownership despite planner/controller target mismatch. Manual Panic, disabled
+Autopilot, invalid schedule and window expiry retain precedence. Ordinary BR
+remains the fallback after preparation authority ends. Dashboard BR components
+are explained separately from the preparation target. Prepared, not deployed.
+
+## Prepared 3.6.17 — outage coverage and mirror schedule reading
+
+Release scheduled grid hold using the uncapped remaining-window requirement plus
+2 percentage points, independently of the 95% charging cap. Valid end revisions
+preserve ownership, failed saves issue no commands, and acknowledged Solar resumes
+ordinary BR while coverage monitoring continues. The existing dashboard explains
+remaining duration/coverage/reason; Family sends a short confirmed release message.
+Official DTEK transport is removed; Pro Kyiv primary and Alerts.energy backup remain.
+Manual/stale/grid guards and commissioning restrictions remain. Prepared, not
+synchronized, deployed, committed or published. See RELEASE_NOTES_3.6.17.md.
+
+## 3.6.18 private candidate — October 15, 2026
+
+Prepared locally; running 3.6.17 remains unchanged. The coordinated candidate
+adds a shared dashboard grid DC current reference, observed-house solar coverage,
+acknowledged precharge completion and signed SOC restoration rates, clearer
+morning/outage messages, delayed Solcast incident/recovery notices with source
+timestamps, and a persisted hourly/nightly Quiet ON budget. Both add-ons and the
+reviewed HA package/automation/dashboard scope require coordinated deployment.
+No commit, push, synchronization, restart or public release is implied.
+See the repository release notes and private validation record for calculation
+assumptions, cold-start fallback, tests and commissioning requirements.

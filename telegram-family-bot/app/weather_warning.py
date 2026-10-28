@@ -55,7 +55,11 @@ HAZARD_PATTERNS = {
     "heavy_snow": re.compile(r"сильн\w*\s+сніг|значн\w*\s+сніг|мокр\w*\s+сніг|хуртовин", re.IGNORECASE),
     "severe_precipitation": re.compile(r"сильн\w*\s+(?:дощ|опад)|значн\w*\s+(?:дощ|опад)|злива", re.IGNORECASE),
     "hail": re.compile(r"град", re.IGNORECASE),
+    "frost": re.compile(r"замороз", re.IGNORECASE),
+    "fog": re.compile(r"туман", re.IGNORECASE),
+    "heat": re.compile(r"спек|сильн\w*\s+жар", re.IGNORECASE),
 }
+GRID_HAZARDS = {'strong_wind', 'thunderstorm', 'ice', 'heavy_snow', 'severe_precipitation', 'hail'}
 
 
 def _severity(text: str) -> int | None:
@@ -128,8 +132,11 @@ def normalize_warning(
         name for name, pattern in HAZARD_PATTERNS.items() if pattern.search(text)
     )
     severity = _severity(text)
-    if not hazards or severity is None:
+    if severity is None:
         return None
+    # Notification coverage is independent of the allow-list for grid risk.
+    if not hazards:
+        hazards = ['other']
     valid_from, valid_until = _validity(post, timezone_name)
     return {
         "event_id": f"{post.channel}/{post.message_id}/{content_hash(post)}",
@@ -145,7 +152,8 @@ def normalize_warning(
         "region": "Kyiv/Kyiv region",
         "region_match": True,
         "active": True,
-        "grid_relevant": True,
+        # Agricultural frost is informational; do not infer a grid threat.
+        "grid_relevant": bool(GRID_HAZARDS.intersection(hazards)),
         "summary": text[:1000],
     }
 

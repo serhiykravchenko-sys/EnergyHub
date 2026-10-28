@@ -1,9 +1,10 @@
-# EnergyHub 2.4.12 — monitored 2.x release
+# EnergyHub 2.4.12 — monitored 2.x closure candidate
 
-Prepared and deployed on 2026-09-29 with Family Assistant 2.4.15. The homeowner reported the agreed
+Prepared on 2026-09-29, deployed with Family Assistant 2.4.15, and committed
+in the private candidate snapshot `895d99b`. The homeowner reported the agreed
 24-hour monitoring period passed on 2026-10-01 with normal operation and no
-new Home Assistant Core/Supervisor errors. This public bundle closes the 2.x release cycle.
-See [release validation](docs/validation/RELEASE_2.4.12.md) for observed checks
+new Home Assistant Core/Supervisor errors. Public promotion is being prepared.
+See release validation (historical reference: docs/validation/RELEASE_2.4.12.md) for observed checks
 and remaining hardware-validation limits.
 
 ## The 2.x release for homeowners

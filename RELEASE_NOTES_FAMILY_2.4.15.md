@@ -1,10 +1,10 @@
-# Telegram Family Assistant 2.4.15 — monitored companion release
+# Telegram Family Assistant 2.4.15 — monitored companion candidate
 
 Deployed and started on 2026-09-29, paired with EnergyHub 2.4.12. The homeowner
 reported the agreed monitoring period passed on 2026-10-01; supplied Telegram
 evidence confirms grid-outage/recovery messages. Rare strategy-failure and
 delayed-delivery scenarios remain covered by repository regressions rather than
-forced live failures. Included with the EnergyHub 2.4.12 public release.
+forced live failures. Public promotion is being prepared.
 
 - Ignore a heat-pump restart event that is valid JSON but not an object.
 - Isolate event observers so a malformed entity or observer exception does not

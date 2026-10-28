@@ -17,4 +17,4 @@ Prepared privately; not deployed or activated.
 - Battery Reserve controls, inverter strategy, Smart Heating draft and Threat
   Monitor are unchanged.
 
-See validation and deployment gates (private development record).
+See validation and deployment gates (historical reference: docs/validation/ENERGYHUB_2.2.1_PRIVATE_CANDIDATE.md).

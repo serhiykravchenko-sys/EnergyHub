@@ -341,7 +341,7 @@
                   },
                   "series": [
                     {
-                      "entity": "sensor.energyhub_daily_house_consumption",
+                      "entity": "sensor.powmr_10_2m_daily_house_consumption",
                       "name": "House Consumption",
                       "type": "column",
                       "color": "#3498db",
@@ -350,10 +350,7 @@
                       "show": {
                         "in_header": false
                       },
-                      "group_by": {
-                        "func": "last",
-                        "duration": "1d"
-                      }
+                      "data_generator": "// Source embedded into the Daily Energy Balance card's async data generators.\n// Calendar boundaries use HA's timezone, including 23/25-hour local days.\nasync function energyHistory(kind, entity, start, end, hass) {\n  const zone = hass.config.time_zone;\n  const formatter = new Intl.DateTimeFormat('en-CA', {\n    timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'\n  });\n  const parts = at => Object.fromEntries(formatter.formatToParts(at)\n    .filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));\n  const key = at => {\n    const p = parts(at);\n    return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n  };\n  const dayOffset = (day, n) => {\n    const d = new Date(`${day}T00:00:00Z`);\n    d.setUTCDate(d.getUTCDate() + n);\n    return d.toISOString().slice(0, 10);\n  };\n  const boundary = day => {\n    const wanted = Date.parse(`${day}T00:00:00Z`);\n    let at = wanted;\n    for (let i = 0; i < 4; i++) {\n      const p = parts(new Date(at));\n      at += wanted - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);\n    }\n    return at;\n  };\n  const today = key(new Date());\n  const days = Array.from({length: 7}, (_, i) => dayOffset(today, i - 6));\n  const ids = kind === 'grid'\n    ? ['sensor.energyhub_grid_import_night_total_estimated',\n       'sensor.energyhub_grid_import_normal_total_estimated']\n    : ['sensor.powmr_10_2m_daily_house_consumption'];\n  let response = {};\n  try {\n    response = await hass.callWS({\n      type: 'recorder/statistics_during_period',\n      start_time: new Date(boundary(days[0])).toISOString(),\n      end_time: new Date(boundary(dayOffset(today, 1))).toISOString(),\n      statistic_ids: ids, period: 'day', types: ['change'], units: {energy: 'kWh'}\n    }) || {};\n  } catch (_) { /* Missing recorder history remains null, never zero. */ }\n  const perEntity = ids.map(id => {\n    const map = new Map();\n    for (const row of response[id] || []) {\n      const at = typeof row.start === 'number'\n        ? new Date(row.start * (row.start < 1e11 ? 1000 : 1)) : new Date(row.start);\n      if (!Number.isFinite(at.getTime()) || typeof row.change !== 'number'\n          || !Number.isFinite(row.change) || row.change < 0) continue;\n      const day = key(at);\n      // Never sum misaligned or partial sub-day records as a complete day.\n      if (Math.abs(at.getTime() - boundary(day)) > 1000) continue;\n      map.set(day, row.change);\n    }\n    return map;\n  });\n  return days.map(day => {\n    const left = boundary(day), right = boundary(dayOffset(day, 1));\n    const values = perEntity.map(m => m.get(day));\n    let value = values.every(Number.isFinite) ? values.reduce((a, b) => a + b, 0) : null;\n    if (kind === 'consumption' && day === today) {\n      const live = hass.states[ids[0]];\n      const at = new Date(live?.last_reported || live?.last_updated || '');\n      const parsed = Number(live?.state);\n      value = live && live.state !== '' && Number.isFinite(parsed) && parsed >= 0\n        && Number.isFinite(at.getTime()) && key(at) === today ? parsed : null;\n    }\n    return [(left + right) / 2, value];\n  });\n}\n\n\nreturn await energyHistory('consumption',entity,start,end,hass);"
                     },
                     {
                       "entity": "sensor.energyhub_daily_solar_surplus_estimated",
@@ -371,7 +368,7 @@
                       }
                     },
                     {
-                      "entity": "sensor.energyhub_daily_grid_import_estimated",
+                      "entity": "sensor.energyhub_grid_import_night_total_estimated",
                       "name": "Total Grid Import Est.",
                       "type": "column",
                       "color": "#8e44ad",
@@ -380,10 +377,7 @@
                       "show": {
                         "in_header": false
                       },
-                      "group_by": {
-                        "func": "last",
-                        "duration": "1d"
-                      }
+                      "data_generator": "// Source embedded into the Daily Energy Balance card's async data generators.\n// Calendar boundaries use HA's timezone, including 23/25-hour local days.\nasync function energyHistory(kind, entity, start, end, hass) {\n  const zone = hass.config.time_zone;\n  const formatter = new Intl.DateTimeFormat('en-CA', {\n    timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',\n    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'\n  });\n  const parts = at => Object.fromEntries(formatter.formatToParts(at)\n    .filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));\n  const key = at => {\n    const p = parts(at);\n    return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;\n  };\n  const dayOffset = (day, n) => {\n    const d = new Date(`${day}T00:00:00Z`);\n    d.setUTCDate(d.getUTCDate() + n);\n    return d.toISOString().slice(0, 10);\n  };\n  const boundary = day => {\n    const wanted = Date.parse(`${day}T00:00:00Z`);\n    let at = wanted;\n    for (let i = 0; i < 4; i++) {\n      const p = parts(new Date(at));\n      at += wanted - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);\n    }\n    return at;\n  };\n  const today = key(new Date());\n  const days = Array.from({length: 7}, (_, i) => dayOffset(today, i - 6));\n  const ids = kind === 'grid'\n    ? ['sensor.energyhub_grid_import_night_total_estimated',\n       'sensor.energyhub_grid_import_normal_total_estimated']\n    : ['sensor.powmr_10_2m_daily_house_consumption'];\n  let response = {};\n  try {\n    response = await hass.callWS({\n      type: 'recorder/statistics_during_period',\n      start_time: new Date(boundary(days[0])).toISOString(),\n      end_time: new Date(boundary(dayOffset(today, 1))).toISOString(),\n      statistic_ids: ids, period: 'day', types: ['change'], units: {energy: 'kWh'}\n    }) || {};\n  } catch (_) { /* Missing recorder history remains null, never zero. */ }\n  const perEntity = ids.map(id => {\n    const map = new Map();\n    for (const row of response[id] || []) {\n      const at = typeof row.start === 'number'\n        ? new Date(row.start * (row.start < 1e11 ? 1000 : 1)) : new Date(row.start);\n      if (!Number.isFinite(at.getTime()) || typeof row.change !== 'number'\n          || !Number.isFinite(row.change) || row.change < 0) continue;\n      const day = key(at);\n      // Never sum misaligned or partial sub-day records as a complete day.\n      if (Math.abs(at.getTime() - boundary(day)) > 1000) continue;\n      map.set(day, row.change);\n    }\n    return map;\n  });\n  return days.map(day => {\n    const left = boundary(day), right = boundary(dayOffset(day, 1));\n    const values = perEntity.map(m => m.get(day));\n    let value = values.every(Number.isFinite) ? values.reduce((a, b) => a + b, 0) : null;\n    if (kind === 'consumption' && day === today) {\n      const live = hass.states[ids[0]];\n      const at = new Date(live?.last_reported || live?.last_updated || '');\n      const parsed = Number(live?.state);\n      value = live && live.state !== '' && Number.isFinite(parsed) && parsed >= 0\n        && Number.isFinite(at.getTime()) && key(at) === today ? parsed : null;\n    }\n    return [(left + right) / 2, value];\n  });\n}\n\n\nreturn await energyHistory('grid',entity,start,end,hass);"
                     },
                     {
                       "entity": "sensor.powmr_10_2m_daily_house_consumption",
@@ -392,7 +386,7 @@
                       "float_precision": 1,
                       "show": {
                         "in_chart": false,
-                        "in_header": true
+                        "in_header": "raw"
                       }
                     },
                     {
@@ -402,7 +396,7 @@
                       "float_precision": 1,
                       "show": {
                         "in_chart": false,
-                        "in_header": true
+                        "in_header": "raw"
                       }
                     },
                     {
@@ -412,7 +406,7 @@
                       "float_precision": 1,
                       "show": {
                         "in_chart": false,
-                        "in_header": true
+                        "in_header": "raw"
                       }
                     }
                   ],
@@ -425,6 +419,96 @@
                         "title": {
                           "text": "Energy (kWh)"
                         }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "custom:apexcharts-card",
+                  "header": {
+                    "show": true,
+                    "title": "Solar forecast — 5 days",
+                    "show_states": false
+                  },
+                  "graph_span": "5d",
+                  "span": {
+                    "start": "day"
+                  },
+                  "update_interval": "60s",
+                  "cache": false,
+                  "apex_config": {
+                    "chart": {
+                      "height": 230,
+                      "toolbar": {
+                        "show": false
+                      },
+                      "animations": {
+                        "enabled": false
+                      },
+                      "events": {
+                        "mounted": "EVAL:function(chart) {\n  requestAnimationFrame(function() {\n    if (chart.el.isConnected) chart.w.config.chart.events.updated(chart);\n  });\n  const host=chart.el.getRootNode().host;\n  if (!host) return;\n  if (host.__ehForecastResizeObserver) host.__ehForecastResizeObserver.disconnect();\n  let lastWidth=0;\n  const observer=new ResizeObserver(function() {\n    if (!host.isConnected || !chart.el.isConnected) { observer.disconnect(); return; }\n    const width=Math.floor(host.getBoundingClientRect().width);\n    if (width>0 && width!==lastWidth) {\n      lastWidth=width;\n      chart.updateOptions({chart:{width:width}},false,false,false);\n    }\n  });\n  host.__ehForecastResizeObserver=observer;\n  observer.observe(host);\n}",
+                        "updated": "EVAL:function(chart) {\n  const id='energyhub_average_full_width';\n  const data=chart.w.config.series[1]?.data || [];\n  const point=data.find(p=>Number.isFinite(Array.isArray(p) ? p[1] : p?.y));\n  const value=Array.isArray(point) ? point[1] : point?.y;\n  const rows=chart.w.config.annotations.yaxis || [];\n  const old=rows.find(row=>row.id===id);\n  const pad=chart.w.globals.barPadForNumericAxis || 0;\n  const width=String(Math.round(chart.w.globals.gridWidth+2*pad));\n  if (Number.isFinite(value)) {\n    if (chart.el.querySelector('.apexcharts-yaxis-annotations line') && old && old.y===value && old.borderWidth===4 && old.offsetX===-pad && old.width===width) return;\n    const next=rows.filter(row=>row.id!==id);\n    next.push({id:id,y:value,borderColor:'#3498db',borderWidth:4,offsetX:-pad,width:width,strokeDashArray:0,opacity:1});\n    chart.updateOptions({annotations:{yaxis:next}},false,false,false);\n  } else if (old) {\n    chart.updateOptions({annotations:{yaxis:rows.filter(row=>row.id!==id)}},false,false,false);\n  }\n}"
+                      }
+                    },
+                    "dataLabels": {
+                      "enabled": false
+                    },
+                    "tooltip": {
+                      "enabled": false
+                    },
+                    "xaxis": {
+                      "type": "numeric",
+                      "tickAmount": 10,
+                      "axisTicks": {
+                        "show": false
+                      },
+                      "labels": {
+                        "rotate": 0,
+                        "hideOverlappingLabels": false,
+                        "trim": false,
+                        "style": {
+                          "fontSize": "10px"
+                        },
+                        "formatter": "EVAL:function(value) {\n      const base=new Date(); base.setHours(0,0,0,0);\n      const step=(Number(value)-base.getTime())/43200000;\n      const tick=Math.round(step);\n      if (Math.abs(step-tick)>0.001 || tick%2===0 || tick<1 || tick>9) return '';\n      const day=new Date(base); day.setDate(day.getDate()+(tick-1)/2);\n      return String(day.getDate()).padStart(2,'0')+'.'+String(day.getMonth()+1).padStart(2,'0');\n    }"
+                      }
+                    },
+                    "legend": {
+                      "show": true
+                    }
+                  },
+                  "yaxis": [
+                    {
+                      "min": 0,
+                      "decimals": 1,
+                      "apex_config": {
+                        "title": {
+                          "text": "kWh"
+                        }
+                      }
+                    }
+                  ],
+                  "series": [
+                    {
+                      "entity": "sensor.solcast_pv_forecast_forecast_today",
+                      "name": "Solar forecast",
+                      "type": "column",
+                      "color": "#f39c12",
+                      "unit": "kWh",
+                      "data_generator": "const today = new Date(); today.setHours(0,0,0,0);\nconst points = Array.from({length:5}, (_,i) => { const d=new Date(today); d.setDate(d.getDate()+i); d.setHours(12); return d; });\nconst ids=[\"sensor.solcast_pv_forecast_forecast_today\", \"sensor.solcast_pv_forecast_forecast_tomorrow\", \"sensor.solcast_pv_forecast_forecast_day_3\", \"sensor.solcast_pv_forecast_forecast_day_4\", \"sensor.solcast_pv_forecast_forecast_day_5\", \"sensor.solcast_pv_forecast_forecast_day_6\", \"sensor.solcast_pv_forecast_forecast_day_7\"];\nconst refresh=hass.states['sensor.solcast_pv_forecast_api_last_polled'];\nconst age=refresh ? Date.now()-Date.parse(refresh.state) : NaN;\nconst fresh=Number.isFinite(age) && age>=0 && age<=86400000;\nreturn points.map((d,i) => {\n  const row=hass.states[ids[i]], a=row?.attributes || {};\n  const raw=row?.state, n=(raw!==undefined && raw.trim()!=='') ? Number(raw) : NaN;\n  const detail=a.detailedForecast || a.detailed_forecast;\n  let dated=a.dayname===d.toLocaleDateString('en-US',{weekday:'long'});\n  if (Array.isArray(detail) && detail.length) {\n    const stamp=new Date(detail[0].period_start);\n    dated=!isNaN(stamp) && stamp.toDateString()===d.toDateString();\n  }\n  return [today.getTime()+43200000+i*86400000, fresh && dated && a.unit_of_measurement==='kWh' && Number.isFinite(n) && n>=0 && n<=1000 ? n : null];\n});",
+                      "show": {
+                        "legend_value": false
+                      }
+                    },
+                    {
+                      "entity": "sensor.energyhub_ahm_weather_buffer",
+                      "name": "Average consumption",
+                      "type": "line",
+                      "color": "#3498db",
+                      "stroke_width": 4,
+                      "unit": "kWh",
+                      "data_generator": "const today = new Date(); today.setHours(0,0,0,0);\nconst points = Array.from({length:5}, (_,i) => { const d=new Date(today); d.setDate(d.getDate()+i); d.setHours(12); return d; });\nconst rows=entity.attributes.consumption_samples;\nif (!Array.isArray(rows) || rows.length!==3) return [];\nconst values=[], dates=new Set();\nfor (const row of rows) {\n  const day=new Date(row.date+'T00:00:00'); const n=Number(row.kwh);\n  const gap=(today-day)/86400000;\n  if (!row.date || dates.has(row.date) || row.complete===false || !Number.isFinite(n) || n<=0 || !(gap>0 && gap<=7.1)) return [];\n  dates.add(row.date); values.push(n);\n}\nconst avg=values.reduce((a,b)=>a+b,0)/3;\nreturn [[today.getTime(),avg], ...points.map((d,i)=>[today.getTime()+43200000+i*86400000,avg]), [today.getTime()+5*86400000,avg]];",
+                      "show": {
+                        "legend_value": false
                       }
                     }
                   ]
@@ -569,7 +653,7 @@
                     },
                     {
                       "type": "markdown",
-                      "content": "{% set mode = states('sensor.energyhub_operating_mode') | lower %}\n{% set mode_names = {'solar':'Solar First','hybrid_charging':'Legacy recovery · charging','hybrid_grid_hold':'Legacy recovery · grid hold','panic':'Battery Reserve · charging','panic_grid_hold':'Battery Reserve · grid hold','transitioning':'Changing Strategy','transition_failed':'Strategy Change Failed'} %}\n{% set descriptions = {'solar':'Solar and battery are preferred above the release threshold.','hybrid_charging':'A persisted legacy state is being transferred to Battery Reserve control.','hybrid_grid_hold':'A persisted legacy state is being transferred to Battery Reserve control.','panic':'Grid charging is enabled to restore the applied reserve.','panic_grid_hold':'The house uses grid supply while the applied reserve is protected.'} %}\n## {{ mode_names.get(mode, 'Strategy unavailable') }}\n**Strategy:** {{ mode_names.get(mode, 'Unknown') }}  \n**Applied Battery Reserve:** {{ states('input_number.ahm_minimum_soc') | float(20) | round(0) }}%  \n{% if states('sensor.energyhub_telemetry_freshness') == 'fresh' and (mode == 'solar' or states('sensor.powmr_10_2m_grid_voltage') | float(0) > 180) %}{{ descriptions.get(mode, 'Waiting for a confirmed strategy.') }}{% endif %}\n{% if states('sensor.energyhub_telemetry_freshness') != 'fresh' %}⚠️ Telemetry is not fresh; actual supply and charging are unconfirmed.\n{% elif states('sensor.powmr_10_2m_grid_voltage') | float(0) <= 180 and mode != 'solar' %}⚠️ Grid supply is unavailable; the selected strategy is not proof of current charging.\n{% endif %}**Reason:** {{ states('sensor.energyhub_operating_mode_reason') }}"
+                      "content": "{% set mode = states('sensor.energyhub_operating_mode') | lower %}\n{% set e = 'sensor.energyhub_outage_preparation' %}\n{% set reserve = states('input_number.ahm_minimum_soc') | float(none) %}\n{% set grid = states('binary_sensor.energyhub_grid_confirmed') %}\n{% set fresh = is_state('sensor.energyhub_telemetry_freshness', 'fresh') %}\n{% set target = state_attr(e, 'target_soc') %}\n## {{ 'Без допомоги ДТЕК' if mode == 'solar' else 'ДТЕК допомагає зберігати заряд' if mode in ['panic_grid_hold','hybrid_grid_hold'] else 'Дозаряджання від ДТЕК' if mode in ['panic','hybrid_charging'] else 'Стан керування уточнюється' }}\n**Заряд батареї:** {{ states('sensor.powmr_10_2m_battery_soc') }}%\n\n**Резерв батареї:** {{ states('input_number.ahm_minimum_soc') }}%\n\n{% if target is number %}**Ціль підготовки:** {{ target | round(0) }}%{% endif %}\n\n{% if fresh and mode in ['panic','panic_grid_hold'] and state_attr(e, 'control_active') == true and state_attr(e, 'acknowledged') == true %}\n**Причина підключення ДТЕК:** збереження заряду для планового вікна до {{ as_timestamp(state_attr(e, 'end')) | timestamp_custom('%H:%M') }}. Ціль підготовки відрізняється від резерву батареї.\n{% endif %}\n{% if not fresh or grid != 'on' %}⚠️ Живлення від ДТЕК зараз не підтверджене. Вибрані налаштування не підтверджують заряджання.{% else %}Сонце має пріоритет. Налаштування заряджання — у розділі Settings.{% endif %}\n\n<details><summary>Технічні налаштування</summary>\n\nMode: {{ mode }}; Menu 01={{ states('sensor.energyhub_output_source_priority') }}; Menu 16={{ states('sensor.energyhub_charger_source_priority') }}.\n</details>"
                     },
                     {
                       "type": "button",
@@ -590,35 +674,85 @@
                       "cards": [
                         {
                           "type": "button",
-                          "name": "Battery Reserve · Auto / Manual",
-                          "entity": "binary_sensor.energyhub_battery_reserve_auto",
+                          "entity": "automation.energyhub_battery_discharge_protection",
+                          "name": "Захист розеток · 40–50%",
                           "icon": "mdi:battery-lock",
                           "show_state": true,
-                          "icon_height": "56px",
                           "tap_action": {
-                            "action": "perform-action",
-                            "perform_action": "input_select.select_next",
-                            "target": {
-                              "entity_id": "input_select.energyhub_ahm_weather_authority"
-                            }
+                            "action": "toggle"
                           },
                           "hold_action": {
-                            "action": "none"
-                          }
+                            "action": "more-info"
+                          },
+                          "icon_height": "56px"
                         },
                         {
                           "type": "button",
-                          "entity": "input_boolean.energyhub_load_control_armed",
-                          "name": "Inverter Overload Guard",
-                          "icon": "mdi:shield-home",
-                          "color": "orange",
+                          "entity": "automation.energyhub_fridge_battery_protection_20_30",
+                          "name": "Захист холодильника · 20–30%",
+                          "icon": "mdi:fridge-outline",
                           "show_state": true,
                           "icon_height": "56px",
                           "tap_action": {
                             "action": "toggle"
                           },
                           "hold_action": {
-                            "action": "none"
+                            "action": "more-info"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "button",
+                      "entity": "input_boolean.energyhub_load_control_armed",
+                      "name": "Inverter Overload Guard",
+                      "icon": "mdi:shield-home",
+                      "color": "orange",
+                      "show_state": true,
+                      "icon_height": "56px",
+                      "tap_action": {
+                        "action": "toggle"
+                      },
+                      "hold_action": {
+                        "action": "none"
+                      }
+                    },
+                    {
+                      "type": "grid",
+                      "columns": 2,
+                      "square": false,
+                      "cards": [
+                        {
+                          "type": "button",
+                          "entity": "input_select.energyhub_climate_policy",
+                          "name": "Опалення / охолодження",
+                          "icon": "mdi:heat-pump-outline",
+                          "color": "red",
+                          "show_state": true,
+                          "icon_height": "56px",
+                          "tap_action": {
+                            "action": "more-info"
+                          }
+                        },
+                        {
+                          "type": "conditional",
+                          "conditions": [
+                            {
+                              "entity": "input_select.energyhub_climate_policy",
+                              "state_not": "Off"
+                            }
+                          ],
+                          "card": {
+                            "type": "button",
+                            "entity": "input_select.energyhub_climate_operation",
+                            "name": "Постійно / розклад",
+                            "icon": "mdi:solar-power-variant",
+                            "color": "amber",
+                            "show_state": true,
+                            "icon_height": "56px",
+                            "tap_action": {
+                              "action": "more-info"
+                            }
                           }
                         }
                       ]
@@ -630,153 +764,23 @@
                       "cards": [
                         {
                           "type": "button",
-                          "entity": "input_boolean.energyhub_smart_heating",
-                          "name": "Smart Heating · Auto / Manual",
-                          "icon": "mdi:heat-pump-outline",
-                          "color": "red",
-                          "show_state": true,
-                          "icon_height": "56px",
+                          "name": "Settings",
+                          "icon": "mdi:cog-outline",
                           "tap_action": {
-                            "action": "toggle"
-                          }
-                        },
-                        {
-                          "type": "conditional",
-                          "conditions": [
-                            {
-                              "entity": "input_boolean.energyhub_smart_heating",
-                              "state": "on"
-                            }
-                          ],
-                          "card": {
-                            "type": "button",
-                            "entity": "input_boolean.energyhub_solar_only_heating",
-                            "name": "Solar-only Heating · On / Off",
-                            "icon": "mdi:solar-power-variant",
-                            "color": "amber",
-                            "show_state": true,
-                            "icon_height": "56px",
-                            "tap_action": {
-                              "action": "toggle"
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "type": "conditional",
-                      "conditions": [
-                        {
-                          "entity": "input_select.energyhub_ahm_weather_authority",
-                          "state": "Manual"
-                        }
-                      ],
-                      "card": {
-                        "type": "heading",
-                        "heading": "Battery Reserve · Manual Minimum",
-                        "heading_style": "subtitle",
-                        "icon": "mdi:battery-lock"
-                      }
-                    },
-                    {
-                      "type": "conditional",
-                      "conditions": [
-                        {
-                          "entity": "input_select.energyhub_ahm_weather_authority",
-                          "state": "Manual"
-                        }
-                      ],
-                      "card": {
-                        "type": "grid",
-                        "columns": 3,
-                        "square": false,
-                        "cards": [
-                        {
-                          "type": "button",
-                          "name": "Decrease 5%",
-                          "icon": "mdi:battery-minus-outline",
-                          "tap_action": {
-                            "action": "perform-action",
-                            "perform_action": "input_number.decrement",
-                            "target": {
-                              "entity_id": "input_number.ahm_minimum_soc"
-                            },
-                            "confirmation": {
-                              "text": "Decrease your manual Battery Reserve by 5 percentage points? EnergyHub will not restore it automatically."
-                            }
+                            "action": "navigate",
+                            "navigation_path": "/dashboard-powmr1/settings"
                           },
-                          "hold_action": {
-                            "action": "none"
-                          }
-                        },
-                        {
-                          "type": "markdown",
-                          "content": "{% set reserve = states('input_number.ahm_minimum_soc') | int(20) %}\n{% set marker = '🟢' if reserve <= 20 else '🟡' if reserve <= 30 else '🟠' if reserve <= 40 else '🔴' %}\n# {{ marker }} {{ reserve }}%\n**ACTIVE RESERVE**"
+                          "icon_height": "56px"
                         },
                         {
                           "type": "button",
-                          "name": "Increase 5%",
-                          "icon": "mdi:battery-plus-outline",
+                          "name": "Diagnostics",
+                          "icon": "mdi:stethoscope",
                           "tap_action": {
-                            "action": "perform-action",
-                            "perform_action": "input_number.increment",
-                            "target": {
-                              "entity_id": "input_number.ahm_minimum_soc"
-                            },
-                            "confirmation": {
-                              "text": "Increase your manual Battery Reserve by 5 percentage points? EnergyHub will not restore it automatically."
-                            }
+                            "action": "navigate",
+                            "navigation_path": "/dashboard-powmr1/diagnostics"
                           },
-                          "hold_action": {
-                            "action": "none"
-                          }
-                        }
-                        ]
-                      }
-                    },
-                    {
-                      "type": "markdown",
-                      "content": "{% set e = 'sensor.energyhub_ahm_weather_buffer' %}\n{% set auto = is_state('binary_sensor.energyhub_battery_reserve_auto', 'on') %}\n{% set ready = state_attr(e, 'recommendation_status') == 'ready' %}\n{% set deficit = state_attr(e, 'forecast_deficit') %}\n{% set severe = state_attr(e, 'severe_forecast_deficit') %}\n{% set grid = state_attr(e, 'grid_confidence') %}\n{% set grid_name = {'normal':'Normal','unstable':'Unstable','risk':'Risk','panic':'Critical'}.get(grid, 'Unknown') %}\n{% set warnings = state_attr(e, 'qualifying_weather_warning_count') | int(0) %}\n{{ '🤖' if auto else '👥' }} **Battery Reserve Auto: {{ 'ON — EH manages' if auto else 'OFF — manual; EH recommends' }}**\n\n{% if auto %}**Current reserve:** {{ states('input_number.ahm_minimum_soc') }}%\n{% else %}**Selected reserve:** {{ states('input_number.ahm_minimum_soc') }}%\n**EH recommendation:** {{ state_attr(e, 'recommended_soc') if ready else 'Insufficient evidence' }}{{ '%' if ready else '' }}\n{% endif %}**Calculation:** base 20% · generation: {{ 'severe deficit' if severe == true else 'deficit' if deficit == true else 'sufficient' if deficit == false else 'unknown' }} (+{{ state_attr(e, 'generation_modifier_percent') }}%) · Grid Confidence: {{ grid_name }} (+{{ state_attr(e, 'grid_modifier_percent') }}%) · weather: {{ warnings if warnings else 'none' }} (+{{ state_attr(e, 'weather_modifier_percent') }}%) · Smart Heating (+{{ state_attr(e, 'smart_heating_modifier_percent') | default(0) }}%)\n\n**Forecast / consumption average:** {{ state_attr(e, 'solar_forecast_kwh') }} / {{ state_attr(e, 'consumption_average_kwh') if state_attr(e, 'consumption_average_kwh') is not none else 'Unavailable' }} kWh · {{ state_attr(e, 'consumption_sample_count') }} day(s)\n**Forecast plan:** {{ 'preliminary next-day plan' if state_attr(e, 'forecast_plan_stage') == 'preliminary' else '05:00 morning plan' if state_attr(e, 'forecast_plan_stage') == 'morning' else 'waiting' }} for {{ state_attr(e, 'date') }}. Grid and weather are monitored continuously.\n{% set issues = state_attr(e, 'evidence_issues') or [] %}{% if issues %}⚠️ Automatic changes paused: {{ issues | join(', ') }}.{% endif %}"
-                    },
-                    {
-                      "type": "markdown",
-                      "title": "Overload Protection",
-                      "content": "{% set e = 'sensor.energyhub_peak_load_guard' %}\n{% set requested = is_state('input_boolean.energyhub_load_control_armed', 'on') %}\n{% set supported = state_attr(e, 'mode') in ['automatic', 'warnings_only'] %}\n{% set ready = state_attr(e, 'control_ready') == true %}\n{% set cycle = state_attr(e, 'cycle') or {} %}\n**Automatic switching:** {{ 'ON' if requested else 'OFF — Telegram warnings only' }}\n**Effective control:** {{ 'Available (device checks still apply)' if requested and ready else 'Not ready — no new commands' if requested else 'No new switching commands' }}\n**Status:** {{ states(e) | replace('_', ' ') }}\n{% if not supported %}⚠️ Waiting for the updated EnergyHub app. Do not enable automatic control yet.{% endif %}\n**Load:** {{ states('sensor.powmr_10_2m_load') }}%\n**Thresholds:** 85% trigger · 75% relief · below 50% for five minutes before restoration.\n**Eligible devices:** {{ (state_attr(e, 'eligible_loads') or []) | count }} / 6; fresh readings and verified device state required; no watt allowance setup.\n\n**Devices EH switched OFF:**\n{% for key, owner in cycle.get('owned', {}).items() %}- {{ key | replace('_', ' ') }} · {{ owner.confirmed_off_at }}\n{% else %}None.\n{% endfor %}\nOFF pauses new actions; it does not restore devices immediately or discard ownership. ON restores one at a time, at least one minute apart, with fresh readings below 50%, minimum off time and reserve permission. Missing data pauses restoration; after five minutes Telegram asks the family to check. Family and scheduled OFF requests are respected.\n{% if state_attr(e, 'fault') %}⚠️ {{ state_attr(e, 'fault') }} — manual review required.{% endif %}\n{% for key, reason in cycle.get('blocked', {}).items() %}⚠️ {{ key }}: {{ reason }}\n{% endfor %}\n**Order:** water pump → boiler → first-floor HP (native) → second-floor HP → third-floor HP → microwave.\nThis switch is separate from Battery Reserve Auto. Inverter hardware protection remains independent."
-                    },
-                    {
-                      "type": "markdown",
-                      "title": "Overload devices · Switching order",
-                      "content": "{% set e = 'sensor.energyhub_peak_load_guard' %}\n{% set rows = state_attr(e, 'participants') or [] %}\n{% set stamp = as_timestamp(state_attr(e, 'load_snapshot_at'), 0) %}\n{% set age = as_timestamp(now()) - stamp %}\n{% set snapshot_fresh = stamp > 0 and 0 <= age <= 90 %}\n{% set cycle = state_attr(e, 'cycle') or {} %}\n{% set names = [('water_pump', 'Water pump'), ('water_boiler', 'Water boiler'), ('heat_pump_floor_1', 'First-floor heat pump · native'), ('heat_pump_floor_2', 'Second-floor heat pump'), ('heat_pump_floor_3', 'Third-floor heat pump'), ('microwave', 'Microwave')] %}\n{% set ns = namespace(lines=[]) %}\n{% for key, name in names %}\n{% set found = rows | selectattr('key', 'equalto', key) | list %}\n{% set row = found[0] if found else {} %}\n{% set power = row.get('power_w') | float(none) %}\n{% set ptime = as_timestamp(row.get('power_observed_at'), 0) %}\n{% set page = as_timestamp(now()) - ptime %}\n{% set power_valid = power is not none and 0 <= power < 100000 %}\n{% set power_unchanged = ptime > 0 and page > 300 %}\n{% set state_valid = row.get('state') in ['on', 'off'] %}\n{% set availability = row.get('availability', 'not_applicable') %}\n{% set availability_valid = availability in ['online', 'not_applicable'] %}\n{% set blocked = cycle.get('blocked', {}).get(key) %}\n{% set blocked_labels = {'external_control_ownership_released':'External control took ownership','command_outcome_unconfirmed':'Command result unconfirmed','command_delivery_uncertain':'Command delivery uncertain','executor_rejected_command':'HA rejected command','executor_restarted_during_command':'Executor restarted during command','uncertain_command_after_restart':'Pre-restart result uncertain','external_control_during_command':'External control during command','load_unavailable':'Device state unavailable','restoration_load_unavailable':'Restore state unavailable','native_settings_restore_unverified':'Heat-pump settings changed','restore_rejected_requires_attention':'Restore rejected'} %}\n{% set base_check = 'Controller fault' if state_attr(e, 'fault') else 'Device offline' if availability == 'offline' else 'Availability unknown' if not availability_valid else 'Device unavailable' if not state_valid else 'Power unavailable' if not power_valid else 'Snapshot stale · ' ~ (age | round(0) | int) ~ ' s' if not snapshot_fresh else 'Blocked: ' ~ blocked_labels.get(blocked, blocked | replace('_', ' ')) if blocked else 'Native checks pending' if key == 'heat_pump_floor_1' and row.get('control_ready') != true else 'Bridge not ready' if row.get('control_ready') != true or not row.get('context_id') or row.get('intent_revision') is none else 'Ready' %}\n{% set check = base_check ~ (' · power unchanged' if base_check == 'Ready' and power_unchanged else '') %}\n{% set ns.lines = ns.lines + ['| ' ~ loop.index ~ '. ' ~ name ~ ' | ' ~ (row.get('state') | title if state_valid else 'Unknown') ~ ' / ' ~ ((power | round(0) | int) ~ ' W' if power_valid else '—') ~ ' | ' ~ check ~ ' |'] %}\n{% endfor %}\n| Device · switching order | State / Power | Checks |\n|:--|:--|:--|\n{{ ns.lines | join('\\n') }}\n\nFirst-floor heat pump: native Heat/Off control; its smart plug stays powered and measures consumption. Other devices use their smart plugs.\nZigbee online/offline uses Zigbee2MQTT device availability, not watt-report age. Unchanged watts remain visible and do not by themselves make an online device unavailable; every automatic command still requires acknowledgement and a new post-command observation."
-                    },
-                    {
-                      "type": "entities",
-                      "show_header_toggle": false,
-                      "state_color": true,
-                      "entities": [
-                        {
-                          "entity": "sensor.energyhub_peak_load_guard",
-                          "name": "Guard State",
-                          "icon": "mdi:shield-home-outline"
-                        },
-                        {
-                          "entity": "sensor.energyhub_peak_load_guard_event",
-                          "name": "Latest Recommendation",
-                          "icon": "mdi:shield-alert-outline"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_load",
-                          "name": "Native Inverter Load",
-                          "icon": "mdi:gauge"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_output_power",
-                          "name": "Output Active Power",
-                          "icon": "mdi:flash"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_apparent_power",
-                          "name": "Output Apparent Power",
-                          "icon": "mdi:sine-wave"
+                          "icon_height": "56px"
                         }
                       ]
                     }
@@ -794,20 +798,19 @@
                       "type": "heading",
                       "heading": "EnergyHub Status",
                       "heading_style": "title",
-                      "icon": "mdi:home-lightning-bolt-outline"
+                      "icon": "mdi:home-lightning-bolt"
                     },
                     {
                       "type": "markdown",
-                      "content": "{% set output = states('sensor.energyhub_output_source_priority') | upper %} {% set charger = states('sensor.energyhub_charger_source_priority') | upper %}\n## House power priority\n{% if output == 'SBU' %} 🟠 Solar → 🟩 Battery → ⚡ Grid {% elif output == 'SUB' %} 🟠 Solar → ⚡ Grid → 🟩 Battery {% else %} ❔ {{ output }} {% endif %}\n**Battery charging source:**\n{% if charger == 'OSO' %} 🟠 Solar only {% elif charger == 'SNU' %} 🟠 Solar + ⚡ Grid {% else %} ❔ {{ charger }} {% endif %}"
+                      "content": "{% set output = states('sensor.energyhub_output_source_priority') | upper %}\n{% set charger = states('sensor.energyhub_charger_source_priority') | upper %}\n## Налаштування інвертора\n**Пріоритет живлення:** {{ 'Сонце → батарея → ДТЕК' if output == 'SBU' else 'Сонце → ДТЕК → батарея' if output == 'SUB' else 'не підтверджено' }}\n\n**Заряджання батареї:** {{ 'лише від сонця' if charger == 'OSO' else 'від сонця та ДТЕК' if charger == 'SNU' else 'не підтверджено' }}.\n\nФактичне заряджання перевіряємо за струмом батареї; налаштування показують лише дозволені джерела."
                     },
                     {
                       "type": "markdown",
-                      "content": "{% set confidence = states('sensor.energyhub_grid_confidence') | lower %}\n{% set marker = {'normal':'🟢','unstable':'🟡','risk':'🟠','panic':'🔴'}.get(confidence, '⚪') %}\n{% set label = {'normal':'Normal','unstable':'Unstable','risk':'Risk','panic':'Panic'}.get(confidence, 'Unknown') %}\n{% set available48 = states('sensor.energyhub_grid_available_48h') | float(none) %}\n## {{ marker }} Grid Confidence · {{ label }}\n**Availability:** 24 h — {{ states('sensor.energyhub_grid_availability_24h') }}% · 48 h — {{ ((available48 / 48 * 100) | round(1)) if available48 is not none else 'Unknown' }}%\n**Observed available time:** {{ states('sensor.energyhub_grid_available_24h') }} h / 24 h · {{ states('sensor.energyhub_grid_available_48h') }} h / 48 h"
+                      "content": "{% set confidence = states('sensor.energyhub_grid_confidence') | lower %}\n\n{% set checked = state_attr('binary_sensor.energyhub_grid_confirmed','checked_at') | float(0) %}\n{% set duration = state_attr('binary_sensor.energyhub_grid_confirmed','confirmation_seconds') | float(0) %}\n{% set volts = states('sensor.powmr_10_2m_grid_voltage') | float(-1) %}\n{% set age = as_timestamp(now()) - checked %}\n{% set valid = is_state('sensor.energyhub_telemetry_freshness','fresh') and 0 <= age <= 30 and duration >= 180 and state_attr('binary_sensor.energyhub_grid_confirmed','transition_pending') == false %}\n{% if valid and is_state('binary_sensor.energyhub_grid_confirmed','on') and 180 < volts <= 300 %}\n## 🟢 ДТЕК доступний\n{% elif valid and is_state('binary_sensor.energyhub_grid_confirmed','off') and 0 <= volts <= 180 %}\n## 🔴 ДТЕК недоступний\n{% else %}\n## ⚪ Стан ДТЕК не підтверджено\n{% endif %}\n**Надійність ДТЕК:** {{ states(\"sensor.energyhub_grid_confidence\") }}\n\nДетальні розрахунки й стан джерел — у Diagnostics."
                     },
                     {
                       "type": "entities",
                       "show_header_toggle": false,
-                      "state_color": true,
                       "entities": [
                         {
                           "entity": "sensor.energyhub_communication_status",
@@ -815,136 +818,16 @@
                           "icon": "mdi:eye"
                         },
                         {
-                          "type": "section",
-                          "label": "Battery and generation"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_battery_soc",
-                          "name": "Battery SOC",
-                          "icon": "mdi:battery"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_battery_charging_current",
-                          "name": "Battery Charging Current",
-                          "icon": "mdi:current-ac"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_battery_discharge_current",
-                          "name": "Battery Discharge Current",
-                          "icon": "mdi:current-ac"
-                        },
-                        {
                           "entity": "sensor.powmr_10_2m_output_power",
                           "name": "House Load",
                           "icon": "mdi:home-lightning-bolt"
                         },
                         {
-                          "entity": "sensor.powmr_10_2m_pv1_power",
-                          "name": "PV1 Power",
-                          "icon": "mdi:solar-power"
-                        },
-                        {
-                          "entity": "sensor.powmr_10_2m_pv2_power",
-                          "name": "PV2 Power",
-                          "icon": "mdi:solar-power"
-                        },
-                        {
                           "entity": "sensor.powmr_10_2m_total_pv_power",
                           "name": "Total PV Power",
                           "icon": "mdi:solar-power-variant"
-                        },
-                        {
-                          "entity": "sensor.energyhub_pv2_telemetry_status",
-                          "name": "PV2 Telemetry Status",
-                          "icon": "mdi:solar-panel-large"
-                        },
-                        {
-                          "entity": "sensor.energyhub_pv2_telemetry_freshness",
-                          "name": "PV2 Freshness",
-                          "icon": "mdi:clock-check-outline"
-                        },
-                        {
-                          "entity": "sensor.energyhub_pv2_sample_age_seconds",
-                          "name": "PV2 Sample Age",
-                          "icon": "mdi:timer-sand"
-                        },
-                        {
-                          "type": "section",
-                          "label": "Inverter messages"
-                        },
-                        {
-                          "entity": "sensor.energyhub_inverter_fault_current",
-                          "name": "Current",
-                          "icon": "mdi:alert-circle-outline"
-                        },
-                        {
-                          "entity": "sensor.energyhub_inverter_fault_recent_1",
-                          "name": "Latest message",
-                          "icon": "mdi:history"
-                        },
-                        {
-                          "entity": "sensor.energyhub_inverter_fault_recent_2",
-                          "name": "Previous message",
-                          "icon": "mdi:history"
-                        },
-                        {
-                          "entity": "sensor.energyhub_inverter_fault_recent_3",
-                          "name": "Third latest message",
-                          "icon": "mdi:history"
-                        },
-                        {
-                          "type": "section",
-                          "label": "Battery telemetry diagnostics"
-                        },
-                        {
-                          "entity": "sensor.energyhub_soc_anomaly_event_count",
-                          "name": "SOC Anomaly Count",
-                          "icon": "mdi:battery-alert-variant-outline"
-                        },
-                        {
-                          "entity": "sensor.energyhub_soc_anomaly_latest",
-                          "name": "Latest SOC Anomaly",
-                          "icon": "mdi:chart-timeline-variant-shimmer"
                         }
                       ]
-                    },
-                    {
-                      "type": "conditional",
-                      "conditions": [
-                        {
-                          "condition": "numeric_state",
-                          "entity": "sensor.powmr_10_2m_grid_voltage",
-                          "above": 1
-                        }
-                      ],
-                      "card": {
-                        "type": "tile",
-                        "entity": "sensor.powmr_10_2m_grid_voltage",
-                        "name": "Grid Online",
-                        "icon": "mdi:transmission-tower",
-                        "color": "green",
-                        "vertical": false,
-                        "features_position": "bottom"
-                      }
-                    },
-                    {
-                      "type": "conditional",
-                      "conditions": [
-                        {
-                          "condition": "numeric_state",
-                          "entity": "sensor.powmr_10_2m_grid_voltage",
-                          "below": 1
-                        }
-                      ],
-                      "card": {
-                        "type": "tile",
-                        "entity": "sensor.powmr_10_2m_grid_voltage",
-                        "name": "Grid Offline",
-                        "icon": "mdi:transmission-tower-off",
-                        "color": "red",
-                        "vertical": false,
-                        "features_position": "bottom"
-                      }
                     },
                     {
                       "type": "entities",
@@ -962,10 +845,6 @@
                           "icon": "mdi:counter"
                         }
                       ]
-                    },
-                    {
-                      "type": "markdown",
-                      "content": "ℹ️ Grid-import energy and cost values are **informational estimates**, not billing-grade meter data."
                     }
                   ]
                 }
@@ -1651,13 +1530,13 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "EnergyHub Reserve Protection",
+                  "heading": "Native HA battery protection",
                   "heading_style": "title",
                   "icon": "mdi:shield-home-outline"
                 },
                 {
                   "type": "markdown",
-                  "content": "{% set p = state_attr('sensor.energyhub_peak_load_guard', 'battery_protection') %}\n**Battery protection:** {% if p %}shed {{ p.soft }}% · lock {{ p.critical }}% · recovery {{ p.recovery }}%{% else %}waiting for fresh controller evidence{% endif %}\nDuring actual grid outages, regardless of reliability. HP1 uses native OFF; its plug measures power only.\nManual ON is allowed after the soft stop until critical lockout. Restore only EH-owned devices still wanted, after stable recovery and load checks. Higher explicit family minimums remain protected."
+                  "content": "**Захист батареї від розряду:** {{ states('automation.energyhub_battery_discharge_protection') }} · без ДТЕК вимкнення <40%; увімкнення >50% або після повернення ДТЕК. Вимкнення автоматизації не змінює стан розеток. Відновлюються лише стани, збережені цим захистом. Перший поверх ТН керується окремо."
                 }
               ]
             },
@@ -1693,43 +1572,10 @@
                     },
                     {
                       "type": "tile",
-                      "entity": "switch.first_floor_heat_pump_plug",
-                      "name": "Switch",
-                      "icon": "mdi:heat-pump",
-                      "color": "green",
-                      "vertical": true,
-                      "tap_action": {
-                        "action": "toggle"
-                      },
-                      "hold_action": {
-                        "action": "more-info"
-                      }
-                    },
-                    {
-                      "type": "tile",
                       "entity": "sensor.first_floor_heat_pump_plug_power",
                       "name": "Live Power",
                       "icon": "mdi:flash",
                       "color": "purple",
-                      "vertical": true
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "input_number.input_number_floor1_heat_pump_timer_hours",
-                      "name": "Auto-Off Duration",
-                      "icon": "mdi:timer-cog-outline",
-                      "color": "blue",
-                      "vertical": true,
-                      "tap_action": {
-                        "action": "more-info"
-                      }
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "sensor.floor_1_heat_pump_turns_off_at",
-                      "name": "Turns Off At",
-                      "icon": "mdi:clock-end",
-                      "color": "blue",
                       "vertical": true
                     }
                   ]
@@ -1787,25 +1633,6 @@
                       "icon": "mdi:flash",
                       "color": "purple",
                       "vertical": true
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "input_number.input_number_floor2_heat_pump_timer_hours",
-                      "name": "Auto-Off Duration",
-                      "icon": "mdi:timer-cog-outline",
-                      "color": "blue",
-                      "vertical": true,
-                      "tap_action": {
-                        "action": "more-info"
-                      }
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "sensor.floor_2_heat_pump_turns_off_at",
-                      "name": "Turns Off At",
-                      "icon": "mdi:clock-end",
-                      "color": "blue",
-                      "vertical": true
                     }
                   ]
                 }
@@ -1861,25 +1688,6 @@
                       "name": "Live Power",
                       "icon": "mdi:flash",
                       "color": "purple",
-                      "vertical": true
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "input_number.input_number_floor3_heat_pump_timer_hours",
-                      "name": "Auto-Off Duration",
-                      "icon": "mdi:timer-cog-outline",
-                      "color": "blue",
-                      "vertical": true,
-                      "tap_action": {
-                        "action": "more-info"
-                      }
-                    },
-                    {
-                      "type": "tile",
-                      "entity": "sensor.floor_3_heat_pump_turns_off_at",
-                      "name": "Turns Off At",
-                      "icon": "mdi:clock-end",
-                      "color": "blue",
                       "vertical": true
                     }
                   ]
@@ -2451,13 +2259,13 @@
               "cards": [
                 {
                   "type": "heading",
-                  "heading": "EnergyHub Boiler Reserve Protection",
+                  "heading": "Native HA battery protection",
                   "heading_style": "title",
                   "icon": "mdi:shield-home-outline"
                 },
                 {
                   "type": "markdown",
-                  "content": "{% set p = state_attr('sensor.energyhub_peak_load_guard', 'battery_protection') %}\n**Battery protection:** {% if p %}shed {{ p.soft }}% · lock {{ p.critical }}% · recovery {{ p.recovery }}%{% else %}waiting for fresh controller evidence{% endif %}\nDuring actual grid outages, regardless of reliability. HP1 uses native OFF; its plug measures power only.\nManual ON is allowed after the soft stop until critical lockout. Restore only EH-owned devices still wanted, after stable recovery and load checks. Higher explicit family minimums remain protected."
+                  "content": "**Захист батареї від розряду:** {{ states('automation.energyhub_battery_discharge_protection') }} · без ДТЕК вимкнення <40%; увімкнення >50% або після повернення ДТЕК. Вимкнення автоматизації не змінює стан розеток. Відновлюються лише стани, збережені цим захистом. Перший поверх ТН керується окремо."
                 }
               ]
             },
@@ -3176,6 +2984,998 @@
                       }
                     }
                   ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Опалення / охолодження",
+          "path": "climate-policy",
+          "icon": "mdi:heat-pump-outline",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "## Опалення / охолодження\n**Off** — зупинити керовану роботу. **Solar-only** — працювати лише за дозволених сонячних умов. **Smart** — працювати за доступного живлення з урахуванням резерву й захисту. Температуру та Heat/Cool встановлює родина на насосі. EH зберігає цей вибір, окрім налаштованого нічного зниження температури. Нічні години застосовуються лише до Smart опалення; Eco — на батареї.\n\n**Увімкнути зараз:** оберіть Solar-only або Smart і **Continuous — без розкладу**. Сонячний режим зберігається під час пауз і може відновити роботу наступного дня. Smart замінює сонячний режим. Резерв батареї через опалення не збільшується.\n\n**Автоматичне увімкнення/вимкнення за часом:** оберіть Scheduled і налаштуйте вікна нижче. У Scheduled вибір Smart дозволяє обидва вікна; Solar-only дозволяє лише сонячне. Smart має пріоритет при перетині дозволених вікон. Однакові початок і кінець вимикають вікно. Поза вікнами — Off. Ручний OFF на насосі скасовує автоматичні старти; для відновлення оберіть Solar-only або Smart.\n\nСонячний старт: день, режим інвертора Solar, PV досягає налаштованого порогу запуску, заряд вище резерву й дозвіл захисту. Робота триває до падіння PV нижче налаштованого порогу призупинення. Це перевірка загальної генерації, а не гарантованого сонячного надлишку. Час у форматі 24 год: Профіль → Time format → 24 hours."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Керування EH",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_select.energyhub_climate_policy",
+                      "name": "Режим EH: Off / Solar-only / Smart"
+                    },
+                    {
+                      "entity": "input_select.energyhub_climate_operation",
+                      "name": "Continuous — без розкладу / Scheduled — за часом"
+                    },
+                    "sensor.energyhub_climate_requested_policy",
+                    "input_select.energyhub_smart_heating_status",
+                    "input_select.energyhub_hp1_family_mode",
+                    {
+                      "entity": "sensor.energyhub_climate_next_boundary",
+                      "name": "Наступна межа розкладу"
+                    },
+                    {
+                      "entity": "climate.first_floor_heat_pump",
+                      "name": "Режим насоса",
+                      "tap_action": {
+                        "action": "more-info"
+                      }
+                    },
+                    {
+                      "type": "attribute",
+                      "entity": "climate.first_floor_heat_pump",
+                      "attribute": "temperature",
+                      "name": "Температура родини"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Пороги сонячної генерації",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_number.energyhub_solar_start_power",
+                      "name": "Запуск від (Вт)"
+                    },
+                    {
+                      "entity": "input_number.energyhub_solar_pause_power",
+                      "name": "Призупинення нижче (Вт)"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "Поріг запуску має бути вищим за поріг призупинення. Початково: **600 / 400 Вт**. Це загальна генерація PV, не надлишок. За відсутності мережі: пауза при заряді ≤40%, відновлення від 50%. За наявності ДТЕК цей поріг батареї не зупиняє Smart. Захист навантаження та пауза перед повторним запуском залишаються чинними."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_climate_operation",
+                      "state": "Scheduled"
+                    }
+                  ],
+                  "card": {
+                    "type": "entities",
+                    "title": "Сонячне вікно",
+                    "show_header_toggle": false,
+                    "entities": [
+                      "input_boolean.energyhub_climate_solar_window_enabled",
+                      "input_datetime.energyhub_climate_solar_start",
+                      "input_datetime.energyhub_climate_solar_end"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_climate_operation",
+                      "state": "Scheduled"
+                    }
+                  ],
+                  "card": {
+                    "type": "entities",
+                    "title": "Smart вікно",
+                    "show_header_toggle": false,
+                    "entities": [
+                      "input_boolean.energyhub_climate_smart_window_enabled",
+                      "input_datetime.energyhub_climate_smart_start",
+                      "input_datetime.energyhub_climate_smart_end"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "### Нічні години\nОдне вікно для Quiet і нічної температури або вимкнення насоса. **On** — робота дозволена; зміна температури від −5 до +5°C для поточного опалення/охолодження. **0°C** — без зміни. Наприклад: опалення 22°C −3°C = 19°C; охолодження 23°C +3°C = 26°C. Це різниця температур: 3°C = 5.4°F. **Off** — EH вимикає насос на ніч, розетка залишається під напругою. Після вікна EH відновлює лише власну паузу. Ручне OFF зберігає Smart, але EH чекає ручного ON. Ручні нічні зміни мають пріоритет до кінця поточного вікна; стару температуру поверх них не повертаємо."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Нічні години: Quiet + температура",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_boolean.energyhub_climate_quiet_enabled",
+                      "name": "Нічні години увімкнено"
+                    },
+                    {
+                      "entity": "input_datetime.energyhub_climate_quiet_start",
+                      "name": "Початок нічних годин"
+                    },
+                    {
+                      "entity": "input_datetime.energyhub_climate_quiet_end",
+                      "name": "Кінець нічних годин"
+                    },
+                    {
+                      "entity": "switch.energyhub_climate_night_operation",
+                      "name": "Робота насоса вночі"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "### Відновлення зв’язку з насосом\n**Початково вимкнено. Перше випробування — з власником на місці, включно з перериванням живлення працюючого насоса.**\n\n**Працює або стан невідомий:** після 1 години недоступності у HA EH попросить вимкнути насос пультом/застосунком. Падіння споживання нижче **5 Вт протягом 15 с** дозволяє цикл живлення.\n\n**Вимкнений перед втратою зв’язку:** після 1 години EH підтвердить свіже споживання нижче 5 Вт протягом 15 с і відновить зв’язок без прохання вимкнути насос. Самого низького показника недостатньо: потрібен попередній підтверджений стан OFF у HA.\n\n**Перед нічним вікном опалення:** за 30 хв EH звернеться одразу; за 15 хв до початку, якщо насос досі недоступний і запит доставлено, дозволено перезапуск навіть без вимкнення пультом. Приклад для **23:00**: запит з **22:30**, примусовий цикл з **22:45** до початку вікна. Після початку ночі пропущений примусовий цикл не виконується. Для Solar-only/охолодження цей нічний виняток не діє.\n\nПерерва живлення — **5 хв від підтвердженого OFF**, не більше одного циклу за 24 години. Застарілі дані, відсутність ДТЕК, недоступна розетка або зміна політики блокують новий цикл. Уже від’єднане EH живлення буде повернено навіть уночі чи після вимкнення дозволу. Робота відновлюється лише за чинним дозволом Smart/Solar; політика Off не запускає насос. Точність розетки й фізичний перезапуск ще потребують перевірки.\n\nПовідомлення — в особистий Telegram, без нічного шуму; нічні результати — після ранкового звіту. Нічні години насоса та тиша сімейного Telegram — різні налаштування."
+                },
+                {
+                  "type": "entities",
+                  "title": "Відновлення насоса",
+                  "show_header_toggle": false,
+                  "entities": []
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Ручне керування",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_boolean.energyhub_hp1_manual_hold",
+                      "name": "Очікуємо ручного ввімкнення",
+                      "type": "simple-entity"
+                    },
+                    {
+                      "entity": "input_boolean.energyhub_hp1_night_paused",
+                      "name": "Насос вимкнено EH на ніч",
+                      "type": "simple-entity"
+                    }
+                  ]
+                },
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_climate_night_operation",
+                      "state": "On"
+                    },
+                    {
+                      "entity": "input_select.energyhub_hp1_family_mode",
+                      "state": "heat"
+                    }
+                  ],
+                  "card": {
+                    "type": "entities",
+                    "title": "Нічна зміна температури: опалення",
+                    "show_header_toggle": false,
+                    "entities": [
+                      {
+                        "entity": "input_number.energyhub_climate_heat_offset",
+                        "name": "Зміна температури (°C; −5…+5)"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_climate_night_operation",
+                      "state": "On"
+                    },
+                    {
+                      "entity": "input_select.energyhub_hp1_family_mode",
+                      "state": "cool"
+                    }
+                  ],
+                  "card": {
+                    "type": "entities",
+                    "title": "Нічна зміна температури: охолодження",
+                    "show_header_toggle": false,
+                    "entities": [
+                      {
+                        "entity": "input_number.energyhub_climate_cool_offset",
+                        "name": "Зміна температури (°C; −5…+5)"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "CO / CO₂",
+          "path": "air-quality",
+          "icon": "mdi:molecule-co2",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "## Повітря\nCO та CO₂ — різні показники. Сигнали CO перевіряйте за інструкцією датчика. CO₂: нагадування ≥1200 ppm 10 хв; термінове повідомлення ≥2000 ppm 3 хв; відновлення <1000 ppm 5 хв. У Telegram критичні повідомлення надходять і в тихі години."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Перший поверх — CO₂",
+                  "show_header_toggle": false,
+                  "entities": [
+                    "sensor.1st_floor_co2_co2"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "history-graph",
+                  "title": "CO₂ за добу",
+                  "hours_to_show": 24,
+                  "entities": [
+                    "sensor.1st_floor_co2_co2"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Перший поверх — CO",
+                  "show_header_toggle": false,
+                  "entities": [
+                    "binary_sensor.1st_floor_co_carbon_monoxide",
+                    "sensor.1st_floor_co_co",
+                    "sensor.1st_floor_co_battery",
+                    "sensor.1st_floor_co_self_test_result"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Підвал — CO",
+                  "show_header_toggle": false,
+                  "entities": [
+                    "binary_sensor.basement_co_carbon_monoxide",
+                    "sensor.basement_co_co",
+                    "sensor.basement_co_battery",
+                    "sensor.basement_co_self_test_result"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Параметри",
+          "path": "reference",
+          "icon": "mdi:clipboard-text-outline",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "## Довідкові параметри\nЦі поля зберігають перевірені вручну значення; **не змінюють налаштування інвертора чи BMS**. Нуль означає невідомий ліміт. Окремий сонячний ліміт заповнюйте лише якщо такий параметр підтверджений для інвертора. Значення 73% Battery health не є доведеною втратою ємності: розбіжність 314/230 Ah досліджується."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Обладнання",
+                  "show_header_toggle": false,
+                  "entities": [
+                    "input_text.energyhub_reference_inverter_model",
+                    "input_text.energyhub_reference_battery_model",
+                    "input_text.energyhub_reference_bms_model",
+                    "input_number.energyhub_reference_nominal_capacity",
+                    "input_number.energyhub_reference_bms_capacity"
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Ліміти струму заряджання DC",
+                  "show_header_toggle": false,
+                  "entities": [
+                    "input_number.energyhub_reference_combined_charge_limit",
+                    "input_number.energyhub_reference_grid_charge_limit",
+                    "input_number.energyhub_reference_solar_charge_limit",
+                    "input_number.energyhub_reference_bms_charge_limit"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Мережа",
+          "path": "network",
+          "icon": "mdi:ip-network-outline",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "## Device connections\nThe HP field below is prefilled from its integration. Edit it and select Apply and verify to change the integration address. Unapplied edits are preserved. The change requires administrator access and fresh authenticated verification; a failed change rolls back. IP reachability is separate from HA control. Do not infer that an address changed from an unavailable climate alone. ESPHome uses its own network settings. Recovery must be commissioned before enabling power cuts."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "markdown",
+                  "content": "{% set addresses = state_attr(\"sensor.energyhub_network_inventory\", \"addresses\") or {} %}\n{% for key, value in addresses.items() %}**{{ key.split(\":\", 1)[-1] }}:** `{{ value }}`\n\n{% endfor %}**Address edit result:** {{ states(\"sensor.energyhub_network_inventory\") }}\n\n**HP IP check:** {{ states(\"sensor.energyhub_hp1_connection\") }}\n\n**HA control:** {{ state_attr(\"sensor.energyhub_hp1_connection\", \"hp_state\") or \"not checked\" }}\n\n**Last connection check:** {{ state_attr(\"sensor.energyhub_hp1_connection\", \"checked_at\") or \"not checked\" }}"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "Heat-pump IP address",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_text.energyhub_heat_pump_proposed_address",
+                      "name": "HP IP — edit, then Apply"
+                    },
+                    {
+                      "entity": "script.energyhub_apply_heat_pump_address",
+                      "name": "Apply and verify"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "entities",
+                  "title": "HP connection recovery",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "sensor.energyhub_hp1_connection",
+                      "name": "Configured IP reachability"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Battery / BMS",
+          "path": "bms",
+          "icon": "mdi:battery-heart",
+          "cards": [
+            {
+              "type": "glance",
+              "title": "Battery / BMS",
+              "entities": [
+                {
+                  "entity": "sensor.601232r46900863_battery",
+                  "name": "SOC"
+                },
+                {
+                  "entity": "sensor.601232r46900863_current",
+                  "name": "Current (signed)"
+                },
+                {
+                  "entity": "sensor.601232r46900863_temperature",
+                  "name": "Temperature"
+                },
+                {
+                  "entity": "sensor.601232r46900863_cycles",
+                  "name": "Cycles"
+                }
+              ]
+            },
+            {
+              "type": "custom:apexcharts-card",
+              "header": {
+                "show": true,
+                "title": "SOC & Current — 24h"
+              },
+              "graph_span": "24h",
+              "yaxis": [
+                {
+                  "id": "soc",
+                  "min": 0,
+                  "max": 100,
+                  "decimals": 0,
+                  "apex_config": {
+                    "title": {
+                      "text": "SOC (%)",
+                      "style": {
+                        "color": "#2ecc71"
+                      }
+                    },
+                    "labels": {
+                      "style": {
+                        "colors": "#2ecc71"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "current",
+                  "opposite": true,
+                  "decimals": 0,
+                  "apex_config": {
+                    "title": {
+                      "text": "Current (A)",
+                      "style": {
+                        "color": "#3498db"
+                      }
+                    },
+                    "labels": {
+                      "style": {
+                        "colors": "#3498db"
+                      }
+                    },
+                    "stepSize": 20,
+                    "forceNiceScale": false
+                  },
+                  "min": "~-20",
+                  "max": "~20",
+                  "align_to": 20
+                }
+              ],
+              "series": [
+                {
+                  "entity": "sensor.601232r46900863_battery",
+                  "name": "SOC (%)",
+                  "yaxis_id": "soc",
+                  "stroke_width": 3,
+                  "type": "line",
+                  "color": "#2ecc71"
+                },
+                {
+                  "entity": "sensor.601232r46900863_current",
+                  "name": "Current (A)",
+                  "yaxis_id": "current",
+                  "stroke_width": 2,
+                  "type": "line",
+                  "color": "#3498db",
+                  "color_threshold": [
+                    {
+                      "value": 0,
+                      "color": "#3498db"
+                    },
+                    {
+                      "value": 1e-06,
+                      "color": "#e74c3c"
+                    }
+                  ]
+                }
+              ],
+              "experimental": {
+                "color_threshold": true
+              },
+              "apex_config": {
+                "stroke": {
+                  "curve": "straight"
+                },
+                "annotations": {
+                  "yaxis": [
+                    {
+                      "y": 0,
+                      "yAxisIndex": 1,
+                      "borderColor": "#8a8a8a",
+                      "strokeDashArray": 4
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "entities",
+              "title": "Battery status (reported values)",
+              "entities": [
+                "sensor.601232r46900863_voltage",
+                "sensor.601232r46900863_power",
+                "sensor.601232r46900863_stored_energy",
+                "sensor.601232r46900863_battery_health",
+                "sensor.601232r46900863_delta_cell_voltage",
+                "binary_sensor.601232r46900863_problem"
+              ]
+            },
+            {
+              "type": "history-graph",
+              "title": "Balancer & Problem — 24h",
+              "hours_to_show": 24,
+              "entities": [
+                "binary_sensor.601232r46900863_balancer",
+                "binary_sensor.601232r46900863_problem"
+              ]
+            },
+            {
+              "type": "markdown",
+              "content": "Read-only BMS observations. Balancer ON pulses are not counts of completed balancing sessions. Unavailable values require checking the connection. Current: red = charging (>0 A), blue = discharging (<0 A); dashed reference = 0 A."
+            }
+          ]
+        },
+        {
+          "title": "Settings",
+          "path": "settings",
+          "icon": "mdi:cog-outline",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "EnergyHub settings",
+                  "heading_style": "title",
+                  "icon": "mdi:solar-power"
+                },
+                {
+                  "type": "button",
+                  "name": "Battery Reserve · Auto / Manual",
+                  "entity": "binary_sensor.energyhub_battery_reserve_auto",
+                  "icon": "mdi:battery-lock",
+                  "show_state": true,
+                  "icon_height": "56px",
+                  "tap_action": {
+                    "action": "perform-action",
+                    "perform_action": "input_select.select_next",
+                    "target": {
+                      "entity_id": "input_select.energyhub_ahm_weather_authority"
+                    }
+                  },
+                  "hold_action": {
+                    "action": "none"
+                  }
+                },
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_ahm_weather_authority",
+                      "state": "Manual"
+                    }
+                  ],
+                  "card": {
+                    "type": "heading",
+                    "heading": "Battery Reserve · Manual Minimum",
+                    "heading_style": "subtitle",
+                    "icon": "mdi:battery-lock"
+                  }
+                },
+                {
+                  "type": "conditional",
+                  "conditions": [
+                    {
+                      "entity": "input_select.energyhub_ahm_weather_authority",
+                      "state": "Manual"
+                    }
+                  ],
+                  "card": {
+                    "type": "grid",
+                    "columns": 3,
+                    "square": false,
+                    "cards": [
+                      {
+                        "type": "button",
+                        "name": "Decrease 5%",
+                        "icon": "mdi:battery-minus-outline",
+                        "tap_action": {
+                          "action": "perform-action",
+                          "perform_action": "input_number.decrement",
+                          "target": {
+                            "entity_id": "input_number.ahm_minimum_soc"
+                          },
+                          "confirmation": {
+                            "text": "Decrease your manual Battery Reserve by 5 percentage points? EnergyHub will not restore it automatically."
+                          }
+                        },
+                        "hold_action": {
+                          "action": "none"
+                        }
+                      },
+                      {
+                        "type": "markdown",
+                        "content": "{% set reserve = states('input_number.ahm_minimum_soc') | int(20) %}\n{% set marker = '🟢' if reserve <= 20 else '🟡' if reserve <= 30 else '🟠' if reserve <= 40 else '🔴' %}\n# {{ marker }} {{ reserve }}%\n**ACTIVE RESERVE**"
+                      },
+                      {
+                        "type": "button",
+                        "name": "Increase 5%",
+                        "icon": "mdi:battery-plus-outline",
+                        "tap_action": {
+                          "action": "perform-action",
+                          "perform_action": "input_number.increment",
+                          "target": {
+                            "entity_id": "input_number.ahm_minimum_soc"
+                          },
+                          "confirmation": {
+                            "text": "Increase your manual Battery Reserve by 5 percentage points? EnergyHub will not restore it automatically."
+                          }
+                        },
+                        "hold_action": {
+                          "action": "none"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": "entities",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "number.energyhub_normal_reserve",
+                      "name": "Normal base reserve · 20% minimum",
+                      "icon": "mdi:battery-lock"
+                    },
+                    {
+                      "entity": "input_number.energyhub_reference_grid_charge_limit",
+                      "name": "Grid charging current · battery DC A",
+                      "icon": "mdi:current-dc"
+                    },
+                    {
+                      "entity": "input_number.energyhub_battery_capacity_kwh",
+                      "name": "Корисна ємність батареї — для розрахунків"
+                    },
+                    {
+                      "entity": "input_number.energyhub_house_demand_kw",
+                      "name": "Споживання будинку разом із ТН"
+                    },
+                    {
+                      "entity": "input_number.energyhub_forecast_max_age_hours",
+                      "name": "Допустимий вік прогнозу"
+                    }
+                  ],
+                  "title": "EnergyHub settings"
+                },
+                {
+                  "type": "markdown",
+                  "content": "Резерв батареї використовується для планування заряду. Захист розеток має окремі правила Home Assistant; його пороги не залежать від резерву."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Household settings",
+                  "heading_style": "title",
+                  "icon": "mdi:home-cog-outline"
+                },
+                {
+                  "type": "entities",
+                  "show_header_toggle": false,
+                  "entities": [
+                    {
+                      "entity": "input_number.energyhub_load_off_soc",
+                      "name": "First-floor HP · battery pause SOC"
+                    },
+                    {
+                      "entity": "input_number.energyhub_load_restore_soc",
+                      "name": "First-floor HP · battery resume SOC"
+                    }
+                  ],
+                  "title": "First-floor HP · battery settings"
+                },
+                {
+                  "type": "button",
+                  "name": "Опалення / охолодження · режими та розклад",
+                  "icon": "mdi:heat-pump-outline",
+                  "tap_action": {
+                    "action": "navigate",
+                    "navigation_path": "/dashboard-powmr1/climate-policy"
+                  },
+                  "icon_height": "56px"
+                },
+                {
+                  "type": "markdown",
+                  "content": "**Розетки:** без ДТЕК вимкнення нижче 40%; відновлення вище 50% або після повернення ДТЕК.\n\n**Холодильник:** окреме правило 20–30%.\n\nВідновлюються лише збережені увімкнені стани, якщо інший захист не блокує відновлення. Вимкнення автоматизації саме по собі не вмикає розетки."
+                },
+                {
+                  "type": "button",
+                  "name": "Перевантаження · стан і порядок відновлення",
+                  "icon": "mdi:shield-home-outline",
+                  "tap_action": {
+                    "action": "navigate",
+                    "navigation_path": "/dashboard-powmr1/diagnostics"
+                  },
+                  "icon_height": "56px"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Diagnostics",
+          "path": "diagnostics",
+          "icon": "mdi:stethoscope",
+          "type": "sections",
+          "max_columns": 2,
+          "sections": [
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Reserve and grid evidence",
+                  "heading_style": "title",
+                  "icon": "mdi:clipboard-text-outline"
+                },
+                {
+                  "type": "markdown",
+                  "content": "{% set e = 'sensor.energyhub_ahm_weather_buffer' %}\n{% set p = 'sensor.energyhub_outage_preparation' %}\n{% set auto = is_state('binary_sensor.energyhub_battery_reserve_auto', 'on') %}\n{% set ready = state_attr(e, 'recommendation_status') == 'ready' %}\n{% set phase = states(p) %}\n{% set valid_plan = phase in ['waiting', 'solar', 'charging', 'holding', 'waiting_for_grid', 'guarded'] and state_attr(p, 'target_soc') is number %}\n{% set suspended = state_attr(p, 'source_status') == 'suspended' %}\n{% set scheduled = state_attr(e, 'reserve_planning_source') == 'dtek_schedule' %}\n{% set panic = states('sensor.energyhub_panic_target_source').startswith('Manual Panic:') %}\n{{ '🤖' if auto else '👥' }} **Battery Reserve Auto: {{ 'ON — EH manages' if auto else 'OFF — manual; EH recommends' }}**\n\n**Control:** {{ 'Manual Panic — power-bank mode; target 95%' if panic else 'Family-selected reserve' if not auto else 'Emergency reserve — schedule unavailable' if suspended and not scheduled else 'Scheduled outage preparation' if valid_plan and state_attr(p, 'control_active') == true else 'Outage schedule' if scheduled else 'Grid Confidence fallback' }}\n{% if auto %}**Current reserve:** {{ states('input_number.ahm_minimum_soc') }}%\n{% else %}**Selected reserve:** {{ states('input_number.ahm_minimum_soc') }}%\n**EH recommendation:** {{ state_attr(e, 'recommended_soc') if ready else 'Insufficient evidence' }}{{ '%' if ready else '' }}\n{% endif %}{% if panic %}Other reserve planning does not control charging while manual Panic is active.\n{% elif valid_plan %}**Next outage:** {{ as_timestamp(state_attr(p, 'start')) | timestamp_custom('%d.%m %H:%M') }}–{{ as_timestamp(state_attr(p, 'end')) | timestamp_custom('%d.%m %H:%M') }}\n**Preparation target:** {{ state_attr(p, 'target_soc') }}% · separate from the base reserve\n{% if state_attr(p, 'window_active') == true %}\n**Remaining outage:** {{ state_attr(p, 'remaining_window_minutes') }} min.\n{% set coverage = state_attr(p, 'coverage_required_soc') %}\n**SOC needed to release:** {{ (coverage | round(1)) if coverage is number else 'Unconfirmed' }}{{ '%' if coverage is number else '' }} · uncapped; includes {{ state_attr(p, 'release_margin_percent') }} p.p. margin.\n**Coverage decision:** {{ state_attr(p, 'coverage_reason') or 'Unconfirmed' }}.\n{% if state_attr(p, 'coverage_release') == true %}Ordinary BR resumes after confirmed Solar; remaining-window coverage stays monitored.{% endif %}\n{% endif %}\n**Preparation:** {{ {'waiting':'Waiting for preparation time', 'solar':'Solar forecast covers the required charge', 'charging':'Grid charging requested', 'holding':'Target reached; grid hold requested', 'waiting_for_grid':'Waiting for grid supply', 'guarded':'Automatic preparation paused — evidence or control unavailable'}.get(phase, 'Unavailable') }}\n{% if state_attr(p, 'planned_grid_start') and phase in ['waiting', 'solar', 'charging', 'holding'] %}**Planned grid start:** {{ as_timestamp(state_attr(p, 'planned_grid_start')) | timestamp_custom('%d.%m %H:%M') }}\n{% endif %}{% if state_attr(p, 'preparation_time_insufficient') == true %}⚠️ Estimated charging time may be insufficient to reach the target.\n{% endif %}{% if phase in ['charging','holding'] and states('sensor.energyhub_telemetry_freshness') != 'fresh' %}⚠️ Actual charging is unconfirmed: inverter telemetry is not fresh.\n{% endif %}{% elif suspended %}Emergency restrictions apply; no usable schedule is confirmed. Reserve and battery protection remain active.\n{% elif phase == 'no_upcoming_outage' %}No upcoming outage in the validated preparation horizon.\n{% elif phase in ['source_stale','source_unavailable','unknown','unavailable'] %}⚠️ Schedule evidence is unavailable or stale; using ordinary reserve management.\n{% elif phase == 'inactive' %}Scheduled preparation is disabled or its configuration is invalid.\n{% endif %}\n{% if not panic %}**Base reserve calculation:**\n{% if scheduled %}Minimum +20 scheduled + weather + emergency. Grid Confidence is excluded. Energy deficit is handled by night charging.\n{% else %}Minimum + Grid Confidence + weather + emergency.\n{% endif %}\n{% set minimum = state_attr(e, 'policy_base_soc') %}\n{% set schedule_add = state_attr(e, 'schedule_modifier_percent') %}\n{% set grid_add = state_attr(e, 'grid_modifier_percent') %}\n{% set weather_add = state_attr(e, 'weather_modifier_percent') %}\n{% set emergency_add = state_attr(e, 'schedule_suspension_modifier_percent') %}\n| Component | Applied allowance |\n|:--|--:|\n| Minimum BR (setting) | {{ minimum if minimum is number else 'Unconfirmed' }}{{ '%' if minimum is number else '' }} |\n{% for label, amount in [('Schedule', schedule_add), ('Grid Confidence', grid_add), ('Weather', weather_add), ('Emergency / unscheduled outages', emergency_add)] %}\n| {{ label }} | {{ '+' ~ amount ~ ' p.p.' if amount is number else 'Unconfirmed' }} |\n{% endfor %}\n{% set parts = [minimum, schedule_add, grid_add, weather_add, emergency_add] %}\n{% if parts | select('number') | list | length == 5 %}\n**Calculation:** {{ parts | join(' + ') }} = {{ parts | sum | round(1) }}%; **after 95% cap: {{ [95, parts | sum] | min | round(1) }}%**.\n{% else %}Calculation breakdown is unconfirmed; missing allowances are not zero.\n{% endif %}\n{% if auto and state_attr(e, 'control_applied') != true %}⚠️ Calculated reserve is not confirmed applied by HA. Current reserve above remains the selected setting.\n{% endif %}\n{% if not auto %}This calculation is an EH recommendation; the selected reserve remains in control.{% endif %}\nEmergency restrictions add reserve; a fresh validated published schedule remains usable.\n{% endif %}\n**Schedule source:** {{ state_attr(p, 'source_status') | default('Unavailable', true) }}{% if state_attr(p, 'source_checked_at') %} · checked {{ as_timestamp(state_attr(p, 'source_checked_at')) | timestamp_custom('%d.%m %H:%M') }}{% endif %}\n{% set issues = state_attr(e, 'evidence_issues') or [] %}{% if issues %}⚠️ Automatic changes paused: {{ issues | join(', ') }}.{% endif %}\nGrid and weather are monitored continuously.\n{% if not panic and not suspended and state_attr(p, 'emergency_notice_active') == true %}ℹ️ **Emergency notice:** {{ 'DTEK is available; the emergency reserve allowance remains active. Usable schedule preparation continues.' if state_attr(p, 'emergency_grid_state') == 'online' else 'House grid availability is unconfirmed; waiting for fresh telemetry.' }}{% endif %}\n\n**Grid charging reference:** {{ states('input_number.energyhub_reference_grid_charge_limit') }} A DC · manual reference, not an inverter command.\n{% set discharge = state_attr(p, 'observed_net_discharge_kw') %}\n**Rolling 1-hour net battery flow:** {% if discharge is number and phase not in ['unknown','unavailable'] and is_state('sensor.energyhub_telemetry_freshness', 'fresh') %}{{ discharge | round(2) }} kW {{ '(net discharge)' if discharge >= 0 else '(net charging)' }}.\n{% else %}Full valid hour unavailable; using configured planning.\n{% endif %}\nChecked every monitoring tick. The observation can advance charging; it does not lower configured outage consumption or postpone the charging deadline.\n{% if state_attr(p, 'discharge_check_advanced_start') == true %}⚠️ Observed battery discharge advanced the planned grid start.\n{% endif %}\n{% if state_attr(p, 'predicted_waiting_discharge_kwh') is number %}**Predicted battery use while waiting:** {{ state_attr(p, 'predicted_waiting_discharge_kwh') | round(2) }} kWh.\n{% endif %}\nBelow the active BR, reserve recovery starts immediately. Scheduled preparation has its own target and start time above.\n{% if state_attr('sensor.energyhub_outage_preparation', 'predicted_minimum_soc') is not none %}\n**Forecast minimum SOC:** {{ state_attr('sensor.energyhub_outage_preparation', 'predicted_minimum_soc') | round(1) }}% · early release requires active BR + 5 points.\n{% endif %}\n\n\n**Налаштування розрахунків:** {{ states('input_number.energyhub_battery_capacity_kwh') }} kWh; {{ states('input_number.energyhub_house_demand_kw') }} kW (разом із ТН).\n{% set cap = states('input_number.energyhub_battery_capacity_kwh') | float(0) %}\n{% if cap > 0 %}За годину без сонця: ≈{{ (states('input_number.energyhub_house_demand_kw') | float(0) / cap * 100) | round(1) }}% SOC.{% endif %}\n{% if state_attr(p, 'coverage_capacity_insufficient') %}⚠️ Потрібно {{ state_attr(p, 'uncapped_target_soc') | round(1) }}%; ціль обмежена 95%. Збереження резерву на все відключення не забезпечено.{% endif %}\n\n**Тепловий насос — підтвердження профілю:**\n{% if states('climate.first_floor_heat_pump') == 'off' %}ТН вимкнено.\n{% elif states('climate.first_floor_heat_pump') not in ['heat','cool'] %}ТН недоступний у HA.\n{% elif states('input_select.energyhub_smart_heating_status') == 'Waiting' %}Очікуємо підтвердження режиму ТН.\n{% elif is_state('switch.first_floor_heat_pump_eco','on') and is_state('switch.first_floor_heat_pump_quiet','off') %}Eco підтверджено в HA.\n{% elif is_state('switch.first_floor_heat_pump_quiet','on') and is_state('switch.first_floor_heat_pump_eco','off') %}Quiet підтверджено в HA.\n{% elif is_state('switch.first_floor_heat_pump_eco','off') and is_state('switch.first_floor_heat_pump_quiet','off') %}Звичайний режим підтверджено в HA.\n{% else %}Профіль ТН не підтверджено.\n{% endif %}\n"
+                },
+                {
+                  "type": "markdown",
+                  "content": "{% set confidence = states('sensor.energyhub_grid_confidence') | lower %}\n\n{% set checked = state_attr('binary_sensor.energyhub_grid_confirmed','checked_at') | float(0) %}\n{% set duration = state_attr('binary_sensor.energyhub_grid_confirmed','confirmation_seconds') | float(0) %}\n{% set volts = states('sensor.powmr_10_2m_grid_voltage') | float(-1) %}\n{% set age = as_timestamp(now()) - checked %}\n{% set valid = is_state('sensor.energyhub_telemetry_freshness','fresh') and 0 <= age <= 30 and duration >= 180 and state_attr('binary_sensor.energyhub_grid_confirmed','transition_pending') == false %}\n{% if valid and is_state('binary_sensor.energyhub_grid_confirmed','on') and 180 < volts <= 300 %}\n## 🟢 ДТЕК доступний\n{% elif valid and is_state('binary_sensor.energyhub_grid_confirmed','off') and 0 <= volts <= 180 %}\n## 🔴 ДТЕК недоступний\n{% else %}\n## ⚪ Стан ДТЕК не підтверджено\n{% endif %}\n{% set available24 = states('sensor.energyhub_grid_availability_24h') | float(none) %}\n{% set hours24 = states('sensor.energyhub_grid_available_24h') | float(none) %}\n{% set hours48 = states('sensor.energyhub_grid_available_48h') | float(none) %}\n{% set base = states('number.energyhub_normal_reserve') | float(none) %}\n{% if base is none %}{% set base = state_attr('sensor.energyhub_ahm_weather_buffer', 'policy_base_soc') | float(none) %}{% endif %}\n{% set valid_base = base is not none and 20 <= base <= 95 and base % 5 == 0 %}\n{% set scheduled = state_attr('sensor.energyhub_ahm_weather_buffer', 'reserve_planning_source') == 'dtek_schedule' %}\n## Надійність ДТЕК (довідково)\nНижче — надбавки до мінімального резерву, а не фактичний BR.\n{% if scheduled %}За підтвердженим графіком ці надбавки не застосовуються. Фактичний резерв показано ліворуч.{% endif %}\n\n{% for level, name, icon, offset in [('normal', 'Normal', '🟢', 0), ('unstable', 'Unstable', '🟡', 20), ('risk', 'Risk', '🟠', 40), ('panic', 'Panic', '🔴', 60)] %}\n{% set reserve = ([95, base + offset] | min | round(0) | int) if valid_base else none %}\n{% set reserve_label = (reserve ~ '%') if reserve is not none else '—' %}\n{% if confidence == level %}\n### ➜ {{ icon }} {{ name }} · +{{ offset }} p.p.\n{% else %}\n· {{ name }} · **+{{ offset }} p.p.**\n{% endif %}\n\n{% endfor %}\n{% if confidence not in ['normal', 'unstable', 'risk', 'panic'] %}\n⚪ **Current level unavailable**\n\n{% endif %}\n*Fallback: minimum BR + Grid Confidence (0 / 20 / 40 / 60 p.p.) + weather + emergency allowance, capped at 95%. Only active modifiers apply.*\n\n---\n\n| Grid availability | Last 24 h | Last 48 h |\n|:--|--:|--:|\n| Available | {{ (available24 | round(1) ~ '%') if available24 is not none else '—' }} | {{ ((hours48 / 48 * 100) | round(1) ~ '%') if hours48 is not none else '—' }} |\n| Observed time | {{ (hours24 | round(2) ~ ' h') if hours24 is not none else '—' }} | {{ (hours48 | round(2) ~ ' h') if hours48 is not none else '—' }} |\n\n**Applied reserve:** {{ states('input_number.ahm_minimum_soc') }}%\n\n*Scheduled preparation uses its calculated target. Manual Panic targets 95%.*"
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Telemetry and messages",
+                  "heading_style": "title",
+                  "icon": "mdi:lan-connect"
+                },
+                {
+                  "type": "entities",
+                  "show_header_toggle": false,
+                  "state_color": true,
+                  "entities": [
+                    {
+                      "entity": "sensor.energyhub_communication_status",
+                      "name": "Communication",
+                      "icon": "mdi:eye"
+                    },
+                    {
+                      "type": "section",
+                      "label": "Battery and generation"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_battery_soc",
+                      "name": "Battery SOC",
+                      "icon": "mdi:battery"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_battery_charging_current",
+                      "name": "Battery Charging Current",
+                      "icon": "mdi:current-ac"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_battery_discharge_current",
+                      "name": "Battery Discharge Current",
+                      "icon": "mdi:current-ac"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_output_power",
+                      "name": "House Load",
+                      "icon": "mdi:home-lightning-bolt"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_pv1_power",
+                      "name": "PV1 Power",
+                      "icon": "mdi:solar-power"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_pv2_power",
+                      "name": "PV2 Power",
+                      "icon": "mdi:solar-power"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_total_pv_power",
+                      "name": "Total PV Power",
+                      "icon": "mdi:solar-power-variant"
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_telemetry_status",
+                      "name": "PV2 Telemetry Status",
+                      "icon": "mdi:solar-panel-large"
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_telemetry_freshness",
+                      "name": "PV2 Freshness",
+                      "icon": "mdi:clock-check-outline"
+                    },
+                    {
+                      "entity": "sensor.energyhub_pv2_sample_age_seconds",
+                      "name": "PV2 Sample Age",
+                      "icon": "mdi:timer-sand"
+                    },
+                    {
+                      "type": "section",
+                      "label": "Inverter messages"
+                    },
+                    {
+                      "entity": "sensor.energyhub_inverter_fault_current",
+                      "name": "Current",
+                      "icon": "mdi:alert-circle-outline"
+                    },
+                    {
+                      "entity": "sensor.energyhub_inverter_fault_recent_1",
+                      "name": "Latest message",
+                      "icon": "mdi:history"
+                    },
+                    {
+                      "entity": "sensor.energyhub_inverter_fault_recent_2",
+                      "name": "Previous message",
+                      "icon": "mdi:history"
+                    },
+                    {
+                      "entity": "sensor.energyhub_inverter_fault_recent_3",
+                      "name": "Third latest message",
+                      "icon": "mdi:history"
+                    },
+                    {
+                      "type": "section",
+                      "label": "Battery telemetry diagnostics"
+                    },
+                    {
+                      "entity": "sensor.energyhub_soc_anomaly_event_count",
+                      "name": "SOC Anomaly Count",
+                      "icon": "mdi:battery-alert-variant-outline"
+                    },
+                    {
+                      "entity": "sensor.energyhub_soc_anomaly_latest",
+                      "name": "Latest SOC Anomaly",
+                      "icon": "mdi:chart-timeline-variant-shimmer"
+                    }
+                  ]
+                },
+                {
+                  "type": "entities",
+                  "show_header_toggle": false,
+                  "state_color": true,
+                  "entities": [
+                    {
+                      "entity": "sensor.energyhub_peak_load_guard",
+                      "name": "First-floor HP controller",
+                      "icon": "mdi:shield-home-outline"
+                    },
+                    {
+                      "entity": "sensor.energyhub_peak_load_guard_event",
+                      "name": "Latest HP recommendation",
+                      "icon": "mdi:shield-alert-outline"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_load",
+                      "name": "Native Inverter Load",
+                      "icon": "mdi:gauge"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_output_power",
+                      "name": "Output Active Power",
+                      "icon": "mdi:flash"
+                    },
+                    {
+                      "entity": "sensor.powmr_10_2m_apparent_power",
+                      "name": "Output Apparent Power",
+                      "icon": "mdi:sine-wave"
+                    }
+                  ],
+                  "title": "First-floor HP controller diagnostics"
+                },
+                {
+                  "type": "markdown",
+                  "content": "ℹ️ Grid-import energy and cost values are **informational estimates**, not billing-grade meter data."
+                }
+              ]
+            },
+            {
+              "type": "grid",
+              "cards": [
+                {
+                  "type": "heading",
+                  "heading": "Native HA protection",
+                  "heading_style": "title",
+                  "icon": "mdi:shield-home-outline"
+                },
+                {
+                  "type": "markdown",
+                  "title": "Overload Protection",
+                  "content": "**Automatic overload protection:** {{ states('input_boolean.energyhub_load_control_armed') }}\n**Load:** {{ states('sensor.powmr_10_2m_load') }}%\n**Recovery:** {{ states('input_select.energyhub_overload_phase') }}\nAbove 85%: save states and switch five plugs OFF, with or without DTEK. Below 50% for five minutes: restore originally-ON plugs one minute apart. During recovery, 80% stops restoration; retry after three minutes below 50%.\n**Restoration order:** microwave → pump → boiler → second-floor HP → third-floor HP. Fridge and first-floor HP are separate. Battery protection can defer restoration. Disabling automatic control stops recovery without switching plugs ON."
+                },
+                {
+                  "type": "markdown",
+                  "title": "Overload devices · Restoration order",
+                  "content": "| Device · restoration order | Reported state |\n|---|---|\n| Microwave | {{ states('switch.microwave_plug_switch') }} |\n| Water pump | {{ states('switch.water_pump_plug_switch') }} |\n| Water boiler | {{ states('switch.water_boiler_plug_switch') }} |\n| Second-floor heat pump | {{ states('switch.second_floor_heat_pump_plug') }} |\n| Third-floor heat pump | {{ states('switch.third_floor_heat_pump_plug_switch') }} |\n\nReported states are observations, not acknowledgements of switching commands. Only originally-ON plugs are restored. Fridge and first-floor HP are separate."
                 }
               ]
             }

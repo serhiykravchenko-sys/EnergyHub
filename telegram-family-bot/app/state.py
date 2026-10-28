@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import os
 from pathlib import Path
 from typing import Any
@@ -49,12 +50,14 @@ class StateStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return dict(DEFAULT_STATE)
+            return deepcopy(DEFAULT_STATE)
         try:
             with self.path.open("r", encoding="utf-8") as handle:
                 state = json.load(handle)
         except (OSError, json.JSONDecodeError):
-            return dict(DEFAULT_STATE)
+            return deepcopy(DEFAULT_STATE)
+        if not isinstance(state, dict):
+            return deepcopy(DEFAULT_STATE)
         for key, value in DEFAULT_STATE.items():
             state.setdefault(
                 key,

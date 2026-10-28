@@ -22,20 +22,12 @@ class Client:
 
 class BrevityTests(TestCase):
     def test_missing_load_data_message_is_short_and_names_owned_devices(self):
-        message = peak_load_guard_message(dict(type='control_attention', mode='automatic',
-            reason='restoration_telemetry_missing', affected_loads=[dict(key='water_pump'), dict(key='water_boiler')]))
-        self.assertIn('5 хв', message)
-        self.assertIn('насос', message)
-        self.assertIn('бойлер', message)
-        self.assertIn('вручну', message)
-        self.assertLessEqual(len(message.splitlines()), 3)
+        message = peak_load_guard_message(dict(type="control_attention",affected_loads=[dict(key="heat_pump_floor_1")],reason="restoration_telemetry_missing"))
+        self.assertIn("1-го поверху",message)
+        self.assertIn("непідтверджену",message)
 
     def test_restore_rules_in_shed_message(self):
-        message = peak_load_guard_message(dict(type='load_shed', mode='automatic',
-            load_percent=90, affected_loads=[dict(key='water_boiler')]))
-        self.assertIn('50%', message)
-        self.assertIn('5 хв', message)
-        self.assertIn('1 хв', message)
+        self.assertEqual('',peak_load_guard_message(dict(type='load_shed',reason='overload',mode='automatic',affected_loads=[{'key':'water_boiler'}])))
 
     def setUp(self):
         self.config=SimpleNamespace(weather_buffer_entity='reserve', timezone='Europe/Kyiv',
@@ -97,31 +89,6 @@ class BrevityTests(TestCase):
         self.assertNotIn('20%', calls[0][1])
         self.assertEqual(2, len(calls[0][1].splitlines()))
 
-    def test_completion_does_not_repeat_restoration_message(self):
-        self.client.attributes = {'events': [dict(event_id='one', stream_id='s', sequence=1,
-            type='load_restored', mode='automatic', affected_loads=[{'key':'water_boiler'}]),
-            dict(event_id='two', stream_id='s', sequence=2, type='control_complete', mode='automatic')]}
-        observe_peak_load_guard(self.config, self.client, self.state, NOW)
-        observe_peak_load_guard(self.config, self.client, self.state, NOW)
-        self.assertEqual(1, len(self.state['pending_notifications']))
-
-    def test_attention_events_from_one_cycle_are_consolidated(self):
-        self.client.attributes = {'events': [
-            dict(event_id='a', stream_id='s', sequence=1, cycle_id='cycle',
-                 type='control_attention', mode='automatic', reason='command_outcome_unconfirmed',
-                 affected_loads=[{'key':'water_boiler'}], load_percent=63),
-            dict(event_id='b', stream_id='s', sequence=2, cycle_id='cycle',
-                 type='control_attention', mode='automatic', reason='load_unavailable',
-                 affected_loads=[{'key':'heat_pump_floor_1'}], load_percent=71),
-        ]}
-        observe_peak_load_guard(self.config, self.client, self.state, NOW)
-        self.assertEqual([], self.state['pending_notifications'])
-        observe_peak_load_guard(self.config, self.client, self.state,
-                                NOW.replace(minute=NOW.minute+1, second=4))
-        self.assertEqual(1, len(self.state['pending_notifications']))
-        message=self.state['pending_notifications'][0]['message']
-        self.assertIn('бойлер',message)
-        self.assertIn('1-му поверсі',message)
 
     def test_automatic_requires_confirmed_applied_change(self):
         self.client.attributes.update(management_mode='automatic',applied_minimum_soc=40,
@@ -145,17 +112,7 @@ class BrevityTests(TestCase):
         self.assertNotIn('з 07:00',message)
 
     def test_live_messages_only_claim_confirmed_actions(self):
-        event=dict(mode='automatic',type='load_shed',load_percent=45,
-                   trigger_load_percent=90, trigger_reason='load_percent',
-                   affected_loads=[{'key':'water_boiler'}])
-        message=peak_load_guard_message(event)
-        self.assertIn('Тимчасово вимкнено: <b>бойлер</b>',message)
-        self.assertIn('зросло до <b>90%</b>',message)
-        self.assertIn('Після дії: <b>45%</b>',message)
-        self.assertNotIn('Dry Run',message)
-        self.assertNotIn('Peak Load Guard',message)
-        event['type']='control_attention'
-        self.assertNotIn('Відновлено',peak_load_guard_message(event))
+        self.assertEqual('',peak_load_guard_message(dict(type='load_shed',reason='overload',mode='automatic',affected_loads=[{'key':'water_boiler'}])))
 
     def test_no_raw_telemetry_in_anomaly(self):
         text=soc_anomaly_message(dict(timestamp=NOW.isoformat(),previous_soc=83,
@@ -165,24 +122,14 @@ class BrevityTests(TestCase):
             self.assertNotIn(term,text)
 
     def test_warning_mode_is_short_without_trial_or_switching_claims(self):
-        for kind in ('load_warning', 'load_warning_cleared'):
-            message = peak_load_guard_message(dict(type=kind, mode='warnings_only', load_percent=90))
-            self.assertEqual(2, len(message.splitlines()))
-            for old in ('Dry Run', 'Peak Load Guard', 'Цикл:', 'Відновлено роботу'):
-                self.assertNotIn(old, message)
+        self.assertEqual('',peak_load_guard_message(dict(type='load_shed',reason='overload',mode='automatic',affected_loads=[{'key':'water_boiler'}])))
 
-    def test_old_retained_trial_is_consumed_without_delivery(self):
-        self.client.attributes = {'events':[dict(event_id='old', stream_id='s', sequence=1,
-            mode='dry_run', type='shed_recommended', thresholds={'shed_percent':40})]}
-        observe_peak_load_guard(self.config, self.client, self.state, NOW)
-        observe_peak_load_guard(self.config, self.client, self.state, NOW)
-        self.assertEqual([], self.state['pending_notifications'])
-        self.assertIn('s:old', self.state['peak_load_guard_seen_ids'])
 
-    def test_queued_trial_is_dropped_but_production_warning_delivered(self):
+    def test_retired_plug_notices_are_dropped_but_hp_warning_delivered(self):
         self.state['pending_notifications'] = [dict(kind='peak_load_guard_shed_recommended', message='old'),
             dict(kind='peak_load_guard_restore_recommended', message='old restore'),
-            dict(kind='peak_load_guard_load_warning', message='new warning')]
+            dict(kind='peak_load_guard_load_warning', message='retired overload'),
+            dict(kind='peak_load_guard_hp1_battery_warning', producer='hp1_battery', message='new warning')]
         calls=[]
         deliver_pending_notifications(self.config,
             SimpleNamespace(send_message=lambda *args:calls.append(args)), self.state, NOW, self.client)

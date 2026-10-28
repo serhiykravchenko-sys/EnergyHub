@@ -1,22 +1,28 @@
-# EnergyHub visual specification
+# Current visual specification
 
-The current system should be understandable from these five diagrams:
+Start with [the illustrated family guide](family/README.md). The owner-selected
+lead picture is [A battery reserve, plus a plan](family/family-battery-and-charging.png).
 
-1. [System Architecture](system-architecture-current.png) — physical inputs,
-   local core, guarded execution, Home Assistant, Telegram, and future Mission
-   Control.
-2. [Control Ownership and Safety Boundaries](control-boundaries-current.png) —
-   authority order and the separate inverter, household-load, and native-climate
-   execution paths.
-3. [Battery Reserve](battery-reserve-current.png) — manual/automatic authority,
-   recommendation inputs, and continuous inverter behavior.
-4. [Smart Heating and Load Protection](smart-heating-load-protection.png) —
-   overload, outage-battery, Smart Heating, and family/manual behavior.
-5. [Telemetry, Memory and Recovery](telemetry-resilience-current.png) — validated
-   acquisition, derived evidence, persistence, diagnostics, and conservative
-   failure handling.
+These eight technical pairs describe the current **monolithic 3.6.37 snapshot**,
+not a Core/Custom split. Each PNG has an editable SVG with the same basename.
 
-Every current PNG has a matching editable SVG source. Update the SVG first and
-render the PNG for GitHub/documentation use.
+| Topic | Image |
+| --- | --- |
+| System and component responsibilities | [Architecture](system-architecture-current.png) |
+| Distinct EH, HA and human authorities | [Control boundaries](control-boundaries-current.png) |
+| Reserve formula and application | [Battery Reserve](battery-reserve-current.png) |
+| Night and scheduled-outage targets | [Charging preparation](charging-planning-current.png) |
+| Native group OFF and ordered recovery | [Overload](overload-protection-current.png) |
+| Four-plug 40/50 and separate fridge 20/30 | [Outage preservation](outage-preservation-current.png) |
+| EH/HA supported HP1 management | [Heating](smart-heating-load-protection.png) |
+| Freshness, persistence and message meaning | [Evidence](telemetry-resilience-current.png) |
 
-Superseded diagrams are excluded from this public release. These five diagrams describe the current operating contract.
+Illustrations were checked against the current runtime, native HA packages and
+regressions. In particular: overload is no longer Python shed-to-75%; reserve
+has no forecast-deficit/Smart Heating +20 term; native plug restoration is not
+a universal family-OFF guarantee; native notices are not physical ACKs.
+
+Edit the SVG before rendering its PNG. The family images are generated raster
+illustrations with [saved prompts](family/PROMPTS.md), not SVGs. Historical review
+images and private generators/audit inventories are excluded. See the public
+[release evidence](../validation/RELEASE_3.6.37.md) for field-validation limits.

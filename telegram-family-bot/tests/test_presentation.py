@@ -21,8 +21,8 @@ class PresentationTests(TestCase):
         self.assertNotIn("ДТЕК</b> · заряджання", self.lines("hybrid_grid_hold"))
         self.assertIn("при <b>50%</b>", self.lines("panic_grid_hold"))
         self.assertEqual(
-            "🔌 О 05:00 режим <b>сонце + ДТЕК</b> · резерв <b>40%</b> "
-            "· пріоритет сонця при <b>50%</b>",
+            "🔌 О 05:00 будинок працює <b>з допомогою ДТЕК</b> · "
+            "повернення до сонця при <b>50%</b>",
             self.lines("panic_grid_hold"),
         )
 

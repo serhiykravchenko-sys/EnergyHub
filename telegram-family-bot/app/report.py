@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import math
 from datetime import datetime, timedelta
 from html import escape
 from typing import Any
@@ -419,23 +420,29 @@ def tariff_import_report_lines(values: dict[str, Any] | None, report_date=None) 
 def morning_energy_lines(*, forecast, consumption_average, soc, reserve_soc,
                          battery_capacity_kwh, battery_voltage_v,
                          battery_charge_current_a, battery_efficiency,
-                         house_reference_current_a):
-    values = (forecast, consumption_average, soc, reserve_soc)
-    if any(number(value) is None for value in values):
+                         house_reference_current_a, compact=False):
+    if any(number(v) is None or float(v) < 0 for v in (forecast, consumption_average)):
         return []
-    forecast, consumption_average, soc, reserve_soc = map(float, values)
-    efficiency = max(0.5, min(1.0, float(battery_efficiency)))
+    forecast, consumption_average = float(forecast), float(consumption_average)
     house_deficit = max(0.0, consumption_average - forecast)
-    reserve_energy = max(0.0, reserve_soc - soc) / 100 * battery_capacity_kwh / efficiency
-    battery_power = battery_voltage_v * battery_charge_current_a / 1000
-    house_power = 230 * house_reference_current_a / 1000
-    hours = max(
-        reserve_energy / battery_power if battery_power > 0 else 0,
-        house_deficit / house_power if house_power > 0 else 0,
-    )
     lines = []
-    if hours > 0.05:
-        lines.append(f"⚡ <b>Сьогодні потрібно близько {compact_number(round(hours, 1))} год підтримки від ДТЕК.</b>")
+    amps, volts = number(battery_charge_current_a), number(battery_voltage_v)
+    support = f"🔌 {'Орієнтовна потреба в ДТЕК' if compact else 'Допомога від ДТЕК'}: <b>{compact_number(round(house_deficit, 1))} kWh</b>"
+    if amps is not None and volts is not None and 0 < amps <= 60 and 40 <= volts <= 65 and round(volts*amps/1000, 1) > 0:
+        power = round(volts * amps / 1000, 1)
+        hours = math.ceil(house_deficit / power * 2) / 2
+        if compact:
+            total_minutes = round(hours*60)
+            hour, minute = divmod(total_minutes, 60)
+            duration = (f'{hour} год' if hour else '') + (f' {minute} хв' if minute else '')
+            support += f"\n≈<b>{duration.strip() or '0 хв'}</b> заряджання при <b>{compact_number(amps)} А</b>"
+        else:
+            support += f" — ≈<b>{compact_number(hours)} год</b> заряджання при <b>{compact_number(amps)} А (~{compact_number(power)} kW)</b>"
+    lines.append('☀️ За прогнозом, допомога ДТЕК сьогодні не потрібна.' if house_deficit == 0 else support+'.')
+    if any(number(v) is None for v in (soc, reserve_soc, battery_capacity_kwh, battery_efficiency)):
+        return lines
+    soc = float(soc)
+    efficiency = max(0.5, min(1.0, float(battery_efficiency)))
     battery_full_energy = max(0.0, 100 - soc) / 100 * battery_capacity_kwh / efficiency
     ev_kwh = max(0.0, forecast - consumption_average - battery_full_energy)
     if ev_kwh >= 0.5:
@@ -455,6 +462,14 @@ def overnight_family_event_lines(
         return []
     lines = []
     seen: set[str] = set()
+    profile_groups = {}
+    for event in events:
+        if str(event.get('kind', '')).startswith('reserve_'):
+            continue
+        if event.get('kind') in {'dashboard_control_quiet', 'dashboard_control_eco'}:
+            profile_groups.setdefault(event['kind'], []).append(event)
+    condensed = set()
+    reserve_episode = None
     for event in sorted(events, key=lambda item: str(item.get("created_at") or "")):
         try:
             occurred = datetime.fromisoformat(str(event.get("created_at")))
@@ -462,6 +477,20 @@ def overnight_family_event_lines(
         except (TypeError, ValueError):
             clock = "--:--"
         kind = str(event.get("kind") or "")
+        if kind.startswith('reserve_'):
+            continue
+        if kind in {"dashboard_control_quiet", "dashboard_control_eco", "hp_manual_transition", "hp_eco_change", "apartment_grid"}:
+            continue  # Observed operation is consolidated by hp_summary.
+        if kind in profile_groups and len(profile_groups[kind]) > 2:
+            if kind not in condensed:
+                name = 'Тихий режим' if kind.endswith('quiet') else 'Eco'
+                lines.append(f'• 🌙 {name}: повторні зміни стану в HA ({len(profile_groups[kind])}); потрібна технічна перевірка.')
+                condensed.add(kind)
+            continue
+        if kind in {'dashboard_control_smart_heating', 'dashboard_control_solar_only',
+                    'dashboard_control_smart_status'}:
+            # Retire archived internal-flag/status noise after the 3.1.2 migration.
+            continue
         if kind == "technical_inverter_strategy_fault":
             observed_when = (f"станом на {mode_observed_at:%H:%M}"
                              if mode_observed_at else "на час підготовки звіту")
@@ -476,27 +505,29 @@ def overnight_family_event_lines(
                 summary = (f"• {clock} — EnergyHub не підтвердив режим інвертора; "
                            f"{observed_when} стан потребував перевірки.")
         elif kind == "grid_hold_started":
-            reserve = number(event.get("reserve_soc"))
-            release = number(event.get("release_soc"))
-            summary = (f"• {clock} — резерв {compact_number(reserve)}% досягнуто; "
-                       f"режим сонце + ДТЕК, повернення до пріоритету сонця при {compact_number(release)}%"
-                       if reserve is not None and release is not None
-                       else f"• {clock} — режим сонце + ДТЕК для збереження резерву")
+            reserve_episode = number(event.get("reserve_soc"))
+            soc = number(event.get("soc"))
+            charge = f"заряд батареї {compact_number(soc)}%; " if soc is not None else ""
+            summary = f"🔌 {clock} — {charge}будинок працює з допомогою ДТЕК"
         elif kind == "grid_hold_released":
-            release = number(event.get("release_soc"))
-            summary = (f"• {clock} — заряд досяг {compact_number(release)}%, будинок повернувся до пріоритету сонця"
-                       if release is not None else f"• {clock} — будинок повернувся до пріоритету сонця")
+            reserve_episode = None
+            release = number(event.get("soc"))
+            summary = (f"🏠 {clock} — заряд батареї {compact_number(release)}%; будинок працює без допомоги ДТЕК"
+                       if release is not None else f"🏠 {clock} — будинок працює без допомоги ДТЕК")
         elif kind == "battery_reserve_charging":
             reserve = number(event.get("reserve_soc"))
-            summary = (f"• {clock} — ДТЕК підключено для заряджання батареї до {compact_number(reserve)}%"
-                       if reserve is not None else f"• {clock} — ДТЕК підключено для заряджання батареї")
+            if reserve is not None and reserve_episode==reserve:
+                continue
+            reserve_episode=reserve
+            summary = (f"🔌 {clock} — будинок працює з допомогою ДТЕК; заряджання до резерву {compact_number(reserve)}%"
+                       if reserve is not None else f"🔌 {clock} — будинок працює з допомогою ДТЕК; заряджання батареї")
         elif kind == "battery_reserve_applied":
             message = str(event.get("message") or "")
             summary = f"• {clock} — {message}" if message else f"• {clock} — мін. заряд змінено"
         else:
             message = str(event.get("message") or "Подія EnergyHub")
             headline = next((line.strip() for line in message.splitlines() if line.strip()), "Подія EnergyHub")
-            summary = f"• {clock} — {headline}"
+            summary = headline if kind in {'grid_lost','grid_recovered'} else f"• {clock} — {headline}"
         if summary in seen:
             continue
         seen.add(summary)
@@ -542,8 +573,10 @@ def grid_status_report_lines(
     return lines
 
 
-def build_report(*, weather_lines: list[str], solar_forecast: float | None, solar_window: str | None, threshold_w: int, consumption: float | None, snapshot: dict[str, Any], night_import: float | None, astronomy_lines: list[str] | None = None, solar_peak_value: tuple[float, str] | None = None, ahm_minimum_soc: float | None = None, weather_buffer: dict[str, Any] | None = None, control_status_line: str | None = None, heat_pump_management: str | None = None, device_health_lines: list[str] | None = None, smart_plug_lines: list[str] | None = None, inverter_lines: list[str] | None = None, tariff_import: dict[str, Any] | None = None, grid_status_lines: list[str] | None = None, calendar_lines: list[str] | None = None, soc_anomaly_lines: list[str] | None = None, consumption_average: float | None = None, consumption_sample_count: int = 0, weather_warning_lines: list[str] | None = None, weather_restoration_lines: list[str] | None = None, current_strategy_lines: list[str] | None = None, overnight_event_lines: list[str] | None = None, report_date=None, current_soc: float | None = None, solar_average_w: float | None = None, energy_outlook_lines: list[str] | None = None, forecast_accuracy: dict[str, Any] | None = None) -> str:
+def build_report(*, weather_lines: list[str], solar_forecast: float | None, solar_window: str | None, threshold_w: int, consumption: float | None, snapshot: dict[str, Any], night_import: float | None, astronomy_lines: list[str] | None = None, solar_peak_value: tuple[float, str] | None = None, ahm_minimum_soc: float | None = None, weather_buffer: dict[str, Any] | None = None, control_status_line: str | None = None, heat_pump_management: str | None = None, device_health_lines: list[str] | None = None, smart_plug_lines: list[str] | None = None, inverter_lines: list[str] | None = None, tariff_import: dict[str, Any] | None = None, grid_status_lines: list[str] | None = None, calendar_lines: list[str] | None = None, soc_anomaly_lines: list[str] | None = None, consumption_average: float | None = None, consumption_sample_count: int = 0, weather_warning_lines: list[str] | None = None, weather_restoration_lines: list[str] | None = None, current_strategy_lines: list[str] | None = None, overnight_event_lines: list[str] | None = None, report_date=None, current_soc: float | None = None, solar_average_w: float | None = None, energy_outlook_lines: list[str] | None = None, forecast_accuracy: dict[str, Any] | None = None, co2_lines: list[str] | None = None, solar_heating_lines: list[str] | None = None, compact: bool = False, solar_outlook_lines: list[str] | None = None, solar_forecast_label: str = 'прогноз', energy_section_lines: list[str] | None = None) -> str:
     lines = ["🌅 <b>Доброго ранку!</b>"]
+    if compact and report_date:
+        lines[0] = f'🌅 <b>Доброго ранку! · {report_date:%d.%m}</b>'
     if calendar_lines:
         lines.extend(["", *calendar_lines])
     if weather_lines:
@@ -556,40 +589,63 @@ def build_report(*, weather_lines: list[str], solar_forecast: float | None, sola
         lines.extend(["", *weather_restoration_lines])
     if astronomy_lines:
         lines.extend(["", *astronomy_lines])
-    solar_parts = []
-    if solar_forecast is not None:
-        if consumption_average is None:
-            forecast_marker = "☀️"
-        elif solar_forecast > consumption_average:
-            forecast_marker = "🟠"
-        else:
-            forecast_marker = "🔵"
-        solar_parts.append(
-            f"{forecast_marker} прогноз <b>{compact_number(solar_forecast)} kWh</b>"
-        )
-    if solar_window:
-        solar_parts.append(f">{threshold_w} W: {solar_window}")
-    elif solar_forecast is not None:
-        solar_parts.append(f">{threshold_w} W не очікується")
-    if solar_peak_value is not None:
-        peak_kw, peak_time = solar_peak_value
-        solar_parts.append(f"пік {compact_number(peak_kw)} kW о {peak_time}")
-    if solar_parts:
-        lines.extend(["", " · ".join(solar_parts)])
-    if consumption is not None:
-        consumption_line = f"🏠 Споживання: учора {compact_number(consumption)} kWh"
-        if consumption_average is not None and consumption_sample_count:
-            consumption_line += (
-                f" · середнє за {consumption_sample_count} дні: "
+    if energy_section_lines is not None:
+        lines.extend(['', *energy_section_lines])
+        if solar_outlook_lines:
+            lines.extend(solar_outlook_lines)
+    else:
+        solar_parts = []
+        if solar_forecast is not None:
+            if consumption_average is None:
+                forecast_marker = "☀️"
+            elif solar_forecast > consumption_average:
+                forecast_marker = "🟠"
+            else:
+                forecast_marker = "🔵"
+            solar_parts.append(
+                f"{forecast_marker} {escape(solar_forecast_label)} <b>{compact_number(solar_forecast)} kWh</b>"
+            )
+        if solar_window:
+            solar_parts.append(f"корисна генерація (>{threshold_w} W): {solar_window}")
+        elif solar_forecast is not None:
+            solar_parts.append('час корисної генерації не підтверджено'
+                               if compact and solar_forecast > 0 else f">{threshold_w} W не очікується")
+        if solar_peak_value is not None:
+            peak_kw, peak_time = solar_peak_value
+            solar_parts.append(f"пік {compact_number(peak_kw)} kW о {peak_time}")
+        if solar_parts:
+            lines.extend(["", " · ".join(solar_parts)])
+        if solar_outlook_lines:
+            lines.extend(solar_outlook_lines)
+        if consumption is not None:
+            consumption_line = f"🏠 Споживання: учора {compact_number(consumption)} kWh"
+            if not compact and consumption_average is not None and consumption_sample_count:
+                consumption_line += (
+                    f" · середнє за {consumption_sample_count} дні: "
+                    f"{compact_number(consumption_average)} kWh"
+                )
+            lines.extend(["", consumption_line])
+        elif not compact and consumption_average is not None and consumption_sample_count:
+            day_word = "день" if consumption_sample_count == 1 else "дні"
+            lines.append(
+                f"📊 Середнє за останні {consumption_sample_count} {day_word}: "
                 f"{compact_number(consumption_average)} kWh"
             )
-        lines.extend(["", consumption_line])
-    elif consumption_average is not None and consumption_sample_count:
-        day_word = "день" if consumption_sample_count == 1 else "дні"
-        lines.append(
-            f"📊 Середнє за останні {consumption_sample_count} {day_word}: "
-            f"{compact_number(consumption_average)} kWh"
-        )
+    if energy_outlook_lines:
+        lines.extend(["", *energy_outlook_lines])
+    if forecast_accuracy:
+        actual = number(forecast_accuracy.get("actual_kwh"))
+        forecast_value = number(forecast_accuracy.get("forecast_kwh"))
+        if forecast_accuracy.get('battery_full') is True:
+            pass  # A full battery may curtail generation; do not grade this day.
+        elif forecast_accuracy.get("battery_full") is False and actual is not None and actual>=0 and forecast_value is not None and forecast_value>0:
+            error = round((actual-forecast_value)/forecast_value*100,1)
+            sign = "+" if error >= 0 else ""
+            lines.extend(["", f"🎯 Учора батарея не досягла 100%: прогноз {compact_number(forecast_value)} kWh · генерація {compact_number(actual)} kWh ({sign}{compact_number(error)}% до прогнозу)."])
+        else:
+            lines.extend(['','🎯 Якість прогнозу за вчора: недостатньо підтверджених даних для порівняння.'])
+    if solar_heating_lines:
+        lines.extend(["", *solar_heating_lines])
     if overnight_event_lines:
         lines.extend(["", *overnight_event_lines])
     if current_strategy_lines:
@@ -602,23 +658,16 @@ def build_report(*, weather_lines: list[str], solar_forecast: float | None, sola
             status.append(
                 f"{marker} Генерація зараз: <b>{compact_number(solar_kw)} kW</b>"
             )
-        lines.extend(["", *status])
-    if forecast_accuracy:
-        actual = number(forecast_accuracy.get("actual_kwh"))
-        forecast_value = number(forecast_accuracy.get("forecast_kwh"))
-        error = number(forecast_accuracy.get("error_percent"))
-        if forecast_accuracy.get("battery_full") is False and actual is not None and forecast_value is not None and error is not None:
-            sign = "+" if error >= 0 else ""
-            lines.extend(["", f"🎯 Учора батарея не досягла 100%: прогноз {compact_number(forecast_value)} kWh · генерація {compact_number(actual)} kWh ({sign}{compact_number(error)}% до прогнозу)."])
-    if energy_outlook_lines:
-        lines.extend(["", *energy_outlook_lines])
+        lines.extend(["", *status, *(co2_lines or [])])
+    elif co2_lines:
+        lines.extend(["", *co2_lines])
     tariff_lines = tariff_import_report_lines(tariff_import, report_date)
     if tariff_lines:
         lines.extend(["", *tariff_lines])
-    if grid_status_lines:
+    if grid_status_lines and not compact:
         lines.extend(["", *grid_status_lines])
     from .events import manual_reserve_advice
-    if ahm_minimum_soc is not None or weather_buffer:
+    if not compact and (ahm_minimum_soc is not None or weather_buffer):
         advice = manual_reserve_advice(dict(weather_buffer or {},
                     applied_minimum_soc=ahm_minimum_soc))
         if advice:

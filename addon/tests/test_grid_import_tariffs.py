@@ -28,11 +28,13 @@ class GridImportTariffTests(unittest.TestCase):
             self.assertEqual({}, service.previous_week())
 
     def make_service(self, path: Path, now: datetime) -> GridImportService:
-        return GridImportService(
+        service = GridImportService(
             path=path,
             clock=lambda: now,
             timezone_name="Europe/Kyiv",
         )
+        service.set_capacity(16)
+        return service
 
     def integrate(self, service, start, end, power_w=3600, soc=50):
         service.update(

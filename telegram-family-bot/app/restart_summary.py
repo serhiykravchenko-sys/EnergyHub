@@ -1,12 +1,67 @@
 """Read-only HA restart summaries, keyed by the bridge's HA-start session."""
 from datetime import datetime
-from math import isfinite
 from .control_notifications import control_view, HELPERS
-from .presentation import mode_label
+from .report import number
 
 SESSION = 'input_text.energyhub_load_bridge_session'
 MINIMUM_WAIT_SECONDS = 60
 MAXIMUM_WAIT_SECONDS = 300
+
+
+def compact_policy(client,now,config,state,session):
+    """Compose once from structured evidence instead of concatenated reports."""
+    def value(field,default):
+        return (client.state(getattr(config,field,default)) or {}).get('state')
+    fresh=value('telemetry_freshness_entity','sensor.energyhub_telemetry_freshness')=='fresh'
+    soc=number(value('battery_soc_entity','sensor.powmr_10_2m_battery_soc')) if fresh else None
+    reserve=number(value('ahm_minimum_soc_entity','input_number.ahm_minimum_soc'))
+    battery='🔋 Заряд: <b>'+ (f'{soc:g}%' if soc is not None and 0<=soc<=100 else 'невідомий')+'</b>'
+    battery+=' · резерв: <b>'+ (f'{reserve:g}%' if reserve is not None and 20<=reserve<=95 else 'не підтверджено')+'</b>.'
+    plan=(client.state('sensor.energyhub_outage_preparation') or {}).get('attributes') or {}
+    try:
+        start,end=datetime.fromisoformat(plan['start']),datetime.fromisoformat(plan['end'])
+        target=number(plan.get('target_soc'))
+        valid=(fresh and getattr(config,'dtek_schedule_enabled',False)
+               and plan.get('source_status')=='fresh'
+               and plan.get('phase') in {'waiting','solar','charging','holding','waiting_for_grid'}
+               and 0<=(now-datetime.fromisoformat(plan['checked_at'])).total_seconds()<=120
+               and datetime.fromisoformat(plan['checked_at'])>=datetime.fromisoformat(session)
+               and end>max(now,start) and target is not None and 20<=target<=95)
+    except (KeyError,TypeError,ValueError):
+        valid=False
+    mode=value('operating_mode_entity','sensor.energyhub_operating_mode')
+    source=(client.state('sensor.energyhub_panic_target_source') or {}).get('state','')
+    manual=fresh and str(source).startswith('Manual Panic:') and mode in {'panic','panic_grid_hold'}
+    if valid and not manual:
+        battery=battery.rstrip('.')+f' · ціль підготовки: <b>{target:g}%</b>.'
+    result=[battery]
+    if manual:
+        result.append('🛑 Режим Panic — батарея як павербанк; ціль <b>95%</b>.')
+    from .source_policy import status_lines
+    result+=status_lines(state,now,['дача'],only_active=True)
+    from .schedule_context import rows
+    windows=rows(state,now,getattr(config,'dtek_dacha_group','')) if getattr(config,'dtek_schedule_enabled',False) else None
+    window=next(((a,b) for a,b in windows if b>now),None) if windows else None
+    if window is None and valid:
+        window=(start,end)
+    if window:
+        a,b=window
+        day='' if a.date()==now.date() else f'{a:%d.%m} '
+        result.append(f'📅 За графіком: <b>{day}{a:%H:%M}–{b:%H:%M}</b>.')
+    grid=number(value('grid_voltage_entity','sensor.powmr_10_2m_grid_voltage')) if fresh else None
+    from .grid_evidence import qualified
+    confirmed = qualified(config, client, now)
+    if grid is None or not 0<=grid<=300 or confirmed is None:
+        result.append('⚡ Доступність ДТЕК уточнюється.')
+    elif grid<=180:
+        result.append('⚡ ДТЕК зараз недоступний.')
+    elif mode=='solar':
+        result.append('⚡ ДТЕК доступний; будинок працює без його допомоги.')
+    elif mode in {'panic','panic_grid_hold','hybrid_charging','hybrid_grid_hold'}:
+        result.append('🔌 ДТЕК підключено для '+('підготовки батареї.' if valid and plan.get('control_active') is True and plan.get('acknowledged') is True else 'збереження заряду.'))
+    else:
+        result.append('⚡ ДТЕК доступний; режим живлення уточнюється.')
+    return result
 
 
 def boot_id(client):
@@ -18,50 +73,32 @@ def boot_id(client):
         return None
 
 
-def summary(client, now, session):
+def summary(client, now, session, config=None, state=None):
     def value(entity):
         return (client.state(entity) or {}).get('state')
-    fresh = value('sensor.energyhub_telemetry_freshness') == 'fresh'
-    mode = mode_label(value('sensor.energyhub_operating_mode')) if fresh else None
-    try:
-        minimum = float(value('input_number.ahm_minimum_soc'))
-        minimum_text = f'{minimum:g}%' if isfinite(minimum) and 20 <= minimum <= 95 else 'невідомий'
-    except (TypeError, ValueError):
-        minimum_text = 'невідомий'
-    try:
-        soc = float(value('sensor.powmr_10_2m_battery_soc'))
-        soc_text = f'{soc:g}%' if isfinite(soc) and 0 <= soc <= 100 else 'невідомий'
-    except (TypeError, ValueError):
-        soc_text = 'невідомий'
     overload = control_view(client, 'overload', now)
-    overload_text = {'off':'вимкнено — лише попередження', 'ready':'увімкнено',
+    overload_text = {'off':'вимкнено (HA)', 'ready':'увімкнено',
                      'blocked':'увімкнено, очікуємо готовності'}.get(overload, 'стан невідомий')
     guard = (client.state('sensor.energyhub_peak_load_guard') or {}).get('attributes') or {}
-    battery = guard.get('battery_protection')
     stamp = datetime.fromisoformat(session).astimezone(now.tzinfo)
-    try:
-        guard_at = datetime.fromisoformat(str(guard.get('load_snapshot_at')))
-        guard_current = guard_at >= datetime.fromisoformat(session) and 0 <= (now-guard_at).total_seconds() <= 30
-    except (TypeError, ValueError):
-        guard_current = False
-    battery_text = ('увімкнено (50% попередження · 40% вимкнення · 60% відновлення)'
-                    if guard_current and guard.get('control_schema') == 5
-                    and isinstance(battery, dict) else 'стан ще не підтверджено')
+    battery_state = value('automation.energyhub_battery_discharge_protection')
+    battery_text = {'on': 'увімкнено (HA)', 'off': 'вимкнено (HA)'}.get(battery_state, 'стан невідомий')
     smart = value(HELPERS['smart_heating'])
     solar_only = value(HELPERS['solar_only'])
     heating_text = ('керує EH · лише сонце + обмежений заряд батареї'
                     if smart == 'on' and solar_only == 'on' else
-                    'керує EH · за потреби з допомогою ДТЕК'
+                    'керує EH · Smart'
                     if smart == 'on' else 'ручне керування')
     protection = (
         'активний'
-        if battery_text.startswith('увімкнено') and overload_text.startswith('увімкнено')
+        if battery_state == 'on' and overload == 'ready'
         else f'батарея — {battery_text}; навантаження — {overload_text}'
     )
-    strategy = mode or 'стратегія уточнюється'
+    from types import SimpleNamespace
+    policy = compact_policy(client,now,config or SimpleNamespace(),state or {},session)
     return '\n'.join([
         f'🔄 <b>{stamp:%H:%M} · HA перезапущено, EH працює</b>',
-        f'🔋 <b>{soc_text}</b> · {strategy} · резерв {minimum_text}',
+        *policy,
         f'🛡 Захист батареї та перевантаження: {protection}',
         f'♨️ Опалення: {heating_text}.',
     ])
@@ -95,7 +132,9 @@ def restart_state_ready(client, now, session):
         return False
 
     guard = (client.state('sensor.energyhub_peak_load_guard') or {}).get('attributes') or {}
-    if guard.get('control_schema') != 5 or not isinstance(guard.get('battery_protection'), dict):
+    if guard.get('control_schema') != 6:
+        return False
+    if (client.state('automation.energyhub_battery_discharge_protection') or {}).get('state') not in ('on', 'off'):
         return False
     try:
         snapshot_at = datetime.fromisoformat(str(guard.get('load_snapshot_at')))

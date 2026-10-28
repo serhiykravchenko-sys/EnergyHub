@@ -51,7 +51,7 @@ Scope: `addon/`, `telegram-family-bot/`, HA `automations.yaml`, `scripts.yaml`,
 and `.storage/lovelace.dashboard_powmr1`. No `configuration.yaml`, helper storage
 or Threat Monitor synchronization is needed for this naming increment.
 
-Follow the standard workflow (private development record). Compare
+Follow the standard workflow (historical reference: docs/operations/RELEASE_WORKFLOW.md). Compare
 live files first and preserve outside-scope manual changes; back up outside the
 local-app discovery tree. Dashboard storage requires homeowner Core stop before
 copying, then Core check/start. Apps require App-store Reload/Update and startup
@@ -63,4 +63,4 @@ resets recovery confirmation, although persisted Dry Run cycle data remains.
 Confirm EH 2.1.3 / Family 2.1.6 startup, MQTT, unchanged entity IDs and manual
 reserve, Auto OFF, Peak Load Guard 40/30/20 and the next Ukrainian report.
 
-See repository validation (private development record).
+See repository validation (historical reference: docs/validation/ENERGYHUB_2.1.3_PRIVATE_CANDIDATE.md).

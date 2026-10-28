@@ -1,161 +1,66 @@
-# EnergyHub — Solar Economy, Battery Reserve and a Connected Home
+# EnergyHub — solar economy and outage-ready reserve
 
-**Make the most of solar energy while keeping battery reserve for power outages.**
+Make the most of solar energy while preparing for unreliable grid supply.
+EnergyHub combines battery and inverter evidence, solar forecasts, weather
+warnings, outage schedules and selected household devices through Home Assistant.
 
-EnergyHub combines solar-generation forecasts, weather warnings, household
-consumption and observed grid reliability to decide when to use, preserve or
-replenish the battery. It coordinates selected appliances and heating,
-protects against inverter overload, and explains important decisions through
-Home Assistant dashboards and optional Telegram reports.
+![A battery reserve, plus a plan](docs/Images/family/family-battery-and-charging.png)
 
-The goal is **economy when conditions allow, preparedness when conditions
-demand it**. EnergyHub connects the energy system with supported smart-home
-devices so the house can respond together.
+## Current public source
 
-## What you get today
+This snapshot contains **EnergyHub and Telegram Family Assistant 3.6.37**.
+Both apps started on the reference installation. The owner reports several days
+of normal observation and has accepted public source promotion. This is not a
+new tagged GitHub release. The last
+[published release is 2.4.12](https://github.com/serhiykravchenko-sys/EnergyHub/releases/tag/v2.4.12).
 
-| Capability | What it means at home |
+| What it does | What the household gets |
 | --- | --- |
-| Forecast-aware Battery Reserve | Prepare for low solar generation, weather risks and unreliable grid supply instead of choosing a battery minimum blindly. Keep manual control or enable guarded automatic recommendations. |
-| Solar, battery and grid coordination | Use solar and battery first, replenish the applied reserve when needed, and hold that reserve with the grid available. |
-| Overload and outage-load protection | Pause selected appliances one at a time when inverter load is too high or an outage is draining the battery; restore only when the required checks pass. |
-| Smart Heating | Coordinate one supported heat pump with solar, battery and load conditions while preserving the family's temperature, fan settings and manual OFF choice. |
-| Telegram briefings and alerts | Receive the morning outlook, power-loss/recovery notices and important actions in an existing messenger, without another dedicated monitoring app. Home Assistant remains the setup and dashboard platform. |
-| Diagnostics and tariff visibility | See PV1/PV2/Total PV, grid history, SOC anomalies, inverter faults and estimated night/normal grid-import costs. |
+| Reserve plus separate night/outage targets | A chosen battery floor and extra preparation when evidence supports it |
+| Native HA overload protection | Selected plug-group OFF and staged eligible recovery |
+| Native outage SOC preservation | Separate four-plug and last-resort fridge policies |
+| Supported first-floor heat pump management | Solar/Smart choices, configured night profiles, manual ownership and guarded recovery |
+| Telegram briefings and warnings | Morning outlook, grid events, planning and diagnostic explanations |
+| Telemetry, BMS/air-sensor evidence and history | Investigate unusual readings without presenting missing data as normal |
 
-The current platform is a local Home Assistant controller developed and tested
-on a **PowMr 10.2M / POW-HVM10.2M reference installation**. Other inverter models
-and household devices require their own validated adapters and configuration.
+## What this product is—and is not
 
-## Release and validation
+This is a **monolithic reference installation**, implemented by the EH app,
+Family companion and HA configuration. It is not yet a universal Core/Custom
+product. Verified inverter control is PowMr 10.2M / POW-HVM10.2M PI30MAX; optional
+PV2 Modbus is a separate read-only capability. New hardware needs validation.
+Entity aliases in the example HA files must be mapped to actual devices.
 
-This release pairs **EnergyHub 2.4.12** with
-**Telegram Family Assistant 2.4.15**. It was deployed and started on
-2026-09-29. On 2026-10-01 the homeowner reported the agreed 24-hour observation
-period passed with normal operation and no new Home Assistant Core or
-Supervisor errors. Supplied startup evidence confirmed MQTT, PV2,
-Solar reconstruction without inverter writes, and a real grid outage.
+EnergyHub owns inverter reserve/night/pre-outage charging and HP1 policy.
+Native HA owns plug protection. Family messaging does not directly control the
+inverter/plugs, but its optional bounded Tuya integration-reload support has
+service side effects and is disabled by default in this public snapshot.
 
-Routine monitoring does not establish
-every rare fault or hardware-recovery scenario. Smart Heating still needs
-extended cold-weather observations, and each new installation must validate
-its own devices before enabling automatic control.
+Native saved ON intention does not universally preserve a later family OFF.
+Switch-request notices are not physical acknowledgements. Fridge commissioning
+must consider food/compressor safety; no minimum-OFF timer is promised. Never
+map essential, medical or safety-critical loads into a shedding role.
 
-See [EnergyHub release notes](RELEASE_NOTES_2.4.12.md),
-[Family Assistant release notes](RELEASE_NOTES_FAMILY_2.4.15.md), and
-[release validation](docs/validation/RELEASE_2.4.12.md).
+Forecasts, warnings and Telegram depend on external services. Charging may be
+needed outside cheap hours. Grid import/cost is estimated, not billing-grade.
+No guaranteed saving, uninterrupted supply or exhaustive hardware certification
+is claimed. CO alerts in HA do not replace independent certified safety alarms.
 
-## How the current control works
+## Pictures, setup and evidence
 
-- **One Battery Reserve, all day:** the family selects 20–95% in five-point
-  steps. Manual mode preserves that choice. Automatic mode applies only an
-  available, complete, recently reevaluated recommendation.
-- **Reserve recommendation:** a 20% policy base plus a solar-deficit allowance,
-  observed grid-reliability allowance, qualifying official weather warning,
-  and enabled Smart Heating allowance, capped at 95%. The 23:52 preliminary
-  forecast and 05:00 revision refresh forecast evidence; they do not create
-  separate night and day control owners.
-- **Inverter strategy:** Solar First uses SBU/OSO. With grid available, SOC
-  below the applied reserve requests SUB/SNU charging; at the reserve it holds
-  with SUB/OSO. Solar resumes at reserve +10 points, except the 95% cap remains
-  held until the reserve decreases. With grid absent, the controller waits.
-- **Overload protection:** 85% load or a valid recent overload warning triggers
-  sequential shedding toward 75%. Recovery requires load below 50% for five
-  minutes, headroom, retained ownership and acknowledgement. A dashboard
-  switch selects automatic control or warnings only.
-- **Outage battery protection:** actual grid absence drives a 50% SOC warning,
-  flexible-load pause at 40%, and guarded restoration at 60% or verified grid
-  recovery. An owned Smart Heating pause can restore in Eco at 50%.
-- **Smart Heating:** native Heat/OFF on the supported first-floor climate,
-  Quiet from 23:00–08:00, Eco without grid, and optional solar-conditioned
-  operation. Family temperature, fan and Super choices are preserved. Other
-  heat pumps remain family/timer loads except under protection.
+- [Illustrated family guide](docs/Images/family/README.md)
+- [Eight technical diagrams](docs/Images/README.md)
+- [Installation and upgrade](docs/operations/INSTALLATION.md)
+- [Home Assistant integration examples](homeassistant/README.md)
+- [Architecture and control boundaries](docs/design/05-System-Architecture.md)
+- [Reserve](docs/design/BATTERY_RESERVE_CURRENT.md) and [charging](docs/design/DECISION_ENGINE.md)
+- [Family companion](telegram-family-bot/README.md)
+- [3.6.37 corrections](RELEASE_NOTES_3.6.37.md) and [validation](docs/validation/RELEASE_3.6.37.md)
+- [Documentation map](docs/README.md) and [roadmap](docs/roadmap/06-Roadmap.md)
 
-Protection depends on fresh telemetry and an allowlisted Home Assistant
-bridge. Commands expire, require acknowledgement and are checked against
-observed state. Manual intervention releases load ownership. An uncertain
-inverter transition is recorded before hardware writes; persistence or
-recovery failure requires attended verification and produces an explanation.
+## Future direction—not shipped capabilities
 
-The tariff feature separates **estimated** grid import into one configured
-night window and normal periods. Battery Reserve may require grid charging
-outside cheap hours. Deadline-aware cheap-slot scheduling, dynamic prices and
-export optimization are future work; measured savings are not claimed.
-
-See the [Battery Reserve contract](docs/design/BATTERY_RESERVE_CURRENT.md),
-[Smart Heating policy](docs/design/SMART_HEATING_2.4.md), and
-[load-control contract](docs/design/PEAK_LOAD_CONTROL.md) for exact gates.
-
-## Understand the system in pictures
-
-These version-neutral diagrams describe the current architecture and policy.
-Each has an editable SVG source in the [diagram index](docs/Images/README.md).
-
-![EnergyHub system architecture](docs/Images/system-architecture-current.png)
-
-![Control ownership and safety boundaries](docs/Images/control-boundaries-current.png)
-
-![Continuous Battery Reserve](docs/Images/battery-reserve-current.png)
-
-![Smart Heating and load protection](docs/Images/smart-heating-load-protection.png)
-
-![Telemetry, memory and recovery](docs/Images/telemetry-resilience-current.png)
-
-## Installation and supported platform
-
-Start with [Installation and Upgrade](docs/operations/INSTALLATION.md).
-The reference platform uses:
-
-- Home Assistant OS with Supervisor/Apps on Raspberry Pi 4 (aarch64);
-- the verified PowMr PI30MAX inverter and persistent FTDI USB–RS232 path;
-- Mosquitto and the Home Assistant MQTT integration;
-- optional read-only PV2 Modbus registers 4563–4564 on the verified firmware;
-- separately configured Home Assistant devices, helpers and automation bridge;
-- optional Solcast forecast data and Telegram Family Assistant.
-
-The app can publish inverter telemetry without enabling household load control.
-Load protection and Smart Heating need a reviewed HA bridge and verified device
-mapping. Reference HA configuration is an integration example, not a complete
-replacement for another home's configuration.
-
-Menu 01 is independently read back through QPIRI. Menu 16 is ACK-confirmed;
-there is no supported independent readback on the reference inverter.
-PV2 runs through the same serialized connection with bounded read-only access.
-
-EnergyHub's control runs locally. Forecasts, official warnings and Telegram
-delivery use external services; their availability is separate from local
-inverter communication. The Telegram companion currently sends reports and
-alerts and supplies normalized weather evidence. It does not accept commands.
-
-## Where we are going
-
-| Planned direction | Homeowner benefit |
-| --- | --- |
-| **3.x — Indoor sensors, BMS and flexible heating** | Understand indoor conditions and battery evidence, receive more useful health alerts, and choose family-controlled or scheduled heating policies. |
-| **4.x — AI companion and Mission Control** | Ask why EnergyHub acted, discuss settings, and request approved timers or schedules in Ukrainian or English through Telegram; voice follows validated text. |
-| **5.x — Smart EV charging** | Request enough charge by departure, using solar and approved cheap electricity while protecting the house battery and inverter capacity. |
-| **6.x — Tariff and optional export management** | Plan around multiple cheap periods and later dynamic prices; where compatible hardware and local contracts allow it, evaluate using, storing or exporting energy to help reduce the monthly bill. |
-| **Later — More homes and inverter adapters** | Bring the same ideas to individually validated equipment without assuming every installation behaves identically. |
-
-These are plans, not shipped features. AI interfaces will request authenticated,
-expiring EnergyHub intents; the deterministic controller will remain responsible
-for validating device actions. EV/export features require compatible hardware
-and, for export, applicable local rules and contracts.
-
-See the [Roadmap](docs/roadmap/06-Roadmap.md) and
-[positioning](docs/project/POSITIONING.md).
-
-## Documentation and development
-
-- [Documentation map](docs/README.md)
-- [System architecture](docs/design/05-System-Architecture.md)
-- [Developer architecture](docs/design/10-Developer-Architecture.md)
-- [Verified PowMr commands](docs/hardware/powmr-10-2m-verified-commands.md)
-- [Verified PV2 telemetry](docs/hardware/powmr-10-2m-modbus-telemetry.md)
-- [Telegram Family Assistant](telegram-family-bot/README.md)
-- [Changelog](CHANGELOG.md)
-
-Both app Docker builds run their unit suites. Repository tests cover simulated
-hardware, persistence, telemetry and command failures; live observations are
-recorded separately. The separate Telegram Threat Monitor project is not part
-of EnergyHub.
+Configuration-first Core/Custom delivery, a system-aware AI companion through
+validated intents, smart EV charging, and later tariff/export/Net Billing
+optimization are planned. The deterministic safety boundary remains mandatory.
+Telegram Threat Monitor is a separate project and is excluded from this tree.

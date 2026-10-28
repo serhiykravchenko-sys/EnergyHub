@@ -5,42 +5,6 @@
   "data": {
     "items": [
       {
-        "id": "input_number_floor1_heat_pump_timer_hours",
-        "min": 0.0,
-        "max": 12.0,
-        "name": "input_number.floor1_heat_pump_timer_hours",
-        "unit_of_measurement": "h",
-        "mode": "slider",
-        "step": 1.0
-      },
-      {
-        "id": "input_number_floor2_heat_pump_timer_hours",
-        "min": 0.0,
-        "max": 12.0,
-        "name": "input_number.floor2_heat_pump_timer_hours",
-        "unit_of_measurement": "h",
-        "mode": "slider",
-        "step": 1.0
-      },
-      {
-        "id": "input_number_floor3_heat_pump_timer_hours",
-        "min": 0.0,
-        "max": 12.0,
-        "name": "input_number.floor3_heat_pump_timer_hours",
-        "unit_of_measurement": "h",
-        "mode": "slider",
-        "step": 1.0
-      },
-      {
-        "id": "energyhub_daily_solar_surplus_estimated",
-        "min": -100.0,
-        "max": 100.0,
-        "name": "Daily Solar Surplus Estimated",
-        "step": 0.1,
-        "unit_of_measurement": "kWh",
-        "mode": "slider"
-      },
-      {
         "id": "energyhub_ahm_minimum_soc",
         "min": 20.0,
         "max": 95.0,

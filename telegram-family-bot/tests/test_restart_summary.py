@@ -10,8 +10,9 @@ class RestartTests(TestCase):
     def setUp(self):
         self.now = datetime(2026,9,8,12,tzinfo=timezone.utc)
         self.session = (self.now-timedelta(seconds=65)).isoformat()
-        self.entities = {SESSION:{'state':self.session},
+        self.entities = {'automation.energyhub_inverter_overload_protection':{'state':'on'}, 'input_select.energyhub_overload_phase':{'state':'idle'}, SESSION:{'state':self.session},
             'input_boolean.energyhub_autopilot':{'state':'on'},
+            'automation.energyhub_battery_discharge_protection':{'state':'on'},
             'input_boolean.energyhub_load_control_armed':{'state':'on'},
             'sensor.energyhub_telemetry_freshness':{'state':'fresh'},
             'sensor.energyhub_operating_mode':{'state':'solar'},
@@ -23,7 +24,7 @@ class RestartTests(TestCase):
             }},
             'sensor.energyhub_peak_load_guard':{'state':'normal','attributes':dict(mode='automatic',
                 automatic_requested=True,armed=True,control_ready=True,eligible_loads=['pump'],
-                control_schema=5,battery_protection={'active':False},
+                control_schema=6,
                 load_snapshot_at=self.now.isoformat())}}
         self.client = SimpleNamespace(state=lambda entity:self.entities.get(entity))
 
@@ -35,7 +36,7 @@ class RestartTests(TestCase):
         self.assertEqual(1,len(restored['pending_notifications']))
         msg = restored['pending_notifications'][0]['message']
         self.assertIn('<b>98%</b>', msg)
-        self.assertIn('резерв 20%',msg)
+        self.assertIn('резерв: <b>20%</b>',msg)
         self.assertIn('Захист батареї та перевантаження: активний',msg)
         self.assertIn('Опалення: ручне керування',msg)
 
@@ -59,6 +60,7 @@ class RestartTests(TestCase):
     def test_waits_up_to_five_minutes_for_current_boot_evidence(self):
         self.entities[SESSION]['state'] = (self.now-timedelta(seconds=65)).isoformat()
         self.entities['sensor.energyhub_ahm_weather_buffer']['attributes'].pop('evaluated_at')
+        self.entities['input_select.energyhub_overload_phase']['state']='unavailable'
         state = {'ha_restart_seen':'older'}
         observe_restart(self.client,state,self.now)
         self.assertTrue(state['restart_summary_pending'])
@@ -78,15 +80,17 @@ class RestartTests(TestCase):
     def test_unknown_never_claims_automatic_reserve_or_ready(self):
         self.entities.pop('sensor.energyhub_ahm_weather_buffer')
         self.entities.pop('sensor.energyhub_peak_load_guard')
+        self.entities.pop('input_select.energyhub_overload_phase')
         msg = summary(self.client,self.now,self.session)
-        self.assertIn('стан ще не підтверджено',msg)
+        self.assertIn('очікуємо готовності',msg)
         self.assertIn('очікуємо готовності',msg)
 
     def test_timeout_summary_marks_stale_post_restart_states_unconfirmed(self):
         self.entities['sensor.energyhub_ahm_weather_buffer']['attributes'].pop('evaluated_at')
+        self.entities['input_select.energyhub_overload_phase']['state']='unavailable'
         self.entities['sensor.energyhub_peak_load_guard']['attributes']['load_snapshot_at'] = (self.now-timedelta(minutes=6)).isoformat()
         msg = summary(self.client, self.now, self.session)
-        self.assertIn('стан ще не підтверджено', msg)
+        self.assertIn('очікуємо готовності', msg)
         self.assertIn('очікуємо готовності', msg)
 
     def test_delivery_refreshes_state(self):

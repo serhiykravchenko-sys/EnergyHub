@@ -1,4 +1,68 @@
 configuration:
+  automation_notifications_enabled:
+    name: Сповіщення автоматизацій HA
+    description: Створити стандартну ціль сповіщень EnergyHub Telegram через MQTT. Увімкнення за бажанням; наявні автоматизації не змінюються.
+  notification_mqtt_host:
+    name: MQTT брокер сповіщень
+    description: Адреса брокера для цього застосунку; core-mosquitto для локального Mosquitto. Префікс виявлення — homeassistant.
+  notification_mqtt_port:
+    name: Порт MQTT брокера
+    description: MQTT у довіреній локальній мережі. Зовнішні TLS брокери у цій версії не підтримуються.
+  notification_mqtt_user:
+    name: Користувач MQTT сповіщень
+    description: Обліковий запис брокера з доступом до тем сповіщень і виявлення цього мосту.
+  notification_mqtt_password:
+    name: Пароль MQTT сповіщень
+    description: Зберігається в налаштуваннях застосунку, а не в повідомленнях автоматизацій.
+  solcast_last_success_entity:
+    name: Підтверджене успішне оновлення Solcast
+    description: Необов’язкова сутність часу успішного оновлення джерела. Налаштовуйте після перевірки її значення для встановленої інтеграції. Час оновлення сутності HA не підтверджує свіжість прогнозу.
+  beacon_recovery_enabled:
+    name: Автоматичне відновлення Beacon
+    description: Перезавантаження лише окремої інтеграції лампи Tuya після підтвердженого збою. До трьох спроб; авторизація та спільна інтеграція потребують ручної перевірки.
+  apartment_grid_cloud_enabled:
+    name: Fresh Xiaomi cloud availability
+    description: Read the existing Xiaomi Miot cloud session from the read-only HA configuration mount. No login, session renewal or device control. Failed reads are unknown; hub offline is an indirect power indicator.
+  apartment_grid_proxy_entity:
+    name: Індикатор електропостачання квартири
+    description: Сутність світла хаба; доступність є непрямою ознакою електропостачання.
+  dtek_dacha_district:
+    name: Район будинку для екстрених відключень
+    description: Підтримувані назви — Obukhiv, Fastiv, Brovary, Bucha, Vyshhorod, Boryspil, Bila Tserkva. Без налаштування районні повідомлення не вважаються підтвердженим збігом.
+  dtek_apartment_district:
+    name: Район квартири для екстрених відключень
+    description: Район Київщини з того самого переліку назв, що й для будинку. Районні повідомлення стосуються тільки відповідної адреси.
+  dtek_solar_forecast_tomorrow_entity:
+    name: Погодинний прогноз сонця на завтра
+    description: Необов'язкова сутність Solcast з detailedHourly. Без даних використовується обережна підготовка від ДТЕК.
+  dtek_schedule_enabled:
+    name: Моніторинг добових графіків ДТЕК
+    description: >-
+      Графіки та районні повідомлення Pro Kyiv перевіряються кожні 30 хвилин; Alerts.energy є резервним джерелом графіків. Опитування сайту й Telegram ДТЕК вимкнено. Перевірка на завтра о 20:00, 20:30 і 21:00. Прямих команд обладнанню немає.
+  dtek_dacha_group:
+    name: Група відключень будинку
+    description: Черга та підчерга Київщини, наприклад 1.1. Має відповідати outage_group в Energy Hub.
+  dtek_apartment_group:
+    name: Група відключень квартири
+    description: Інформаційна черга та підчерга Київщини, наприклад 2.2.
+  co_alarm_entities:
+    name: Датчики тривоги CO
+    description: Записи назва|binary_sensor[|Zigbee_parent] через крапку з комою. Активна тривога надсилається одразу, також у тихі години; підтверджені повідомлення не повторюються.
+  co2_sensor_entities:
+    name: Датчики CO2
+    description: Записи назва|сутність[|Zigbee_джерело], розділені крапкою з комою. 1200 ppm протягом 10 хв — прохання провітрити; 2000 ppm протягом 3 хв — терміново; нижче 1000 ppm протягом 5 хв — відновлення. Термінові повідомлення надходять і вночі.
+  log_monitor_enabled:
+    name: Моніторинг журналу Core
+    description: Перевірка обмеженого буфера помилок HA кожні п'ять хвилин. Повторні попередження та помилки надходять у технічний чат з паузою після запуску та без дублювання. Додаткові права Supervisor не надаються.
+  house_monitor_enabled:
+    name: Моніторинг доступності пристроїв
+    description: Перевірка кожні 30 секунд. Попередження після трьох хвилин недоступності, відновлення після п’яти стабільних хвилин.
+  monitored_device_entities:
+    name: Додаткові пристрої для моніторингу
+    description: Записи назва|сутність[|батьківська_сутність] через крапку з комою. Розумні розетки та датчики температури включено автоматично; вимкнений пристрій вважається доступним.
+  bms_entity_mapping:
+    name: Сутності BMS для запису даних
+    description: Необов’язкові записи поле|сутність через крапку з комою. Потрібні soc, current, voltage; додатково cells, temperature, health, capacity, cycles, problem, charging, energy, power. Запис даних без зміни налаштувань BMS.
   bot_token:
     name: Токен Telegram-бота
     description: Секретний токен від BotFather. Не публікуйте та не зберігайте його в Git.
@@ -22,7 +86,13 @@ configuration:
     description: Необов'язкова секретна HTTPS-адреса для читання сьогоднішніх подій Google Calendar. Вона прихована й не повинна потрапляти в Git або повідомлення.
   send_time:
     name: Час ранкового повідомлення
-    description: Місцевий час щоденного сімейного звіту.
+    description: Час сімейного звіту у форматі ГГ:ХХ (24 години). Плановий звіт дозволено під час тиші.
+  family_quiet_start:
+    name: Початок тиші у сімейному Telegram
+    description: Місцевий час ГГ:ХХ. Звичайні повідомлення збираються для ранкового звіту. Незалежно від Quiet/нічних годин насоса; тривоги CO та термінові CO2 надходять одразу.
+  family_quiet_end:
+    name: Кінець тиші у сімейному Telegram
+    description: Місцевий час ГГ:ХХ; цей момент уже поза вікном тиші. Однаковий початок і кінець вимикають вікно. Біля часу звіту діє коротка затримка, щоб ранкове повідомлення було першим.
   soc_snapshot_time:
     name: Застарілий час фіксації SOC
     description: Сумісність зі старими налаштуваннями; параметр приймається, але не використовується.
@@ -43,7 +113,7 @@ configuration:
     description: Номінальна DC-напруга батареї лише для оцінки часу заряджання.
   battery_grid_charge_current_a:
     name: Струм заряджання батареї від мережі
-    description: Налаштовуване припущення DC-струму; зараз 30 А, з можливістю змінити пізніше.
+    description: Застаріле поле для сумісності. Розрахунки використовують струм заряджання з панелі EH; це поле більше не є резервним значенням.
   battery_charge_efficiency:
     name: Ефективність заряджання батареї
     description: Консервативний коефіцієнт втрат для оцінки енергії заряджання.
@@ -137,9 +207,6 @@ configuration:
   peak_load_guard_event_entity:
     name: Сутність події Peak Load Guard
     description: Подія захисту EnergyHub для повідомлень про підтверджене вимкнення, відновлення та проблеми з пристроями.
-  heat_pump_restart_event_entity:
-    name: Сутність відновлення теплових насосів
-    description: Допоміжна сутність Home Assistant для повідомлень про безпечне відновлення запам'ятаних розеток теплових насосів після перезапуску.
   weather_buffer_entity:
     name: Сутність резерву батареї
     description: Політика резерву батареї EnergyHub для прогнозу, стану мережі, офіційних погодних попереджень і ранкового звіту.
@@ -182,3 +249,15 @@ configuration:
   heat_pump_floor_3_power_entity:
     name: Потужність теплового насоса 3-го поверху
     description: Сутність поточної потужності теплового насоса третього поверху.
+  heat_pump_floor_1_energy_entity:
+    name: Лічильник енергії ТН 1-го поверху
+    description: Накопичувальний лічильник Wh або kWh; після перевірки увімкніть довіру до вимірювання енергії першого поверху.
+  heat_pump_floor_2_energy_entity:
+    name: Лічильник енергії ТН 2-го поверху
+    description: Накопичувальний лічильник Wh або kWh для споживання за вчора.
+  water_boiler_energy_entity:
+    name: Статистика споживання гарячої води
+    description: Recorder daily energy change (kWh), matching the water-boiler chart.
+  heat_pump_floor_3_energy_entity:
+    name: Лічильник енергії ТН 3-го поверху
+    description: Типово інтеграл виміряної потужності розетки в HA; розрахункову енергію позначено окремо.

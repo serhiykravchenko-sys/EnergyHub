@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,10 +20,8 @@ class DailySummarySnapshotTests(unittest.TestCase):
         variables_position = self.daily_summary.index("- variables:")
 
         self.assertLess(wait_position, variables_position)
-        self.assertIn(
-            "is_number(\n        states('sensor.powmr_10_2m_daily_house_consumption')",
-            self.daily_summary,
-        )
+        decoded=yaml.safe_load(self.daily_summary)[0]['actions'][0]['wait_template']
+        self.assertRegex(decoded,r"is_number\(\s*states\('sensor\.powmr_10_2m_daily_house_consumption'\)")
         self.assertIn("timeout: 00:01:30", self.daily_summary)
         self.assertIn("continue_on_timeout: false", self.daily_summary)
 
@@ -35,6 +34,13 @@ class DailySummarySnapshotTests(unittest.TestCase):
             "sensor.powmr_10_2m_daily_house_consumption'')\n        | float(none)",
             self.daily_summary,
         )
+
+    def test_actual_generation_uses_verified_daily_meter_entity(self):
+        self.assertIn('sensor.total_solar_generated_today',self.daily_summary)
+        self.assertNotIn('sensor.energyhub_total_solar_generation_daily',self.daily_summary)
+
+    def test_unknown_full_flag_is_not_assumed_false(self):
+        self.assertIn("else none",self.daily_summary)
 
 
 if __name__ == "__main__":

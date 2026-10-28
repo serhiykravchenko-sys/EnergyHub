@@ -10,7 +10,7 @@
 - Keep entity IDs/history and Threat Monitor unchanged.
 
 See [control contract and limitations](docs/design/PEAK_LOAD_CONTROL.md) and
-validation / attended deployment gates (private development record).
+validation / attended deployment gates (historical reference: docs/validation/ENERGYHUB_2.2.0_PRIVATE_CANDIDATE.md).
 
 Nothing committed, pushed, published, deployed or armed by this preparation.
 HA YAML/dashboard deployment is separate from app updates. The homeowner must

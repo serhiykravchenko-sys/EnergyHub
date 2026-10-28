@@ -27,26 +27,26 @@ def format_duration(seconds: float) -> str:
 
 def outage_message(when: datetime, soc: Any) -> str:
     lines = [
-        "⚡ <b>ДТЕК недоступний</b>",
-        f"Початок відключення: {when:%H:%M}",
+        f"⚡ <b>Дача: ДТЕК недоступний з {when:%H:%M}</b>",
     ]
     soc_value = number(soc)
     if soc_value is not None:
         lines.append(f"🔋 Заряд батареї: {compact_number(soc_value)}%")
-    lines.append("🏠 Будинок працює автономно від сонця або батареї.")
     return "\n".join(lines)
 
 
 def recovery_message(when: datetime, outage_started_at: datetime | None, soc: Any) -> str:
     lines = [
-        "🟢 <b>ДТЕК відновився</b>",
-        f"Відновлення: {when:%H:%M}",
+        f"🟢 <b>Дача: ДТЕК відновився о {when:%H:%M}</b>",
     ]
     if outage_started_at is not None:
         lines.append(f"⏱ Без ДТЕК: {format_duration((when - outage_started_at).total_seconds())}")
     soc_value = number(soc)
     if soc_value is not None:
-        lines.append(f"🔋 Заряд батареї: {compact_number(soc_value)}%")
+        if len(lines) > 1:
+            lines[-1] += f" · 🔋 {compact_number(soc_value)}%"
+        else:
+            lines.append(f"🔋 Заряд батареї: {compact_number(soc_value)}%")
     return "\n".join(lines)
 
 
@@ -111,296 +111,32 @@ def trusted_grid(confidence: Any, voltage: Any, freshness: Any) -> bool:
     )
 
 
-def heat_pump_management_message(
-    *,
-    confidence: Any,
-    voltage: Any,
-    freshness: Any,
-    minimum_soc: Any,
-) -> str | None:
-    reserve = number(minimum_soc)
-    if reserve is None:
-        return None
-
-    if str(freshness or "").strip().lower() != "fresh":
-        return (
-            "♨️ Теплові насоси: <b>ЗАХИСТ ENERGYHUB — ОЧІКУВАННЯ</b>. "
-            "Телеметрія не свіжа, тому EnergyHub не надсилає нових команд "
-            "на основі SOC."
-        )
-
-    shed = min(100, reserve + 30)
-    lockout = min(100, reserve + 20)
-    recovery = min(100, reserve + 40)
-
-    if trusted_grid(confidence, voltage, freshness):
-        return (
-            "♨️ Теплові насоси: <b>ручне керування</b>."
-        )
-
-    return (
-        "♨️ Теплові насоси: <b>ЗАХИСТ ENERGYHUB</b>. "
-        f"Вимкнення при {compact_number(shed)}%, "
-        f"блокування при {compact_number(lockout)}%, "
-        f"відновлення при {compact_number(recovery)}%."
-    )
 
 
-def reserve_warning_message(
-    *,
-    soc: Any,
-    minimum_soc: Any,
-    offset: int,
-    confidence: Any,
-    voltage: Any,
-    freshness: Any,
-    active_heat_pumps: list[tuple[str, float]],
-) -> str:
-    soc_value = number(soc)
-    reserve = number(minimum_soc)
-    if soc_value is None or reserve is None:
-        raise ValueError("SOC and battery reserve are required")
-
-    threshold = min(100, reserve + offset)
-    lines = [
-        f"🔋 <b>Заряд батареї знизився до {compact_number(soc_value)}%</b>",
-        (
-            f"Досягнуто поріг {compact_number(threshold)}%: "
-            f"мінімум запасу батареї {compact_number(reserve)}% + {offset}%."
-            if offset
-            else f"Досягнуто мінімум запасу батареї {compact_number(reserve)}%."
-        ),
-    ]
-
-    if trusted_grid(confidence, voltage, freshness):
-        lines.append(
-            "♨️ ДТЕК доступний і надійний: тепловими насосами керує родина; "
-            "EnergyHub контролює резерв."
-        )
-    elif offset >= 30:
-        lines.append(
-            "♨️ Захист EnergyHub: працюючі теплові насоси вимикаються; "
-            f"ручний запуск можливий до {compact_number(reserve + 20)}%."
-        )
-    elif offset >= 20:
-        lines.append(
-            "♨️ Захист EnergyHub: теплові насоси заблоковані до "
-            f"відновлення SOC до {compact_number(reserve + 40)}%."
-        )
-    else:
-        lines.append(
-            "♨️ Захист EnergyHub залишається активним; теплові насоси "
-            "залишаються вимкненими."
-        )
-
-    for floor, power_w in active_heat_pumps:
-        lines.append(
-            f"♨️ Тепловий насос на {escape(floor)} поверсі споживає "
-            f"{compact_number(power_w)} Вт."
-        )
-
-    return "\n".join(lines)
-
-
-def heat_pump_restart_restored_message(event: dict[str, Any]) -> str:
-    """Describe only plug states that HA actually restored after startup."""
-    restored = event.get("restored")
-    if not isinstance(restored, list) or not restored:
-        raise ValueError("At least one restored heat-pump plug is required")
-
-    lines = ["\U0001f504 <b>\u041f\u0456\u0441\u043b\u044f \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u043a\u0443 \u0432\u0456\u0434\u043d\u043e\u0432\u043b\u0435\u043d\u043e \u0442\u0435\u043f\u043b\u043e\u0432\u0456 \u043d\u0430\u0441\u043e\u0441\u0438</b>"]
-    for item in restored:
-        if not isinstance(item, dict):
-            continue
-        floor = escape(str(item.get("floor") or "?"))
-        watts = number(item.get("power_w"))
-        if watts is None:
-            lines.append(f"\u267b\ufe0f {floor} \u043f\u043e\u0432\u0435\u0440\u0445: \u0440\u043e\u0437\u0435\u0442\u043a\u0443 \u0443\u0432\u0456\u043c\u043a\u043d\u0435\u043d\u043e; \u043f\u043e\u0442\u0443\u0436\u043d\u0456\u0441\u0442\u044c \u0449\u0435 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430.")
-        elif watts >= 50:
-            lines.append(
-                f"\u2705 {floor} \u043f\u043e\u0432\u0435\u0440\u0445: {compact_number(watts)} \u0412\u0442 \u2014 "
-                "\u0442\u0435\u043f\u043b\u043e\u0432\u0438\u0439 \u043d\u0430\u0441\u043e\u0441 \u043f\u0440\u0430\u0446\u044e\u0454."
-            )
-        else:
-            lines.append(
-                f"\u267b\ufe0f {floor} \u043f\u043e\u0432\u0435\u0440\u0445: {compact_number(watts)} \u0412\u0442 \u2014 "
-                "\u0440\u043e\u0437\u0435\u0442\u043a\u0443 \u0443\u0432\u0456\u043c\u043a\u043d\u0435\u043d\u043e, \u0430\u043b\u0435 \u0442\u0435\u043f\u043b\u043e\u0432\u0438\u0439 \u043d\u0430\u0441\u043e\u0441 \u0449\u0435 \u043d\u0435 \u0441\u043f\u043e\u0436\u0438\u0432\u0430\u0454 \u0437\u043d\u0430\u0447\u043d\u0443 \u043f\u043e\u0442\u0443\u0436\u043d\u0456\u0441\u0442\u044c."
-            )
-    if len(lines) == 1:
-        raise ValueError("No valid restored heat-pump records")
-    return "\n".join(lines)
-
-
-PEAK_LOAD_NAMES_UK = {
-    "water_pump": "водяний насос",
-    "water_boiler": "бойлер",
-    "heat_pump_floor_2": "тепловий насос на 2-му поверсі",
-    "heat_pump_floor_1": "тепловий насос на 1-му поверсі",
-    "heat_pump_floor_3": "тепловий насос на 3-му поверсі",
-    "microwave": "мікрохвильова піч",
-}
-
-
-def _peak_load_names(items: Any) -> list[str]:
-    if not isinstance(items, list):
-        return []
-    names = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get("key") or "").strip()
-        fallback = str(item.get("name") or key).strip()
-        names.append(PEAK_LOAD_NAMES_UK.get(key, fallback))
-    return names
 
 
 def peak_load_guard_message(event: dict[str, Any]) -> str:
-    event_type = str(event.get("type") or "")
-    if event_type == 'battery_reserve_warning':
-        charge = number(event.get('battery_soc'))
-        level = f'{compact_number(charge)}%' if charge is not None else '50%'
-        if charge is not None and charge <= 40:
-            return ("⚠️ <b>Увімкнено захист заряду батареї</b>\n"
-                    f"ДТЕК все ще недоступний. Заряд батареї — <b>{level}</b>.\n"
-                    "EnergyHub вимикає доступні некритичні пристрої. У повідомленнях "
-                    "будуть зазначені лише пристрої з підтвердженим вимкненням.")
-        return (f"⚠️ ДТЕК недоступний. Заряд батареї — <b>{level}</b>.\n"
-                "Якщо заряд знизиться до 40%, EnergyHub почне вимикати доступні "
-                "некритичні пристрої для збереження батареї.")
-    if event_type in ('load_warning', 'load_warning_cleared'):
-        load = number(event.get('load_percent'))
-        current = f"{compact_number(load)}%" if load is not None else 'невідоме'
-        if event_type == 'load_warning':
-            return (f"⚠️ <b>Високе навантаження інвертора: {current}</b>\n"
-                    "Автоматичне вимкнення не активне. Зменште навантаження до 75% або нижче.")
-        return (f"✅ Навантаження інвертора: <b>{current}</b> — нижче 50% протягом 5 хвилин.\n"
-                "Це лише повідомлення, не підтвердження ввімкнення пристроїв.")
-    if event.get('mode') == 'automatic':
-        names = ', '.join(_peak_load_names(event.get('affected_loads')))
-        load = number(event.get('load_percent'))
-        current = f"Навантаження: <b>{compact_number(load)}%</b>." if load is not None else ''
-        if event_type == 'load_shed':
-            if event.get('reason') == 'battery':
-                charge = number(event.get('battery_soc'))
-                level = f'{compact_number(charge)}%' if charge is not None else 'уточнюється'
-                return (f"🔋 <b>Захист заряду батареї — {level}</b>\n"
-                        f"EnergyHub підтвердив вимкнення: <b>{escape(names)}</b>.\n"
-                        "Пристрій буде відновлено після повернення ДТЕК або коли "
-                        "сонце зарядить батарею до <b>60%</b> (для розумного опалення "
-                        "Eco може відновитися з 50%).")
-            trigger = number(event.get('trigger_load_percent'))
-            trigger_reason = event.get('trigger_reason')
-            if trigger_reason == 'inverter_warning':
-                trigger_line = ("Інвертор повідомив про перевантаження"
-                    + (f" при <b>{compact_number(trigger)}%</b>." if trigger is not None else "."))
-            else:
-                trigger_line = (f"Навантаження зросло до <b>{compact_number(trigger)}%</b>."
-                    if trigger is not None else "Спрацював поріг захисту.")
-            after = (f"Після дії: <b>{compact_number(load)}%</b>."
-                     if load is not None else "")
-            return (f"🛡 <b>Захист інвертора</b>\n{trigger_line}\n"
-                    f"Тимчасово вимкнено: <b>{escape(names)}</b>. {after}\n"
-                    "Пристрій буде відновлено, коли навантаження залишатиметься нижче "
-                    "<b>50% протягом 5 хвилин</b>; відновлення виконується по одному "
-                    "з паузою щонайменше 1 хв.")
-        if event_type == 'load_restored':
-            return f"✅ <b>Відновлено роботу:</b> {escape(names)}.\n{current}"
-        if event_type == 'control_complete':
-            return f"✅ Відновлення пристроїв завершено. {current}"
-        if event_type == 'control_attention':
-            if event.get('reason') == 'battery_load_unavailable':
-                return (f"⚠️ Не вдалося вимкнути для збереження заряду: {escape(names)}.\n"
-                        "Перевірте пристрої вручну; EH не підтвердив їх вимкнення.")
-            if event.get('reason') == 'restoration_telemetry_missing':
-                return ("⚠️ Немає даних навантаження понад 5 хв. Автовідновлення призупинено.\n"
-                        f"Залишаються вимкненими: {escape(names)}.\n"
-                        "За потреби перевірте навантаження й увімкніть вручну; інакше EH чекатиме на дані.")
-            reasons = event.get('reasons') if isinstance(event.get('reasons'), list) else [event.get('reason')]
-            reason_names = {
-                'command_outcome_unconfirmed': 'команду не підтверджено станом пристрою',
-                'command_delivery_uncertain': 'доставку команди не підтверджено',
-                'executor_rejected_command': 'Home Assistant відхилив команду',
-                'executor_restarted_during_command': 'виконавець перезапустився під час команди',
-                'uncertain_command_after_restart': 'результат команди до перезапуску невідомий',
-                'external_control_during_command': 'під час команди втрутилося інше керування',
-                'external_control_ownership_released': 'ручне або інше керування змінило стан',
-                'load_unavailable': 'стан пристрою недоступний',
-                'restoration_load_unavailable': 'немає підтвердженого стану для відновлення',
-                'native_settings_restore_unverified': 'налаштування теплового насоса змінилися',
-                'restore_rejected_requires_attention': 'відновлення відхилено',
-                'no_available_loads': 'немає інших підтверджено доступних пристроїв',
-            }
-            details = '; '.join(dict.fromkeys(reason_names.get(reason, str(reason or 'причина невідома'))
-                                                for reason in reasons))
-            device = f"Пристрої: <b>{escape(names)}</b>.\n" if names else ""
-            return (f"⚠️ <b>Захист інвертора: потрібна перевірка</b>\n"
-                    f"{device}{escape(details)}. {current}\n"
-                    "EnergyHub не вважає непідтверджену дію завершеною.")
-        raise ValueError('Unsupported automatic load event')
-    thresholds = event.get("thresholds") or {}
-    shed = number(thresholds.get("shed_percent")) or 85
-    relief = number(thresholds.get("relief_percent")) or 75
-    restore = number(thresholds.get("restore_percent")) or 60
-    cycle = str(event.get("cycle_id") or "")
-    cycle_line = f"Цикл: {escape(cycle[-12:])}." if cycle else ""
-
-    if event_type == "shed_recommended":
-        load_percent = number(event.get("trigger_load_percent"))
-        names = _peak_load_names(event.get("recommended_loads"))
-        lines = [
-            "🧪 <b>Peak Load Guard — Dry Run</b>",
-            cycle_line,
-            (
-                "Навантаження інвертора досягло "
-                f"{compact_number(load_percent if load_percent is not None else shed)}%."
-            ),
-            "EnergyHub рекомендує тимчасово вимкнути по черзі:",
-            *[f"• {escape(name)}" for name in names],
-            (
-                "Зупиніть вимкнення, коли навантаження знизиться до "
-                f"{compact_number(relief)}% або нижче."
-            ),
-            (
-                "Початкові стани потрібно відновити в тому самому порядку, "
-                f"коли навантаження знизиться до {compact_number(restore)}% або нижче."
-            ),
-            "EnergyHub нічого не перемикав — це лише рекомендація Dry Run.",
-        ]
-        return "\n".join(lines)
-
-    if event_type == "restore_recommended":
-        load_percent = number(event.get("recovery_load_percent"))
-        names = _peak_load_names(event.get("restore_order"))
-        lines = [
-            "🟢 <b>Peak Load Guard — відновлення Dry Run</b>",
-            cycle_line,
-            (
-                "Навантаження інвертора знизилося до "
-                f"{compact_number(load_percent if load_percent is not None else restore)}%."
-            ),
-            "EnergyHub рекомендує відновити початкові стани в тому самому порядку:",
-            *[f"• {escape(name)}" for name in names],
-            (
-                f"Після кожного ввімкнення перевіряйте, що навантаження не перевищує "
-                f"{compact_number(relief)}%."
-            ),
-            "EnergyHub нічого не перемикав — цикл Dry Run завершено.",
-        ]
-        return "\n".join(lines)
-
-    if event_type == "no_candidates":
-        load_percent = number(event.get("trigger_load_percent"))
-        return "\n".join([
-            "🔴 <b>Peak Load Guard — немає доступного навантаження</b>",
-            (
-                "Навантаження інвертора становить "
-                f"{compact_number(load_percent if load_percent is not None else shed)}%."
-            ),
-            "EnergyHub не знайшов увімкненої доступної розетки для рекомендації.",
-            "EnergyHub нічого не перемикав — режим Dry Run.",
-        ])
-
-    raise ValueError(f"Unsupported Peak Load Guard event: {event_type}")
+    """Legacy transport name; only first-floor HP battery notices remain."""
+    kind = event.get('type')
+    hp1 = event.get('key') == 'heat_pump_floor_1' or any(
+        row.get('key') == 'heat_pump_floor_1' for row in event.get('affected_loads') or [] if isinstance(row, dict))
+    if kind == 'hp1_battery_warning':
+        soc = number(event.get('battery_soc'))
+        charge = f'Батарея {compact_number(soc)}%. ' if soc is not None else ''
+        stop = number(event.get('battery_off_soc'))
+        threshold = f'при {compact_number(stop)}%' if stop is not None else 'при досягненні порогу захисту'
+        return '🔋 '+charge+'Без ДТЕК вимкнемо тепловий насос 1-го поверху '+threshold+'.'
+    if not hp1:
+        return ''
+    if kind == 'load_shed' and event.get('reason') == 'battery':
+        return ('🔋 Тепловий насос 1-го поверху вимкнено для збереження заряду батареї. '
+                'Відновлення — за окремою політикою ТН, коли інші захисти дозволяють.')
+    if kind == 'load_restored' and event.get('reason') == 'battery':
+        return '✅ Відновлено роботу теплового насоса 1-го поверху після захисту батареї.'
+    if kind == 'control_attention':
+        return ('⚠️ Керування тепловим насосом 1-го поверху потребує перевірки. '
+                'EnergyHub не вважає непідтверджену дію завершеною.')
+    return ''
 
 
 WEATHER_HAZARDS_UK = {
@@ -410,6 +146,10 @@ WEATHER_HAZARDS_UK = {
     "heavy_snow": "сильний сніг або хуртовина",
     "severe_precipitation": "сильні опади",
     "hail": "град",
+    "frost": "заморозки",
+    "fog": "туман",
+    "heat": "спека",
+    "other": "небезпечні погодні умови",
 }
 
 
@@ -430,6 +170,8 @@ def reserve_reason(reserve):
         ("generation_modifier_percent", "прогноз генерації нижчий за споживання"),
         ("grid_modifier_percent", "низька надійність ДТЕК"),
         ("weather_modifier_percent", "небезпечна погода"),
+        ("schedule_suspension_modifier_percent", "графіки не діють — додаткові 20 п.п. резерву"),
+        ("smart_heating_modifier_percent", "додатковий резерв для опалення"),
     ):
         if (number(reserve.get(key)) or 0) > 0:
             reasons.append(label)
@@ -442,6 +184,7 @@ def reserve_change_reason(reserve: dict[str, Any], old: float, new: float) -> st
         if (reserve.get("forecast_deficit") is False
                 and str(reserve.get("grid_confidence") or "").lower() == "normal"
                 and not (number(reserve.get("weather_modifier_percent")) or 0)
+                and not (number(reserve.get("schedule_suspension_modifier_percent")) or 0)
                 and not (number(reserve.get("smart_heating_modifier_percent")) or 0)):
             return "прогноз генерації покриває споживання"
         return "потреба в додатковому резерві зменшилася"
@@ -517,12 +260,16 @@ def weather_warning_message(
     ready = (selected_valid and recommended is not None and 20 <= recommended <= 95
              and reserve.get("daily_plan_fresh") is True
              and reserve.get("weather_source_status") == "fresh"
-             and reserve.get("grid_confidence") in {"normal", "unstable", "risk", "panic"}
+             and (reserve.get("reserve_planning_source")=="dtek_schedule" or reserve.get("grid_confidence") in {"normal", "unstable", "risk", "panic"})
              and not reserve.get("evidence_issues"))
-    if severity >= 2:
+    if severity >= 2 and event.get('region_match', event.get('grid_relevant')) is True:
         current = f"{compact_number(selected)}%" if selected_valid else "невідомий"
         if not ready:
             advice = "Даних для рекомендації недостатньо."
+        elif number(reserve.get('weather_modifier_percent')) != 20:
+            advice = (f"Розрахунок EH: {compact_number(recommended)}%. Ручний вибір збережено."
+                      if reserve.get('management_mode') != 'automatic' and recommended < selected
+                      else "Погодна надбавка зараз не застосовується.")
         elif reserve.get("management_mode") == "automatic" and reserve.get("control_applied") is True:
             advice = f"Погодний резерв +20%; EH встановив {compact_number(selected)}%."
         elif reserve.get("management_mode") == "automatic":
@@ -538,10 +285,16 @@ def weather_warning_message(
             until = datetime.fromisoformat(str(event.get("valid_until"))).astimezone(
                 ZoneInfo("Europe/Kyiv")
             )
-            validity = f" Діє до {until:%d.%m %H:%M}."
+            validity = f" Надбавка діє протягом дня попередження, до {until:%d.%m} 23:59."
         except (TypeError, ValueError):
             pass
         lines.extend(["", f"🔋 Мінімум батареї: {current}. {advice}{validity}"])
+    else:
+        try:
+            until = datetime.fromisoformat(str(event.get('valid_until'))).astimezone(ZoneInfo('Europe/Kyiv'))
+            lines.append(f'🕒 Попередження діє до {until:%d.%m %H:%M}.')
+        except (TypeError, ValueError):
+            pass
     url = str(event.get("url") or "").strip()
     if url:
         lines.append(f'<a href="{escape(url)}">Джерело</a>')

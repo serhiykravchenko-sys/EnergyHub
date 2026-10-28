@@ -25,7 +25,8 @@ class DashboardSensorLineageTests(unittest.TestCase):
             "sensor.microwave_plug_electric_power",
         ):
             self.assertIn(entity_id, dashboard)
-            self.assertIn(f"states('{entity_id}')", automations)
+            if entity_id == "sensor.first_floor_heat_pump_plug_power":
+                self.assertIn(f"states('{entity_id}')", automations)
 
 
 if __name__ == "__main__":

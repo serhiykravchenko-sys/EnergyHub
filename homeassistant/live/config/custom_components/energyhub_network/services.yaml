@@ -1,0 +1,13 @@
+apply_address:
+  name: Apply verified LAN address
+  description: Change one Hisense address, verify fresh status, or roll back. Administrator only.
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: climate
+    address:
+      required: true
+      selector:
+        text:

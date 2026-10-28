@@ -1,4 +1,4 @@
-"""Deterministic, acknowledged load control; never sends inverter commands.
+"""Acknowledged first-floor HP battery control; overload switching belongs to HA.
 
 The HA executor is a separate allow-listed boundary. Commands are non-retained,
 expire quickly and are never retried automatically. Unknown outcomes require
@@ -13,10 +13,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.utils.json_store import atomic_write_json
-from app.services.battery_load_policy import BatteryLoadPolicy, LOADS as BATTERY_LOADS
+from app.services.hp1_battery_policy import Hp1BatteryPolicy, LOADS as BATTERY_LOADS
 
-ORDER = ('water_pump', 'water_boiler', 'heat_pump_floor_1',
-         'heat_pump_floor_2', 'heat_pump_floor_3', 'microwave')
+LEGACY_LOAD_KEYS = ('water_pump', 'water_boiler', 'heat_pump_floor_1',
+                    'heat_pump_floor_2', 'heat_pump_floor_3', 'microwave')
+ORDER = ('heat_pump_floor_1',)
 PARTICIPANT_NAMES = {
     'water_pump': 'Water pump',
     'water_boiler': 'Water boiler',
@@ -25,7 +26,7 @@ PARTICIPANT_NAMES = {
     'heat_pump_floor_3': '3rd-floor heat pump',
     'microwave': 'Microwave',
 }
-THRESHOLDS = dict(shed_percent=85, relief_percent=75, restore_percent=50)
+THRESHOLDS = dict(restore_percent=50)  # Retained HP1 recovery interlock only.
 RECOVERY_SECONDS = 300
 RESTORE_SETTLE_SECONDS = 60
 COMMAND_TOPIC = 'energyhub/control/peak_load_guard'
@@ -83,7 +84,7 @@ class PeakLoadGuardController:
         self.last_load_percent = None
         self.fault = None
         self.intents = []
-        self.battery = BatteryLoadPolicy()
+        self.battery = Hp1BatteryPolicy()
         self.battery_ready = False
         self.grid_since = None
         self.battery_decision = None
@@ -91,7 +92,6 @@ class PeakLoadGuardController:
         self.smart_heating_enabled = False
         self.last_grid_available = False
         self._saved_battery = None
-        self.legacy_lockouts_imported = False
         if path is not None and path.exists():
             try:
                 data = json.loads(path.read_text(encoding='utf-8'))
@@ -102,10 +102,26 @@ class PeakLoadGuardController:
                 self.events = data['events'][-64:]
                 self.cycle = data['cycle']
                 self.pending = data['pending']
-                self.battery = BatteryLoadPolicy.restore(data.get('battery', {'active': False, 'attempted': []}))
-                self.legacy_lockouts_imported = data.get('legacy_lockouts_imported') is True
+                # Retire all overload ownership without issuing any restoration commands.
+                if self.cycle:
+                    self.cycle['owned'] = {k: v for k, v in self.cycle['owned'].items()
+                        if v.get('reason') == 'battery' and k == 'heat_pump_floor_1'}
+                    self.cycle.pop('battery_unavailable', None)
+                    for key, reason in list(self.cycle['blocked'].items()):
+                        if (key in ('water_pump', 'water_boiler', 'heat_pump_floor_2', 'heat_pump_floor_3')
+                                and (reason == 'battery_load_unavailable'
+                                     or (self.cycle.get('trigger_reason') == 'battery'
+                                         and key not in self.cycle['owned']))):
+                            self.cycle['blocked'].pop(key)
+                if (self.pending and (self.pending.get('reason') != 'battery'
+                        or self.pending.get('key') != 'heat_pump_floor_1')):
+                    self.pending = None
+                hp1 = copy.deepcopy(data.get('hp1_battery', data.get('battery', {'active': False, 'attempted': []})))
+                if isinstance(hp1, dict) and isinstance(hp1.get('attempted'), list):
+                    hp1['attempted'] = [key for key in hp1['attempted'] if key == 'heat_pump_floor_1']
+                self.battery = Hp1BatteryPolicy.restore(hp1)
                 self.fault = data.get('fault')
-                self.warning_active = data.get('warning_active') is True
+                self.warning_active = False
                 self.missing_since = _parse_datetime(data.get('missing_since'))
                 self.missing_notified = data.get('missing_notified') is True
                 if self.pending:
@@ -150,7 +166,7 @@ class PeakLoadGuardController:
                     or _finite_number(cycle.get('settle_until')) is None):
                 return False
             for key, owner in cycle['owned'].items():
-                if (key not in ORDER or not isinstance(owner, dict)
+                if (key not in LEGACY_LOAD_KEYS or not isinstance(owner, dict)
                         or not isinstance(owner.get('original'), dict)
                         or not owner.get('context_id')
                         or _finite_number(owner.get('intent_revision')) is None
@@ -167,8 +183,7 @@ class PeakLoadGuardController:
             atomic_write_json(self.path, dict(schema=1, stream_id=self.stream_id,
                 sequence=self.sequence, events=self.events, cycle=self.cycle,
                 pending=self.pending, fault=self.fault, warning_active=self.warning_active,
-                battery=self.battery.export(),
-                legacy_lockouts_imported=self.legacy_lockouts_imported,
+                hp1_battery=self.battery.export(),
                 missing_since=self.missing_since.isoformat() if self.missing_since else None,
                 missing_notified=self.missing_notified))
             self._saved_battery = self.battery.export()
@@ -188,6 +203,9 @@ class PeakLoadGuardController:
             occurred_at=now.isoformat(), type=kind,
             mode='warnings_only' if kind in ('load_warning', 'load_warning_cleared') else 'automatic',
             thresholds=THRESHOLDS, load_percent=self.last_load_percent, **details)
+        event['protection_source'] = ((self.cycle or {}).get('trigger_reason') or details.get('reason'))
+        event['battery_restore_soc'] = self.battery.on_soc
+        event['battery_off_soc'] = self.battery.off_soc
         self.events = (self.events + [event])[-64:]
         self._persist()
         return event
@@ -198,7 +216,7 @@ class PeakLoadGuardController:
             observed = _parse_datetime(data.get('observed_at'))
             rows = data.get('loads')
             # Older bridge policies must not arm newly upgraded code.
-            if data.get('control_schema') != 5 or observed is None or not isinstance(rows, list):
+            if data.get('control_schema') != 6 or observed is None or not isinstance(rows, list):
                 return False
             parsed = {item['key']: copy.deepcopy(item) for item in rows
                       if isinstance(item, dict) and item.get('key') in ORDER}
@@ -220,37 +238,9 @@ class PeakLoadGuardController:
             self.automatic_requested = data.get('automatic_requested', self.armed) is True
             self.armed = self.armed and self.automatic_requested
             self.bridge_session = data['bridge_session']
-            self.battery_ready = data.get('battery_control_ready') is True
-            self.smart_heating_enabled = data.get('smart_heating_enabled') is True
-            if not self.legacy_lockouts_imported and type(data.get('legacy_battery_lockout')) is bool:
-                # One-time upgrade import: clearing old automation writers must
-                # not silently clear a pre-existing remembered critical lock.
-                if data['legacy_battery_lockout']:
-                    self.battery.active = True
-                    self.battery.locked = True
-                    self.battery.attempted.update(BATTERY_LOADS)
-                self.legacy_lockouts_imported = True
-                if not self._persist():
-                    return False
+            self.battery_ready = data.get('hp1_battery_control_ready') is True
+            self.smart_heating_enabled = data.get('hp1_smart_heating_enabled') is True
         return True
-
-    def _evaluate_warning(self, percent, overload_warning, now):
-        """Independent of participant availability: fresh inverter load is enough."""
-        if not self.warning_active:
-            if percent >= THRESHOLDS['shed_percent'] or overload_warning:
-                self.warning_active = True
-                self.warning_recovery_since = None
-                self._event('load_warning', now, overload_warning=bool(overload_warning))
-            return
-        if percent >= THRESHOLDS['restore_percent'] or overload_warning:
-            self.warning_recovery_since = None
-            return
-        if self.warning_recovery_since is None:
-            self.warning_recovery_since = now
-        if (now-self.warning_recovery_since).total_seconds() >= RECOVERY_SECONDS:
-            self.warning_active = False
-            self.warning_recovery_since = None
-            self._event('load_warning_cleared', now)
 
     def _observe_ownership(self, now):
         if not self.cycle:
@@ -307,9 +297,13 @@ class PeakLoadGuardController:
             if (not isinstance(item, dict) or not item.get('context_id')
                     or not isinstance(item.get('keys'), list)
                     or not item['keys']
-                    or any(key not in ORDER for key in item['keys'])):
+                    or any(key not in LEGACY_LOAD_KEYS for key in item['keys'])):
                 return False
         except (ValueError, TypeError):
+            return False
+        item = copy.deepcopy(item)
+        item['keys'] = [key for key in item['keys'] if key in ORDER]
+        if not item['keys']:
             return False
         with self.lock:
             self.intents.append(item)
@@ -368,11 +362,13 @@ class PeakLoadGuardController:
         return self._event('control_attention', now, reason=reason, key=key,
                            affected_loads=[dict(key=key)])
 
-    def _command(self, key, action, now, reason='overload'):
+    def _command(self, key, action, now, reason='battery'):
+        if key != 'heat_pump_floor_1' or reason != 'battery':
+            raise ValueError('Only first-floor HP battery commands remain in EH')
         row = self.loads[key]
         owner = self.cycle['owned'].get(key)
         command = dict(command_id=uuid4().hex, cycle_id=self.cycle['cycle_id'],
-            control_schema=5, reason=reason, battery_locked=self.battery.locked,
+            control_schema=6, reason=reason, battery_locked=self.battery.locked,
             key=key, action=action, issued_at=now.isoformat(),
             expires_at=now.timestamp()+20, bridge_session=self.bridge_session,
             expected_context=row['context_id'], expected_state=row['state'],
@@ -447,18 +443,18 @@ class PeakLoadGuardController:
         if p['action'] == 'shed':
             self.cycle['owned'][key] = dict(original=p['original'],
                 context_id=own_context, intent_revision=row.get('intent_revision'),
-                reason=p.get('reason', 'overload'), off_settings=copy.deepcopy(row.get('settings')),
+                reason=p.get('reason', 'battery'), off_settings=copy.deepcopy(row.get('settings')),
                 confirmed_off_at=now.isoformat())
             self.cycle['shed'].append(key)
             self._event('load_shed', now, affected_loads=[dict(key=key)],
-                        reason=p.get('reason', 'overload'), battery_soc=self.last_battery_soc,
+                        reason=p.get('reason', 'battery'), battery_soc=self.last_battery_soc,
                         trigger_load_percent=p.get('trigger_load_percent'),
                         action_load_percent=p.get('before_load_percent'),
                         trigger_reason=p.get('trigger_reason'))
         else:
             self.cycle['owned'].pop(key, None)
             self.cycle['restored'].append(key)
-            self._event('load_restored', now, affected_loads=[dict(key=key)], reason=p.get('reason', 'overload'))
+            self._event('load_restored', now, affected_loads=[dict(key=key)], reason=p.get('reason', 'battery'))
         if p['action'] == 'shed':
             self.recovery_since = None
             self.recovery_qualified = False
@@ -467,8 +463,8 @@ class PeakLoadGuardController:
         return True
 
     def evaluate(self, *, telemetry_valid, telemetry_freshness, load_percent,
-                 load_w, load_va=None, grid_available=False, operating_mode='',
-                 overload_warning=False, battery_soc=None, now=None):
+                 load_w, load_va=None, grid_available=None, operating_mode='',
+                 battery_soc=None, now=None):
         now = now or self.clock()
         with self.lock:
             percent, watts = _finite_number(load_percent), _finite_number(load_w)
@@ -483,7 +479,7 @@ class PeakLoadGuardController:
             snapshot_fresh = self._fresh(self.observed_at, now)
             self.last_battery_soc = _finite_number(battery_soc)
             self.last_grid_available = grid_available is True
-            battery_enabled = self.battery_ready and snapshot_fresh
+            battery_enabled = self.battery_ready and snapshot_fresh and isinstance(grid_available, bool)
             self.battery_decision = None
             if not gap_ok or not grid_available:
                 self.grid_since = None
@@ -509,7 +505,7 @@ class PeakLoadGuardController:
                 except ValueError:
                     self.grid_since = None
                 if self.battery_decision and self.battery_decision.get('warning'):
-                    self._event('battery_reserve_warning', now,
+                    self._event('hp1_battery_warning', now,
                                 battery_soc=self.last_battery_soc,
                                 reason='battery_discharge')
                 if not self._persist_battery():
@@ -517,7 +513,6 @@ class PeakLoadGuardController:
             self._missing_data(not snapshot_fresh or
                                (battery_enabled and self.battery_decision is None), now)
             if (not self.armed and not battery_enabled) or not snapshot_fresh or self.fault:
-                self._evaluate_warning(percent, overload_warning, now)
                 self.recovery_since = None
                 self.recovery_qualified = False
                 # Observe acknowledgement/family changes even while OFF, but
@@ -532,36 +527,25 @@ class PeakLoadGuardController:
                               'waiting_for_load_data' if not snapshot_fresh else
                               'automatic_blocked' if self.automatic_requested else 'warnings_only')
                 return None
-            if self.warning_active and self.armed:
-                # Switching ON supersedes advice; do not issue a fake recovery.
-                self.warning_active = False
-                self.warning_recovery_since = None
-                if not self._persist():
-                    return None
-            self.control_ready = self.armed
-            if not self.armed:
-                self._evaluate_warning(percent, overload_warning, now)
-            if percent >= 50 or overload_warning:
+            self.control_ready = battery_enabled
+            if percent >= 50:
                 self.recovery_since = None
                 self.recovery_qualified = False
             if self._reconcile(now):
                 return None
             self._observe_ownership(now)
             self.intents = []
-            trigger = self.armed and (percent >= 85 or overload_warning)
             requested_battery_stop = (self.battery_decision or {}).get('stop', [])
             needs_battery_cycle = any(
                 self.loads[key].get('state') != 'off'
                 for key in requested_battery_stop
             )
-            if self.cycle is None and (trigger or needs_battery_cycle):
+            if self.cycle is None and needs_battery_cycle:
                 self.cycle = dict(cycle_id=uuid4().hex, owned={}, blocked={}, shed=[],
                                   restored=[], settle_until=0, shedding=True,
                                   started_at=now.isoformat(),
                                   trigger_load_percent=percent,
-                                  trigger_reason=('inverter_warning'
-                                      if overload_warning else
-                                      'battery' if needs_battery_cycle else 'load_percent'))
+                                  trigger_reason='battery')
                 if not self._persist():
                     return None
             for key in requested_battery_stop:
@@ -580,32 +564,8 @@ class PeakLoadGuardController:
             if self.cycle is None:
                 self.phase = 'normal' if self.armed else 'warnings_only'
                 return None
-            if trigger:
-                self.cycle['shedding'] = True
-            if percent <= 75 and not overload_warning:
-                self.cycle['shedding'] = False
-            if now.timestamp() < self.cycle['settle_until'] and not trigger and not battery_stop:
+            if now.timestamp() < self.cycle['settle_until'] and not battery_stop:
                 self.phase = 'settling'
-                return None
-            if self.armed and self.cycle.get('shedding', True) and (percent > 75 or overload_warning):
-                self.recovery_since = None
-                for key in ORDER:
-                    row = self.loads[key]
-                    if key in self.cycle['owned']:
-                        continue
-                    if self.cycle['blocked'].get(key) == 'load_unavailable':
-                        if not (self._usable(row, now) and row.get('control_ready') is True):
-                            continue
-                        self.cycle['blocked'].pop(key, None)
-                    elif key in self.cycle['blocked']:
-                        continue
-                    if row.get('state') == 'on' and self._usable(row, now) and row.get('control_ready') is True:
-                        return self._command(key, 'shed', now)
-                    if row.get('state') not in ('off',):
-                        self._block_device(key, 'load_unavailable', now)
-                if self.phase != 'no_candidates':
-                    self._event('control_attention', now, reason='no_available_loads')
-                self.phase = 'no_candidates'
                 return None
             for key in battery_stop:
                 row = self.loads[key]
@@ -637,7 +597,7 @@ class PeakLoadGuardController:
                 return None
             if not self._persist_battery():
                 return None
-            if percent >= 50 or overload_warning:
+            if percent >= 50:
                 self.recovery_since = None
                 self.phase = 'holding'
                 return None
@@ -672,9 +632,6 @@ class PeakLoadGuardController:
                         (not self.battery_decision['restore_allowed'] and not hp_early)) and self.battery_ready:
                     self.phase = 'battery_recovery_waiting'
                     return None
-                if owner.get('reason') == 'overload' and not self.armed:
-                    self.phase = 'restoration_waiting'
-                    return None
                 hp_eco_restore = (key == 'heat_pump_floor_1'
                     and owner.get('reason') == 'battery' and self.smart_heating_enabled
                     and not self.last_grid_available)
@@ -694,7 +651,7 @@ class PeakLoadGuardController:
                 if off_age < min_off:
                     self.phase = 'restoration_waiting'
                     continue
-                return self._command(key, 'restore', now, reason=owner.get('reason', 'overload'))
+                return self._command(key, 'restore', now, reason=owner.get('reason', 'battery'))
             if self.cycle['owned']:
                 self.phase = 'restoration_waiting'
                 return None
@@ -714,15 +671,14 @@ class PeakLoadGuardController:
 
     def status_attributes(self):
         with self.lock:
-            return copy.deepcopy(dict(control_schema=5, mode='automatic' if self.automatic_requested else 'warnings_only',
+            return copy.deepcopy(dict(control_schema=6, mode='hp1_battery',
                 armed=self.armed, control_ready=self.control_ready and not self.fault,
                 automatic_requested=self.automatic_requested, warning_active=self.warning_active,
-                eligible_loads=[k for k in ORDER if self.loads.get(k, {}).get('control_ready') is True],
-                shed_threshold_percent=85, relief_target_percent=75,
+                eligible_loads=[k for k in BATTERY_LOADS if self.loads.get(k, {}).get('control_ready') is True],
                 restore_threshold_percent=50, recovery_confirmation_seconds=RECOVERY_SECONDS,
                 restore_settle_seconds=RESTORE_SETTLE_SECONDS,
                 telemetry_missing_since=self.missing_since.isoformat() if self.missing_since else None,
-                battery_protection=self.battery_decision, battery_episode=self.battery.export(),
+                hp1_battery_protection=self.battery_decision, hp1_battery_episode=self.battery.export(),
                 participant_order=list(ORDER), participants=[dict(self.loads[k],
                 name=PARTICIPANT_NAMES[k]) for k in ORDER if k in self.loads],
                 load_snapshot_at=self.observed_at.isoformat() if self.observed_at else None,

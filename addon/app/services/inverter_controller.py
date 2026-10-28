@@ -62,6 +62,7 @@ class InverterController:
         self.confirmed_mode = "unknown"
         self.known_charger_priority = "unknown"
         self.panic_target_soc = None
+        self.manual_panic_active = False
         self.transition_pending = False
         self.persistence_fault = False
         self.last_error = None
@@ -75,6 +76,8 @@ class InverterController:
         }
 
     def _mode_reason(self):
+        if self.manual_panic_active and self.mode in {'panic','panic_grid_hold'}:
+            return 'Manual Panic: preserve the 95% power-bank reserve until explicitly cancelled'
         reasons = {
             "unknown": (
                 "Current inverter strategy is not confirmed"
@@ -90,19 +93,19 @@ class InverterController:
                 "Solar strategy: Menu 01=SBU, Menu 16=OSO"
             ),
             "hybrid_charging": (
-                "Night grid charging: "
+                "Legacy charging strategy: "
                 "Menu 01=SUB, Menu 16=SNU"
             ),
             "hybrid_grid_hold": (
-                "Battery charged; house remains on night grid: "
+                "Legacy grid-hold strategy: "
                 "Menu 01=SUB, Menu 16=OSO"
             ),
             "panic": (
-                "Emergency grid charging: "
+                "Reserve charging strategy: "
                 "Menu 01=SUB, Menu 16=SNU"
             ),
             "panic_grid_hold": (
-                "Emergency reserve is held on available grid: "
+                "Reserve grid-hold strategy: "
                 "Menu 01=SUB, Menu 16=OSO"
             ),
             "transition_failed": (
@@ -172,13 +175,17 @@ class InverterController:
         self.confirmed_mode = confirmed_mode
         self.known_charger_priority = charger_priority
         self.panic_target_soc = panic_target_soc
+        self.manual_panic_active = data.get('manual_panic_active') is True
+        if self.manual_panic_active:
+            self.panic_target_soc = 95
         self.transition_pending = data.get("transition_pending", False) is not False
 
         log(
             "Inverter controller state loaded: "
             f"mode={self.confirmed_mode}, "
             f"Menu 16={self.known_charger_priority}, "
-            f"panic_target={self.panic_target_soc}"
+            f"panic_target={self.panic_target_soc}, "
+            f"manual_panic_active={self.manual_panic_active}"
         )
 
     def _persist_state(self):
@@ -190,6 +197,7 @@ class InverterController:
             "confirmed_mode": self.confirmed_mode,
             "known_charger_priority": self.known_charger_priority,
             "panic_target_soc": self.panic_target_soc,
+            "manual_panic_active": self.manual_panic_active,
             "transition_pending": self.transition_pending,
             "updated_at": datetime.now().astimezone().isoformat(),
         }
@@ -234,6 +242,8 @@ class InverterController:
         return True
 
     def set_panic_target_soc(self, target_soc):
+        if self.manual_panic_active:
+            target_soc = 95
         try:
             target_soc = round(float(target_soc), 2)
         except (TypeError, ValueError):
@@ -245,6 +255,12 @@ class InverterController:
             return False
 
         self.panic_target_soc = target_soc
+        return self._persist_state()
+
+    def set_manual_panic(self, active):
+        self.manual_panic_active = active is True
+        if self.manual_panic_active:
+            self.panic_target_soc = 95
         return self._persist_state()
 
     def _mark_transition_pending(self):

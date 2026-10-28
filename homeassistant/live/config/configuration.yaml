@@ -1,5 +1,8 @@
 default_config:
 
+homeassistant:
+  packages: !include_dir_named packages
+
 frontend:
   themes: !include_dir_merge_named themes
 
@@ -17,9 +20,14 @@ recorder:
       - sensor.energyhub_peak_load_guard
       - sensor.energyhub_peak_load_guard_event
       - input_text.energyhub_load_last_command
-      - input_text.energyhub_heat_pump_restart_event
 
 input_boolean:
+  energyhub_climate_solar_window_enabled:
+    name: Solar heating/cooling schedule
+  energyhub_climate_smart_window_enabled:
+    name: Smart heating/cooling schedule
+  energyhub_climate_quiet_enabled:
+    name: Quiet hours for Smart heating
   energyhub_smart_heating:
     name: Smart Heating
     icon: mdi:heat-pump-outline
@@ -38,46 +46,10 @@ input_boolean:
   energyhub_load_control_armed:
     name: Overload Protection Automatic
     icon: mdi:shield-bolt
-  energyhub_water_boiler_soc_lockout:
-    name: Water Boiler SOC Lockout
-    icon: mdi:water-boiler-off
-  energyhub_heat_pump_soc_lockout:
-    name: Heat Pump SOC Lockout
-    icon: mdi:heat-pump-outline
 
 input_number:
-  energyhub_intent_water_pump:
-    name: Load control intent revision water_pump
-    min: 0
-    max: 1000000000
-    step: 1
-    mode: box
-  energyhub_intent_water_boiler:
-    name: Load control intent revision water_boiler
-    min: 0
-    max: 1000000000
-    step: 1
-    mode: box
   energyhub_intent_heat_pump_floor_1:
     name: Load control intent revision heat_pump_floor_1
-    min: 0
-    max: 1000000000
-    step: 1
-    mode: box
-  energyhub_intent_heat_pump_floor_2:
-    name: Load control intent revision heat_pump_floor_2
-    min: 0
-    max: 1000000000
-    step: 1
-    mode: box
-  energyhub_intent_heat_pump_floor_3:
-    name: Load control intent revision heat_pump_floor_3
-    min: 0
-    max: 1000000000
-    step: 1
-    mode: box
-  energyhub_intent_microwave:
-    name: Load control intent revision microwave
     min: 0
     max: 1000000000
     step: 1
@@ -90,26 +62,44 @@ input_text:
   energyhub_load_last_command:
     name: Load Control Last Command
     max: 100
-  energyhub_heat_pump_manual_states:
-    name: Heat Pump Plug Manual States
-    max: 100
-  energyhub_heat_pump_restart_completed_session:
-    name: Heat Pump Restart Completed Session
-    max: 100
-  energyhub_heat_pump_restart_attempt:
-    name: Heat Pump Restart Last Attempt
-    max: 100
-  energyhub_heat_pump_restart_event:
-    name: Heat Pump Restart Event
-    max: 255
-
 input_datetime:
-  energyhub_heat_pump_grid_recovery_started:
-    name: Heat Pump Grid Recovery Started
-    has_date: true
+  energyhub_climate_solar_start:
+    name: Solar window starts
+    has_date: false
     has_time: true
-
+  energyhub_climate_solar_end:
+    name: Solar window ends
+    has_date: false
+    has_time: true
+  energyhub_climate_smart_start:
+    name: Smart window starts
+    has_date: false
+    has_time: true
+  energyhub_climate_smart_end:
+    name: Smart window ends
+    has_date: false
+    has_time: true
+  energyhub_climate_quiet_start:
+    name: Quiet hours start
+    has_date: false
+    has_time: true
+  energyhub_climate_quiet_end:
+    name: Quiet hours end
+    has_date: false
+    has_time: true
 input_select:
+  energyhub_climate_policy:
+    name: Heating/cooling energy policy
+    options: ['Off', Solar-only, Smart]
+  energyhub_climate_operation:
+    name: Heating/cooling operation
+    options: [Continuous, Scheduled]
+  energyhub_climate_effective_policy:
+    name: Current heating/cooling request
+    options: ['Off', Solar-only, Smart]
+  energyhub_hp1_family_mode:
+    name: Family selected heat-pump mode
+    options: [Unknown, heat, cool]
   energyhub_ahm_weather_authority:
     name: Battery Reserve Control
     icon: mdi:battery-heart-variant
@@ -394,57 +384,3 @@ utility_meter:
     unique_id: energyhub_water_boiler_yearly
     cycle: yearly
     periodically_resetting: false
-
-template:
-  - sensor:
-      - name: Floor 1 Heat Pump Turns Off At
-        unique_id: energyhub_floor_1_heat_pump_turns_off_at
-        icon: mdi:clock-end
-        state: >-
-          {% set finish = state_attr('timer.floor_1_heat_pump_auto_off', 'finishes_at') %}
-          {% if finish %}
-            {% set end = as_local(as_datetime(finish)) %}
-            {% if end.date() == now().date() %}
-              Today {{ end.strftime('%H:%M') }}
-            {% elif end.date() == (now() + timedelta(days=1)).date() %}
-              Tomorrow {{ end.strftime('%H:%M') }}
-            {% else %}
-              {{ end.strftime('%d %b %H:%M') }}
-            {% endif %}
-          {% else %}
-            Manual
-          {% endif %}
-      - name: Floor 2 Heat Pump Turns Off At
-        unique_id: energyhub_floor_2_heat_pump_turns_off_at
-        icon: mdi:clock-end
-        state: >-
-          {% set finish = state_attr('timer.floor_2_heat_pump_auto_off', 'finishes_at') %}
-          {% if finish %}
-            {% set end = as_local(as_datetime(finish)) %}
-            {% if end.date() == now().date() %}
-              Today {{ end.strftime('%H:%M') }}
-            {% elif end.date() == (now() + timedelta(days=1)).date() %}
-              Tomorrow {{ end.strftime('%H:%M') }}
-            {% else %}
-              {{ end.strftime('%d %b %H:%M') }}
-            {% endif %}
-          {% else %}
-            Manual
-          {% endif %}
-      - name: Floor 3 Heat Pump Turns Off At
-        unique_id: energyhub_floor_3_heat_pump_turns_off_at
-        icon: mdi:clock-end
-        state: >-
-          {% set finish = state_attr('timer.floor_3_heat_pump_auto_off', 'finishes_at') %}
-          {% if finish %}
-            {% set end = as_local(as_datetime(finish)) %}
-            {% if end.date() == now().date() %}
-              Today {{ end.strftime('%H:%M') }}
-            {% elif end.date() == (now() + timedelta(days=1)).date() %}
-              Tomorrow {{ end.strftime('%H:%M') }}
-            {% else %}
-              {{ end.strftime('%d %b %H:%M') }}
-            {% endif %}
-          {% else %}
-            Manual
-          {% endif %}

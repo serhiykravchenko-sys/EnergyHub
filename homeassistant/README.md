@@ -1,49 +1,30 @@
 # Home Assistant integration examples
 
-EnergyHub 2.4.12 / Family Assistant 2.4.15 use Home Assistant for household
-inputs, device service calls, acknowledgements, helpers and dashboards.
-These files are reference examples, not a drop-in configuration for every home.
+These YAML, dashboard and helper-storage files are a **reference**, not a drop-in
+complete home. Generic device aliases must be mapped consistently across helpers,
+automations, tests, dashboards and optional Family settings. Initialization guards
+and historical IDs are dependencies, not proof they should be deleted.
 
-## Installation boundary
+Native HA owns overload and outage plug execution, while EH retains HP1 policy
+and inverter charging. See [architecture](../docs/design/05-System-Architecture.md)
+and [protection](../docs/design/PEAK_LOAD_CONTROL.md). Native saved-ON intention
+does not track every later manual OFF as cancellation. Messages state commands
+sent, not physical confirmation. The HP1 command path has separate ACK/context
+requirements; its relay is metering-only for the retired power-cycle path.
 
-Back up your installation. Merge the required helpers and automations instead
-of replacing your complete configuration. Map every entity to your actual
-device and test its availability and service behavior before enabling control.
-The example load roles are water pump, water boiler, first-floor native heat
-pump, second-/third-floor heat pumps and microwave. Battery protection excludes
-the microwave; overload protection has a separate ordered list. Never map an
-essential, medical or safety-critical load to a controllable role.
+Merge the required configuration and packages after backup. Review all appliance
+roles, thresholds, schedules and initialization before enabling actions. The
+included network integration can expose connection information and perform
+administrator-only supported endpoint changes; it is not a generic authorized
+device repair service. Optional dashboard cards must be installed separately.
+Do not add real registry files, secrets or cloud session caches to this tree.
 
-Family Assistant's optional environment-sensor and smart-plug lists are empty
-by default in the public manifest. Populate them with your own entity IDs.
-Generic aliases in this directory and tests are examples, not discovered devices.
+App-only updates do not require Core stop/start. YAML changes require check and
+appropriate reload/restart. Stop Core before editing `.storage`. Validate the
+selected mappings and physical actions locally; repository tests use fixtures.
 
-## Responsibilities
-
-- EnergyHub evaluates reserve, grid, overload and heating policies and requests
-  structured actions. It owns inverter control and load ownership.
-- Home Assistant supplies fresh inputs and executes supported device actions.
-  Acknowledgements and fresh snapshots are required; a sent request is not
-  proof that a device switched.
-- Family Assistant sends Ukrainian reports and alerts. It does not control
-  Home Assistant, plugs or the inverter.
-
-Keep load control off until attended checks pass: family manual OFF, missing
-devices, stale snapshots, timers, shedding and owned-load restoration.
-Three family heat-pump auto-off timers retain the selected hours across a
-protective OFF; a later ON starts that full duration again, rather than preserving
-the original wall-clock deadline. Smart Heating
-preserves family temperature and fan choices, using quiet mode at night
-(23:00–08:00) and Eco when supported on battery.
-
-## Configuration changes
-
-After merging YAML, run `ha core check` and perform the appropriate YAML reload
-or configuration restart. Stop Core before replacing any `.storage` file;
-do not copy another home's storage files indiscriminately. An app-only update
-does not require a Core stop/start.
-
-See [installation](../docs/operations/INSTALLATION.md),
-[HA configuration](../docs/operations/12-HomeAssistant-Configuration.md),
-[reserve policy](../docs/design/BATTERY_RESERVE_CURRENT.md), and
-[release evidence](../docs/validation/RELEASE_2.4.12.md).
+Five private registry-cleanup/deployment-tool tests are outside this public
+scope. Their three native configuration/control assertions are retained in
+`tests/test_native_initialization_public.py`; no runtime assertion is relaxed.
+See [installation](../docs/operations/INSTALLATION.md) and
+[validation](../docs/validation/RELEASE_3.6.37.md).

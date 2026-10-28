@@ -68,4 +68,4 @@ The bounded journal can overflow during a long bot outage; gaps are logged.
 7. Observe a natural overload/recovery and an 08:00 report. Confirm no Dry Run
    switch or AHM action. Monitor the new build before any automatic-control work.
 
-See candidate validation (private development record).
+See candidate validation (historical reference: docs/validation/ENERGYHUB_2.1.1_PRIVATE_CANDIDATE.md).

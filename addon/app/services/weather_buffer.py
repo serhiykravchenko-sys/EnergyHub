@@ -13,9 +13,9 @@ from app.utils.json_store import atomic_write_json
 from app.utils.logger import log
 
 
-FORECAST_DEFICIT_PERCENT = 20.0
 WEATHER_RISK_PERCENT = 20.0
-SMART_HEATING_PERCENT = 20.0
+SMART_HEATING_PERCENT = 0.0  # Heating policy no longer adds a reserve modifier.
+SCHEDULE_SUSPENSION_PERCENT = 20.0
 MAX_RECOMMENDED_SOC = 95.0
 POLICY_BASE_SOC = 20.0
 SOURCE_MAX_AGE_SECONDS = 30 * 60
@@ -49,8 +49,9 @@ class WeatherBufferDryRun:
     """Persisted Battery Reserve recommendation and authority state.
 
     The historical class and MQTT names remain for compatibility. The policy
-    combines up to three completed consumption days, forecast deficit, Grid
-    Confidence and normalized official UHMC warnings. Home Assistant owns the
+    combines the selected schedule/Grid Confidence branch and normalized
+    official UHMC warnings. Night charging owns the energy deficit separately.
+    Home Assistant owns the
     guarded application path when Automatic authority is selected.
     """
 
@@ -66,10 +67,30 @@ class WeatherBufferDryRun:
         self.lock = threading.RLock()
         self.daily_input: dict[str, Any] | None = None
         self.weather_snapshot: dict[str, Any] | None = None
+        self.weather_days: list[str] = []
+        self.schedule_snapshot: dict[str, Any] | None = None
+        self.schedule_suspension: dict[str, Any] = {"active": False}
         self.grid_confidence = "unknown"
         self.grid_observed_at: datetime | None = None
         self.decision: dict[str, Any] | None = None
+        self.policy_base_soc = POLICY_BASE_SOC
         self._load()
+
+    def set_normal_base(self, payload: Any, *, retained: bool = False) -> bool:
+        """Persist a bounded policy setting; never issue a hardware command."""
+        value = _number(payload)
+        if retained or isinstance(payload, bool) or value is None or not 20 <= value <= 95 or value % 5:
+            return False
+        with self.lock:
+            if value == self.policy_base_soc:
+                return True
+            previous_base, previous_decision = self.policy_base_soc, self.decision
+            self.policy_base_soc = value
+            self._evaluate(self.clock())
+            if not self._save():
+                self.policy_base_soc, self.decision = previous_base, previous_decision
+                return False
+            return True
 
     def update(
         self,
@@ -88,7 +109,7 @@ class WeatherBufferDryRun:
             document = json.loads(payload) if isinstance(payload, str) else payload
             evaluation_date = date.fromisoformat(str(document["date"]))
             observed_at = _parse_datetime(document["observed_at"])
-            baseline = POLICY_BASE_SOC
+            baseline = self.policy_base_soc
             solar_forecast = _number(document.get("solar_forecast_kwh"))
             applied_minimum = _number(document.get("applied_minimum_soc", document.get("baseline_soc")))
             smart_heating_enabled = document.get("smart_heating_enabled", False)
@@ -244,6 +265,16 @@ class WeatherBufferDryRun:
                 "url": str(warning.get("url") or ""),
             })
         normalized.sort(key=lambda item: item["published_at"])
+        # Retain the allowance for the whole applicable local day, including
+        # after a short warning expires or disappears from a fresh feed.
+        days=set(self.weather_days)
+        for warning in normalized:
+            if warning["region_match"] and warning["severity"] >= 2:
+                for day in (now.date(),now.date()+timedelta(days=1)):
+                    if (datetime.fromisoformat(warning["valid_from"]).date() <= day <=
+                            datetime.fromisoformat(warning["valid_until"]).date()):
+                        days.add(day.isoformat())
+        self.weather_days=sorted(day for day in days if day>=now.date().isoformat())[:3]
         if len(normalized) != len(warnings):
             source_status = "unknown"
 
@@ -262,6 +293,46 @@ class WeatherBufferDryRun:
             self._evaluate(now)
             self._save()
         return True
+
+    def update_schedule(self, document: Any) -> None:
+        """Keep suspension authority independently of timetable availability."""
+        try:
+            document = json.loads(document) if isinstance(document, str) else document
+        except (ValueError, TypeError):
+            document = None
+        with self.lock:
+            self.schedule_snapshot = document if isinstance(document, dict) else None
+            now = self.clock()
+            item = self.schedule_snapshot or {}
+            checked = _parse_datetime(item.get('checked_at'))
+            previous = dict(self.schedule_suspension)
+            prior_checked = _parse_datetime(previous.get('checked_at'))
+            trusted = (item.get('schema') == 1 and item.get('region') == 'kyiv_region'
+                       and item.get('source') in {'bezsvitla', 'dtek_official', 'alerts_energy', 'pro_kyiv', 'schedule_sources'}
+                       and checked is not None and -60 <= (now-checked).total_seconds() <= 2100
+                       and (prior_checked is None or checked >= prior_checked))
+            if trusted and item.get('source_status') in {'fresh', 'suspended'} and item.get('emergency_notice_active') is True:
+                self.schedule_suspension = dict(active=True, checked_at=checked.isoformat(), source=item['source'])
+            elif (trusted and item.get('emergency_notice_active') is False
+                  and item.get('emergency_notice_confirmed_clear') is True
+                  and self._schedule_for_date(now.date(), now)):
+                self.schedule_suspension = dict(active=False, checked_at=checked.isoformat(), source=item['source'])
+            self._evaluate(now)
+            if self.schedule_suspension != previous and not self._save():
+                # A failed durable clear must not authorize lowering the reserve.
+                if previous.get('active') is True and self.schedule_suspension.get('active') is False:
+                    self.schedule_suspension = previous
+                    self._evaluate(now)
+
+    def _schedule_for_date(self, day: date, now: datetime) -> bool:
+        document=self.schedule_snapshot or {}
+        checked=_parse_datetime(document.get("checked_at"))
+        return bool(document.get("validated") is True
+                    and document.get("source_status")=="fresh"
+                    and document.get("source") in {"bezsvitla","dtek_official","alerts_energy","pro_kyiv","schedule_sources"}
+                    and document.get("region")=="kyiv_region"
+                    and checked and -60 <= (now-checked).total_seconds() <= 2100
+                    and day.isoformat() in document.get("dates",[]))
 
     def update_grid_confidence(self, value: Any, observed_at: datetime | None = None) -> bool:
         normalized = str(value or "").strip().lower()
@@ -302,7 +373,7 @@ class WeatherBufferDryRun:
         if not daily:
             return
 
-        baseline = POLICY_BASE_SOC
+        baseline = self.policy_base_soc
         samples = list(daily.get("consumption_samples") or [])
         average = (
             round(sum(float(item["kwh"]) for item in samples) / len(samples), 2)
@@ -323,12 +394,6 @@ class WeatherBufferDryRun:
             )
         )
         evidence_issues = []
-        if not daily_fresh:
-            evidence_issues.append("daily_plan_stale")
-        if solar_forecast is None:
-            evidence_issues.append("forecast_unknown")
-        if not samples:
-            evidence_issues.append("consumption_history_incomplete")
         forecast_deficit = (
             solar_forecast < average
             if daily_fresh and solar_forecast is not None and average is not None
@@ -343,18 +408,17 @@ class WeatherBufferDryRun:
             grid_modifier = _number(previous.get("grid_modifier_percent")) or 0.0
 
         warning_events = self._warnings_for_date(
-            plan_date or now.date(),
+            plan_date if daily_fresh else now.date(),
             now,
         )
         qualifying = [
             warning for warning in warning_events
             if warning["region_match"]
-            and warning["grid_relevant"]
             and int(warning["severity"]) >= 2
         ]
         weather_modifier = (
             WEATHER_RISK_PERCENT
-            if grid_fresh and self.grid_confidence in GRID_MODIFIERS and qualifying
+            if qualifying or (plan_date if daily_fresh else now.date()).isoformat() in self.weather_days
             else 0.0
         )
         severe_forecast_deficit = (
@@ -362,7 +426,7 @@ class WeatherBufferDryRun:
             if daily_fresh and solar_forecast is not None and average is not None
             else None
         )
-        generation_modifier = FORECAST_DEFICIT_PERCENT if forecast_deficit else 0.0
+        generation_modifier = 0.0  # Compatibility attribute; deficit belongs to night charging.
         smart_heating_enabled = daily.get("smart_heating_enabled") is True
         smart_heating_modifier = SMART_HEATING_PERCENT if smart_heating_enabled else 0.0
         snapshot = self.weather_snapshot or {}
@@ -372,15 +436,25 @@ class WeatherBufferDryRun:
         if not weather_fresh:
             evidence_issues.append("weather_source_unknown")
         # Unknown evidence never authorizes releasing an already advised buffer.
-        if forecast_deficit is None:
-            generation_modifier = _number(previous.get("generation_modifier_percent")) or 0.0
         if not weather_fresh or not grid_fresh:
             weather_modifier = max(weather_modifier, _number(previous.get("weather_modifier_percent")) or 0.0)
 
+        # A preliminary forecast for tomorrow must not replace today's grid
+        # schedule authority before the local calendar day changes.
+        scheduled=self._schedule_for_date(now.date(),now)
+        suspension_modifier=SCHEDULE_SUSPENSION_PERCENT if self.schedule_suspension.get('active') is True else 0.0
+        if scheduled:
+            baseline=self.policy_base_soc + 20.0
+            grid_modifier=0.0
+            generation_modifier=0.0
+            evidence_issues=[issue for issue in evidence_issues if issue not in {
+                "grid_confidence_unknown","forecast_unknown","consumption_history_incomplete"}]
+
         recommended = min(
             MAX_RECOMMENDED_SOC,
-            baseline + generation_modifier + grid_modifier + weather_modifier
-            + smart_heating_modifier,
+            baseline + grid_modifier + weather_modifier
+            + smart_heating_modifier + suspension_modifier,
+            # The cap applies to all allowances together, including suspension.
         )
         previous_recommended = _number(previous.get("recommended_soc"))
         evaluation_signature = json.dumps(
@@ -395,6 +469,7 @@ class WeatherBufferDryRun:
                 "warning_ids": [item["event_id"] for item in warning_events],
                 "recommended": recommended,
                 "smart_heating": smart_heating_enabled,
+                "schedule_suspension": bool(suspension_modifier),
             },
             sort_keys=True,
         )
@@ -412,14 +487,14 @@ class WeatherBufferDryRun:
             transition = "unchanged"
 
         reasons = []
-        if generation_modifier:
-            reasons.append("severe_forecast_deficit" if severe_forecast_deficit else "forecast_deficit")
         if grid_modifier:
             reasons.append(f"grid_{self.grid_confidence}")
         if weather_modifier:
             reasons.append("uhmc_weather_risk")
         if smart_heating_modifier:
             reasons.append("smart_heating")
+        if suspension_modifier:
+            reasons.append("schedule_suspended")
 
         latest_event = warning_events[-1] if warning_events else None
         source_warnings = self._unexpired_warnings(now)
@@ -439,13 +514,16 @@ class WeatherBufferDryRun:
             "schema_version": 2,
             "advice_only": not automatic_enabled,
             "reserve_owner": "energyhub" if automatic_enabled else "family",
-            "policy_base_soc": POLICY_BASE_SOC,
+            "reserve_planning_source": "dtek_schedule" if scheduled else "grid_confidence",
+            "policy_base_soc": self.policy_base_soc,
             "date": daily["date"],
             "evaluated_at": now.isoformat(),
             "mode": mode,
             "management_mode": mode,
             "dry_run": mode == "dry_run",
             "baseline_soc": round(baseline, 1),
+            "schedule_modifier_percent": 20.0 if scheduled else 0.0,
+            "emergency_modifier_percent": suspension_modifier,
             "applied_minimum_soc": daily.get("applied_minimum_soc"),
             "automatic_control_enabled": automatic_enabled,
             "automatic_control_available": automatic_available,
@@ -466,6 +544,9 @@ class WeatherBufferDryRun:
             "grid_confidence": self.grid_confidence,
             "grid_confidence_fresh": grid_fresh,
             "grid_modifier_percent": grid_modifier,
+            "schedule_suspension_active": bool(suspension_modifier),
+            "schedule_suspension_modifier_percent": suspension_modifier,
+            "schedule_suspension_evidence": dict(self.schedule_suspension),
             "weather_source_status": (
                 "fresh" if weather_fresh else "unknown"
             ),
@@ -505,7 +586,6 @@ class WeatherBufferDryRun:
             if (
                 valid_from.astimezone(self.timezone) <= day_end
                 and valid_until.astimezone(self.timezone) >= day_start
-                and valid_until.astimezone(self.timezone) >= now
             ):
                 result.append(dict(warning))
         result.sort(key=lambda item: item["published_at"])
@@ -541,6 +621,11 @@ class WeatherBufferDryRun:
     def status_attributes(self) -> dict[str, Any]:
         with self.lock:
             attributes = dict(self.decision or {"dry_run": True, "decision": None})
+            attributes['policy_base_soc'] = self.policy_base_soc
+            attributes['grid_base_reserves'] = {
+                level: min(MAX_RECOMMENDED_SOC, self.policy_base_soc + modifier)
+                for level, modifier in GRID_MODIFIERS.items()
+            }
             return attributes
 
     def _load(self) -> None:
@@ -563,9 +648,17 @@ class WeatherBufferDryRun:
                 log("Reserve Policy persisted state is malformed; waiting for inputs")
                 return
             try:
+                saved_base = _number(document.get('policy_base_soc', POLICY_BASE_SOC))
+                self.policy_base_soc = (saved_base if saved_base is not None and
+                    20 <= saved_base <= 95 and saved_base % 5 == 0 else POLICY_BASE_SOC)
                 self.daily_input = daily
                 self.weather_snapshot = weather
+                self.weather_days = [str(day) for day in document.get("weather_days",[]) if str(day)>=self.clock().date().isoformat()][:3]
                 self.grid_confidence = str(document.get("grid_confidence") or "unknown")
+                suspension=document.get('schedule_suspension') or {}
+                if (isinstance(suspension,dict) and type(suspension.get('active')) is bool
+                        and _parse_datetime(suspension.get('checked_at')) is not None):
+                    self.schedule_suspension=dict(suspension)
                 self.decision = decision
                 # Rebuild old persisted presentation before publishing it.
                 if self.daily_input:
@@ -579,17 +672,20 @@ class WeatherBufferDryRun:
         else:
             self.decision = document
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         if self.path is None:
-            return
+            return True
         try:
             atomic_write_json(
                 self.path,
                 {
                     "schema_version": 2,
+                    "policy_base_soc": self.policy_base_soc,
                     "daily_input": self.daily_input,
                     "weather_snapshot": self.weather_snapshot,
+                    "weather_days": self.weather_days,
                     "grid_confidence": self.grid_confidence,
+                    "schedule_suspension": self.schedule_suspension,
                     "decision": self.decision,
                 },
                 ensure_ascii=False,
@@ -597,3 +693,5 @@ class WeatherBufferDryRun:
             )
         except Exception as exc:
             log(f"Reserve Policy state save failed: {exc}")
+            return False
+        return True

@@ -11,6 +11,8 @@ from .device_health import (
     parse_environment_sensors,
     parse_smart_plugs,
 )
+from .house_monitor import parse_targets, DeviceTarget, DEFAULT_DEVICES
+from .bms_evidence import parse_mapping as parse_bms_mapping
 
 
 DEFAULT_OPTIONS_FILE = Path("/data/options.json")
@@ -62,7 +64,6 @@ class Config:
     telemetry_freshness_entity: str
     soc_anomaly_latest_entity: str
     peak_load_guard_event_entity: str
-    heat_pump_restart_event_entity: str
     weather_buffer_entity: str
     inverter_message_entities: tuple[str, ...]
     heat_pump_active_threshold_w: float
@@ -78,6 +79,34 @@ class Config:
     doorbell_battery_entity: str
     smart_plugs: tuple[SmartPlug, ...]
     state_file: Path
+    heat_pump_floor_1_energy_entity: str = 'sensor.first_floor_heat_pump_plug_energy'
+    heat_pump_floor_2_energy_entity: str = 'sensor.second_floor_heat_pump_plug_energy'
+    water_boiler_energy_entity: str = 'sensor.water_boiler_energy_calculated'
+    heat_pump_floor_3_energy_entity: str = 'sensor.third_floor_heat_pump_energy_calculated'
+    house_monitor_enabled: bool = True
+    monitored_devices: tuple[DeviceTarget, ...] = ()
+    bms_entities: tuple[DeviceTarget, ...] = ()
+    co2_sensors: tuple[DeviceTarget, ...] = ()
+    log_monitor_enabled: bool = False
+    solcast_last_success_entity: str = ''
+    co_alarms: tuple[DeviceTarget, ...] = ()
+    family_quiet_start: str = '23:00'
+    family_quiet_end: str = '08:01'
+    apartment_grid_proxy_entity: str = ''
+    apartment_grid_cloud_enabled: bool = True
+    dtek_schedule_enabled: bool = False
+    dtek_dacha_group: str = ''
+    dtek_apartment_group: str = ''
+    dtek_dacha_district: str = ''
+    dtek_apartment_district: str = ''
+    dtek_solar_forecast_tomorrow_entity: str = 'sensor.solcast_pv_forecast_forecast_tomorrow'
+    solar_forecast_day3_entity: str = 'sensor.solcast_pv_forecast_forecast_day_3'
+    beacon_recovery_enabled: bool = True
+    automation_notifications_enabled: bool = False
+    notification_mqtt_host: str = 'core-mosquitto'
+    notification_mqtt_port: int = 1883
+    notification_mqtt_user: str = ''
+    notification_mqtt_password: str = ''
 
 
 def _time(value: object, fallback: str) -> str:
@@ -97,6 +126,11 @@ def load_config(path: Path | None = None) -> Config:
         options = json.load(handle)
 
     return Config(
+        automation_notifications_enabled=options.get('automation_notifications_enabled') is True,
+        notification_mqtt_host=str(options.get('notification_mqtt_host') or 'core-mosquitto').strip(),
+        notification_mqtt_port=int(options.get('notification_mqtt_port', 1883)),
+        notification_mqtt_user=str(options.get('notification_mqtt_user') or ''),
+        notification_mqtt_password=str(options.get('notification_mqtt_password') or ''),
         bot_token=str(options.get("bot_token") or "").strip(),
         destination_chat_id=str(options.get("destination_chat_id") or "").strip(),
         technical_chat_id=str(options.get("technical_chat_id") or "").strip(),
@@ -114,6 +148,8 @@ def load_config(path: Path | None = None) -> Config:
         ).strip(),
         family_calendar_ical_url=str(options.get("family_calendar_ical_url") or "").strip(),
         send_time=_time(options.get("send_time"), "08:00"),
+        family_quiet_start=_time(options.get('family_quiet_start'), '23:00'),
+        family_quiet_end=_time(options.get('family_quiet_end'), '08:01'),
         timezone=str(options.get("timezone") or "Europe/Kyiv"),
         useful_solar_threshold_w=max(50, int(options.get("useful_solar_threshold_w", 300))),
         battery_capacity_kwh=max(1.0, float(options.get("battery_capacity_kwh", 16))),
@@ -177,10 +213,6 @@ def load_config(path: Path | None = None) -> Config:
             options.get("peak_load_guard_event_entity")
             or "sensor.energyhub_peak_load_guard_event"
         ),
-        heat_pump_restart_event_entity=str(
-            options.get("heat_pump_restart_event_entity")
-            or "input_text.energyhub_heat_pump_restart_event"
-        ),
         weather_buffer_entity=str(
             options.get("weather_buffer_entity")
             or "sensor.energyhub_ahm_weather_buffer"
@@ -199,6 +231,10 @@ def load_config(path: Path | None = None) -> Config:
         heat_pump_floor_1_power_entity=str(options.get("heat_pump_floor_1_power_entity") or "sensor.first_floor_heat_pump_plug_power"),
         heat_pump_floor_2_power_entity=str(options.get("heat_pump_floor_2_power_entity") or "sensor.second_floor_heat_pump_plug_power"),
         heat_pump_floor_3_power_entity=str(options.get("heat_pump_floor_3_power_entity") or "sensor.third_floor_heat_pump_plug_electric_power"),
+        heat_pump_floor_1_energy_entity=str(options.get('heat_pump_floor_1_energy_entity') or 'sensor.first_floor_heat_pump_plug_energy'),
+        heat_pump_floor_2_energy_entity=str(options.get('heat_pump_floor_2_energy_entity') or 'sensor.second_floor_heat_pump_plug_energy'),
+        water_boiler_energy_entity=str(options.get('water_boiler_energy_entity', 'sensor.water_boiler_energy_calculated')),
+        heat_pump_floor_3_energy_entity=str(options.get('heat_pump_floor_3_energy_entity') or 'sensor.third_floor_heat_pump_energy_calculated'),
         environment_sensors=parse_environment_sensors(
             options.get("environment_sensor_entities", "")
         ),
@@ -226,5 +262,22 @@ def load_config(path: Path | None = None) -> Config:
             options.get("doorbell_battery_entity") or ""
         ).strip(),
         smart_plugs=parse_smart_plugs(options.get("smart_plug_entities", "")),
+        beacon_recovery_enabled=options.get('beacon_recovery_enabled', True) is True,
+        solcast_last_success_entity=str(options.get('solcast_last_success_entity', '') or 'sensor.solcast_pv_forecast_api_last_polled'),
+        solar_forecast_day3_entity=str(options.get('solar_forecast_day3_entity') or 'sensor.solcast_pv_forecast_forecast_day_3'),
         state_file=Path(os.environ.get("STATE_FILE", "/data/telegram-family-assistant-state.json")),
+        house_monitor_enabled=bool(options.get('house_monitor_enabled', True)),
+        monitored_devices=parse_targets(options.get('monitored_device_entities', DEFAULT_DEVICES)),
+        bms_entities=parse_bms_mapping(options.get('bms_entity_mapping', '')),
+        co2_sensors=parse_targets(options.get('co2_sensor_entities', '')),
+        log_monitor_enabled=bool(options.get('log_monitor_enabled', False)),
+        co_alarms=parse_targets(options.get('co_alarm_entities', '')),
+        apartment_grid_proxy_entity=str(options.get('apartment_grid_proxy_entity') or '').strip(),
+        apartment_grid_cloud_enabled=options.get('apartment_grid_cloud_enabled',True) is True,
+        dtek_schedule_enabled=options.get('dtek_schedule_enabled') is True,
+        dtek_dacha_group=str(options.get('dtek_dacha_group') or '').strip(),
+        dtek_apartment_group=str(options.get('dtek_apartment_group') or '').strip(),
+        dtek_dacha_district=str(options.get('dtek_dacha_district') or '').strip(),
+        dtek_apartment_district=str(options.get('dtek_apartment_district') or '').strip(),
+        dtek_solar_forecast_tomorrow_entity=str(options.get('dtek_solar_forecast_tomorrow_entity') or '').strip(),
     )

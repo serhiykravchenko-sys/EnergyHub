@@ -1,5 +1,5 @@
 name: Telegram Family Assistant
-version: "2.4.15"
+version: "3.6.37"
 slug: telegram_family_assistant
 description: Sends a Ukrainian morning calendar, weather, and EnergyHub summary to the family Telegram group
 url: https://github.com/serhiykravchenko-sys/EnergyHub
@@ -13,8 +13,33 @@ boot: auto
 init: false
 host_network: false
 homeassistant_api: true
+map:
+  - type: homeassistant_config
+    read_only: true
+    path: /homeassistant
 
 options:
+  automation_notifications_enabled: false
+  notification_mqtt_host: core-mosquitto
+  notification_mqtt_port: 1883
+  notification_mqtt_user: ""
+  notification_mqtt_password: ""
+  beacon_recovery_enabled: false
+  apartment_grid_cloud_enabled: false
+  apartment_grid_proxy_entity: ""
+  dtek_schedule_enabled: false
+  solcast_last_success_entity: "sensor.solcast_pv_forecast_api_last_polled"
+  dtek_dacha_group: ""
+  dtek_apartment_group: ""
+  dtek_dacha_district: ""
+  dtek_apartment_district: ""
+  dtek_solar_forecast_tomorrow_entity: sensor.solcast_pv_forecast_forecast_tomorrow
+  co2_sensor_entities: ""
+  co_alarm_entities: ""
+  log_monitor_enabled: false
+  house_monitor_enabled: false
+  monitored_device_entities: ""
+  bms_entity_mapping: ""
   bot_token: null
   destination_chat_id: null
   weather_entity: auto
@@ -22,6 +47,8 @@ options:
   uhmc_weather_mqtt_topic: energyhub/input/weather/uhmc
   family_calendar_ical_url: ""
   send_time: "08:00"
+  family_quiet_start: "23:00"
+  family_quiet_end: "08:01"
   timezone: Europe/Kyiv
   useful_solar_threshold_w: 300
   battery_capacity_kwh: 16
@@ -58,7 +85,6 @@ options:
   telemetry_freshness_entity: sensor.energyhub_telemetry_freshness
   soc_anomaly_latest_entity: sensor.energyhub_soc_anomaly_latest
   peak_load_guard_event_entity: sensor.energyhub_peak_load_guard_event
-  heat_pump_restart_event_entity: input_text.energyhub_heat_pump_restart_event
   weather_buffer_entity: sensor.energyhub_ahm_weather_buffer
   inverter_message_entities: >-
     sensor.energyhub_inverter_fault_recent_1;
@@ -72,8 +98,28 @@ options:
   device_low_battery_percent: 10
   doorbell_battery_entity: ""
   smart_plug_entities: ""
-
 schema:
+  automation_notifications_enabled: bool
+  notification_mqtt_host: str
+  notification_mqtt_port: port
+  notification_mqtt_user: str
+  notification_mqtt_password: password
+  beacon_recovery_enabled: bool
+  apartment_grid_cloud_enabled: bool
+  apartment_grid_proxy_entity: "str?"
+  dtek_schedule_enabled: bool
+  solcast_last_success_entity: str?
+  dtek_dacha_group: str
+  dtek_apartment_group: str
+  dtek_dacha_district: str
+  dtek_apartment_district: str
+  dtek_solar_forecast_tomorrow_entity: str
+  co2_sensor_entities: "str?"
+  co_alarm_entities: "str?"
+  log_monitor_enabled: bool
+  house_monitor_enabled: bool
+  monitored_device_entities: str
+  bms_entity_mapping: str
   bot_token: password
   destination_chat_id: "str?"
   technical_chat_id: "str?"
@@ -82,6 +128,8 @@ schema:
   uhmc_weather_mqtt_topic: str
   family_calendar_ical_url: "password?"
   send_time: str
+  family_quiet_start: str
+  family_quiet_end: str
   soc_snapshot_time: "str?"
   night_start_time: "str?"
   timezone: str
@@ -120,7 +168,6 @@ schema:
   telemetry_freshness_entity: str
   soc_anomaly_latest_entity: str
   peak_load_guard_event_entity: str
-  heat_pump_restart_event_entity: str
   weather_buffer_entity: str
   inverter_message_entities: str
   environment_sensor_entities: str
@@ -135,3 +182,7 @@ schema:
   heat_pump_floor_1_power_entity: "str?"
   heat_pump_floor_2_power_entity: "str?"
   heat_pump_floor_3_power_entity: "str?"
+  heat_pump_floor_1_energy_entity: "str?"
+  heat_pump_floor_2_energy_entity: "str?"
+  heat_pump_floor_3_energy_entity: "str?"
+  water_boiler_energy_entity: "str?"

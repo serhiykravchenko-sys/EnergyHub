@@ -35,6 +35,9 @@ class PanicDecisionEngine:
         grid_available,
         manual_reserve_soc=20,
         now=None,
+        manual_panic_active=False,
+        solar_bridge=None,
+        reserve_application_pending=False,
     ):
         if not autopilot_enabled:
             return self._result(
@@ -42,6 +45,11 @@ class PanicDecisionEngine:
                 reason="Autopilot is disabled",
                 phase="inactive",
             )
+
+        if reserve_application_pending and not manual_panic_active:
+            return self._result(status='awaiting_reserve_application',
+                reason='Waiting for HA to confirm the newly calculated Battery Reserve',
+                phase='guarded')
 
         if operating_mode == "transitioning":
             return self._result(
@@ -71,7 +79,7 @@ class PanicDecisionEngine:
                 phase="unknown",
             )
 
-        if grid_confidence not in GRID_CONFIDENCE_LEVELS:
+        if not manual_panic_active and grid_confidence not in GRID_CONFIDENCE_LEVELS:
             return self._result(
                 status="skipped",
                 reason=(
@@ -81,6 +89,8 @@ class PanicDecisionEngine:
             )
 
         battery_soc = float(battery_soc)
+        if manual_panic_active:
+            manual_reserve_soc = 95
         if not self._valid_reserve(manual_reserve_soc):
             return self._result(status="skipped", reason="Manual Battery Reserve is unavailable", phase="unknown")
         manual_reserve_soc = float(manual_reserve_soc)
@@ -95,12 +105,21 @@ class PanicDecisionEngine:
             else None
         )
 
-        target_sources = [f"applied Battery Reserve={manual_reserve_soc:g}%"]
+        target_sources = ['Manual Panic: power-bank reserve=95%' if manual_panic_active
+                          else f"applied Battery Reserve={manual_reserve_soc:g}%"]
         target_source = "; ".join(target_sources)
 
         self.target_soc = round(target_soc, 2)
         self.target_source = target_source
         self.release_soc = release_soc
+
+        if manual_panic_active:
+            self.target_source = 'Manual Panic: power-bank reserve'
+            if battery_soc >= 95:
+                return self._result(status='manual_panic_hold',
+                    reason='Manual Panic preserves 95% until explicitly cancelled',
+                    request=None if operating_mode=='panic_grid_hold' else 'panic_grid_hold',
+                    target_soc=95, phase='grid_hold' if grid_available else 'reserve_support')
 
         if operating_mode in HYBRID_MODES:
             if battery_soc < target_soc:
@@ -242,6 +261,9 @@ class PanicDecisionEngine:
             )
 
         if operating_mode == "panic_grid_hold":
+            if normal_reserve_cycle and solar_bridge and solar_bridge.get('safe') is True:
+                return self._result(status='release_solar_forecast',
+                    reason=solar_bridge['reason'], request='solar', target_soc=target_soc, phase='solar')
             if (
                 normal_reserve_cycle
                 and grid_available
@@ -278,7 +300,7 @@ class PanicDecisionEngine:
             status="no_action",
             reason=(
                 f"SOC={battery_soc:.1f}% >= target={target_soc:.1f}%; "
-                f"{target_source}; Panic is not required"
+                f"{target_source}; reserve charging is not required"
             ),
             phase="inactive",
         )

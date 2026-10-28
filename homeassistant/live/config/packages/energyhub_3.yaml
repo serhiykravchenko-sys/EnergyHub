@@ -1,0 +1,1000 @@
+# Prepared package: deploy only after comparison and owner approval.
+energyhub_network:
+
+input_boolean:
+  energyhub_planning_settings_initialized:
+    name: Planning settings initialized
+  energyhub_hp1_manual_hold:
+    name: Smart waiting for family ON
+  energyhub_hp1_night_paused:
+    name: EH owns night shutdown
+  energyhub_330_initialized:
+    name: Night settings migrated to 3.3
+input_select:
+  energyhub_climate_night_operation:
+    name: HP operation during night hours
+    options: ['On', 'Off']
+
+input_text:
+  energyhub_hp1_eco_budget:
+    name: Eco attempt budget for confirmed grid episode
+    max: 160
+  energyhub_hp1_quiet_budget:
+    name: Quiet ON hourly and nightly attempt budget
+    max: 150
+  energyhub_hp1_quiet_failed_window:
+    name: Last reported Quiet acknowledgement failure
+    max: 100
+  energyhub_hp1_solar_cancelled:
+    name: Solar-only family stop evidence
+    max: 100
+  energyhub_hp1_night_overrides:
+    name: Family overrides for current night window
+    max: 255
+  energyhub_hp1_night_temperature:
+    name: EH night temperature ownership
+    max: 255
+  energyhub_hp1_profile_before:
+    name: Family Quiet and Eco before EH ownership
+    max: 255
+  energyhub_hp1_profile_expected:
+    name: Last EH Quiet and Eco request
+    max: 255
+  energyhub_hp1_profile_requests:
+    name: Bounded Quiet and Eco command acknowledgement
+    max: 255
+  energyhub_reference_inverter_model:
+    name: Inverter model (reference)
+    max: 100
+  energyhub_reference_battery_model:
+    name: Battery model and chemistry (reference)
+    max: 100
+  energyhub_reference_bms_model:
+    name: BMS model (reference)
+    max: 100
+  energyhub_reference_ha_host:
+    name: HA address (reference)
+    max: 100
+  energyhub_reference_esp32_host:
+    name: ESP32 address (reference)
+    max: 100
+  energyhub_heat_pump_proposed_address:
+    name: HP IP address (edit, then Apply)
+    max: 15
+
+input_number:
+  energyhub_battery_capacity_kwh:
+    name: 'Usable battery capacity (planning)'
+    min: 1
+    max: 1000
+    step: 0.1
+    unit_of_measurement: 'kWh'
+    mode: box
+  energyhub_house_demand_kw:
+    name: 'Total house demand incl. HP (planning)'
+    min: 0.1
+    max: 100
+    step: 0.1
+    unit_of_measurement: 'kW'
+    mode: box
+  energyhub_forecast_max_age_hours:
+    name: 'Maximum cached forecast age'
+    min: 1
+    max: 24
+    step: 1
+    unit_of_measurement: 'h'
+    mode: box
+  energyhub_load_off_soc:
+    name: 'First-floor HP: battery pause SOC'
+    min: 1
+    max: 90
+    step: 1
+    unit_of_measurement: '%'
+    mode: box
+  energyhub_load_restore_soc:
+    name: 'First-floor HP: battery resume SOC'
+    min: 2
+    max: 95
+    step: 1
+    unit_of_measurement: '%'
+    mode: box
+  energyhub_climate_heat_offset:
+    name: Night heating adjustment
+    min: -5
+    max: 5
+    step: 1
+    unit_of_measurement: "°C"
+    mode: box
+  energyhub_climate_cool_offset:
+    name: Night cooling adjustment
+    min: -5
+    max: 5
+    step: 1
+    unit_of_measurement: "°C"
+    mode: box
+  energyhub_solar_start_power:
+    name: Solar heating/cooling start generation
+    min: 0
+    max: 10000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+  energyhub_solar_pause_power:
+    name: Solar heating/cooling pause generation
+    min: 0
+    max: 10000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+  energyhub_climate_night_reduction:
+    name: Night heating temperature reduction
+    min: 0
+    max: 4
+    step: 1
+    unit_of_measurement: '°C'
+    mode: box
+  energyhub_reference_nominal_capacity:
+    name: Battery nominal capacity (reference; zero unknown)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: Ah
+    mode: box
+  energyhub_reference_bms_capacity:
+    name: BMS configured capacity (reference; zero unknown)
+    min: 0
+    max: 2000
+    step: 1
+    unit_of_measurement: Ah
+    mode: box
+  energyhub_reference_bms_charge_limit:
+    name: BMS charging limit (reference; zero unknown)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: A
+    mode: box
+  energyhub_reference_combined_charge_limit:
+    name: Inverter combined charging limit (reference; zero unknown)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: A
+    mode: box
+  energyhub_reference_grid_charge_limit:
+    name: Grid battery charging current (manual reference; zero unknown)
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: A
+    mode: box
+  energyhub_reference_solar_charge_limit:
+    name: Separate solar charging limit (reference; zero unknown)
+    min: 0
+    max: 500
+    step: 1
+    unit_of_measurement: A
+    mode: box
+
+script:
+  energyhub_apply_hp_profile:
+    alias: EnergyHub - Bounded native Quiet and Eco requests
+    mode: queued
+    max: 4
+    fields:
+      profile:
+        required: true
+      desired:
+        required: true
+    sequence:
+      - condition: template
+        value_template: >-
+          {% set start = states('input_datetime.energyhub_climate_quiet_start') %}
+          {% set end = states('input_datetime.energyhub_climate_quiet_end') %}
+          {% set clock = now().strftime('%H:%M:%S') %}
+          {{ profile in ['quiet', 'eco'] and desired in ['on', 'off']
+             and states('climate.first_floor_heat_pump') in ['heat', 'cool']
+             and (profile != 'quiet' or desired == 'off'
+                  or (is_state('input_boolean.energyhub_climate_quiet_enabled', 'on')
+                      and start | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+                      and end | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+                      and start != end
+                      and ((start <= clock < end) if start < end else (clock >= start or clock < end)))) }}
+      - variables:
+          entity: "{{ 'switch.first_floor_heat_pump_' ~ profile }}"
+          requests: "{{ states('input_text.energyhub_hp1_profile_requests') | from_json({}) }}"
+          previous: "{{ requests.get(profile, {}) }}"
+          quiet_budget: "{{ states('input_text.energyhub_hp1_quiet_budget') | from_json({}) }}"
+          eco_budget: "{{ states('input_text.energyhub_hp1_eco_budget') | from_json({}) }}"
+          eco_episode: >-
+            {%- set entity = 'binary_sensor.energyhub_grid_confirmed' -%}
+            {%- set grid = states(entity) -%}
+            {%- set stamp = state_attr(entity, 'transition_at') | float(0) -%}
+            {%- set checked = state_attr(entity, 'checked_at') | float(0) -%}
+            {{ (grid ~ ':' ~ (stamp | int)) if
+               grid in ['on', 'off'] and stamp > 0
+               and state_attr(entity, 'episode_persisted') == true
+               and is_state('sensor.energyhub_telemetry_freshness', 'fresh')
+               and state_attr(entity, 'transition_pending') == false
+               and state_attr(entity, 'confirmation_seconds') | float(0) >= 180
+               and 0 <= now().timestamp() - checked <= 30
+               and desired == ('on' if grid == 'off' else 'off') else '' }}
+          overrides: "{{ states('input_text.energyhub_hp1_night_overrides') | from_json({}) }}"
+          tick: "{{ now().timestamp() }}"
+          window: >-
+            {% set start = states('input_datetime.energyhub_climate_quiet_start') %}
+            {% set end = states('input_datetime.energyhub_climate_quiet_end') %}
+            {% set valid = start | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+                and end | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$') and start != end %}
+            {% if valid %}
+              {% set begins = today_at(start) %}
+              {% if now() < begins %}{% set begins = begins - timedelta(days=1) %}{% endif %}
+              {{ begins.strftime('%Y%m%d') ~ '/' ~ start ~ '/' ~ end }}
+            {% else %}invalid{% endif %}
+      - condition: template
+        value_template: >-
+          {{ tick >= overrides.get(profile ~ '_until', 0)
+             and states(entity) in ['on', 'off'] and states(entity) != desired
+             and (desired == 'off' or is_state('switch.first_floor_heat_pump_' ~ ('eco' if profile == 'quiet' else 'quiet'), 'off'))
+             and (profile != 'quiet' or desired == 'off'
+                  or (window != 'invalid'
+                      and (quiet_budget.get('w') != window
+                           or (quiet_budget.get('n', 0) < 3
+                               and tick - quiet_budget.get('at', tick) >= 3600))))
+             and ((profile == 'eco' and eco_episode | length > 0
+                   and (eco_budget.get('e') != eco_episode or eco_budget.get('t') != desired
+                        or (tick - eco_budget.get('at', tick) >= 180 and eco_budget.get('n', 0) < 3)))
+                  or (profile == 'quiet' and (previous.get('t') != desired
+                      or (window != 'invalid' and previous.get('w') != window)
+                      or (tick - previous.get('at', tick) >= 180 and previous.get('n', 0) < 3)))) }}
+      - if: "{{ profile == 'quiet' and desired == 'on' }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.energyhub_hp1_quiet_budget
+            data:
+              value: "{{ {'w': window, 'n': quiet_budget.get('n', 0) + 1 if quiet_budget.get('w') == window else 1, 'at': tick} | to_json }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_profile_requests
+        data:
+          value: >-
+            {{ dict(requests, **{profile: {'t': desired, 'at': tick,
+                 'n': (eco_budget.get('n', 0) + 1 if eco_budget.get('e') == eco_episode and eco_budget.get('t') == desired else 1) if profile == 'eco' else (previous.get('n', 0) + 1 if previous.get('t') == desired and previous.get('w') == window else 1),
+                 'w': window if profile == 'quiet' else '',
+                 'owned': profile == 'eco' and (desired == 'on' or previous.get('owned', previous.get('t') == 'on'))}}) | to_json }}
+      - if: "{{ profile == 'eco' }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.energyhub_hp1_eco_budget
+            data:
+              value: >-
+                {{ {'e': eco_episode, 't': desired, 'at': tick,
+                    'n': eco_budget.get('n', 0) + 1 if eco_budget.get('e') == eco_episode and eco_budget.get('t') == desired else 1} | to_json }}
+      - action: "{{ 'switch.turn_on' if desired == 'on' else 'switch.turn_off' }}"
+        target:
+          entity_id: "{{ entity }}"
+  energyhub_apply_heat_pump_address:
+    alias: Apply and verify first-floor heat-pump address
+    mode: single
+    sequence:
+      - action: energyhub_network.apply_address
+        data:
+          entity_id: climate.first_floor_heat_pump
+          address: "{{ states('input_text.energyhub_heat_pump_proposed_address') }}"
+
+template:
+  - switch:
+      - name: EnergyHub Climate Night Operation
+        unique_id: energyhub_climate_night_operation
+        state: "{{ is_state('input_select.energyhub_climate_night_operation', 'On') }}"
+        availability: "{{ states('input_select.energyhub_climate_night_operation') in ['On', 'Off'] }}"
+        turn_on:
+          - action: input_select.select_option
+            target:
+              entity_id: input_select.energyhub_climate_night_operation
+            data:
+              option: 'On'
+        turn_off:
+          - action: input_select.select_option
+            target:
+              entity_id: input_select.energyhub_climate_night_operation
+            data:
+              option: 'Off'
+  - sensor:
+      - name: EnergyHub Climate Requested Policy
+        unique_id: energyhub_climate_requested_policy
+        state: >-
+          {% set master = states('input_select.energyhub_climate_policy') %}
+          {% set operation = states('input_select.energyhub_climate_operation') %}
+          {% set clock = now().strftime('%H:%M:%S') %}
+          {% set ss = states('input_datetime.energyhub_climate_smart_start') %}
+          {% set se = states('input_datetime.energyhub_climate_smart_end') %}
+          {% set ps = states('input_datetime.energyhub_climate_solar_start') %}
+          {% set pe = states('input_datetime.energyhub_climate_solar_end') %}
+          {% set smart = master == 'Smart' and is_state('input_boolean.energyhub_climate_smart_window_enabled', 'on')
+              and ss | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+              and se | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$') and ss != se
+              and ((ss <= clock < se) if ss < se else (clock >= ss or clock < se)) %}
+          {% set solar = is_state('input_boolean.energyhub_climate_solar_window_enabled', 'on')
+              and ps | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+              and pe | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$') and ps != pe
+              and ((ps <= clock < pe) if ps < pe else (clock >= ps or clock < pe)) %}
+          {{ 'Off' if master not in ['Solar-only', 'Smart'] else
+             master if operation == 'Continuous' else
+             ('Smart' if smart else 'Solar-only' if solar else 'Off') if operation == 'Scheduled' else 'Off' }}
+      - name: EnergyHub Climate Next Boundary
+        unique_id: energyhub_climate_next_boundary
+        state: >-
+          {% set ns = namespace(times=[]) %}
+          {% if is_state('input_select.energyhub_climate_operation', 'Scheduled')
+                and states('input_select.energyhub_climate_policy') in ['Solar-only', 'Smart'] %}
+            {% for kind in ['solar', 'smart'] %}
+              {% if (kind == 'solar' or is_state('input_select.energyhub_climate_policy', 'Smart'))
+                    and is_state('input_boolean.energyhub_climate_' ~ kind ~ '_window_enabled', 'on')
+                    and states('input_datetime.energyhub_climate_' ~ kind ~ '_start') != states('input_datetime.energyhub_climate_' ~ kind ~ '_end') %}
+                {% for edge in ['start', 'end'] %}
+                  {% set clock = states('input_datetime.energyhub_climate_' ~ kind ~ '_' ~ edge) %}
+                  {% if clock | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$') %}
+                    {% set date = today_at(clock) %}
+                    {% set ns.times = ns.times + [date if date > now() else date + timedelta(days=1)] %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {{ (ns.times | min).isoformat() if ns.times else 'none' }}
+        attributes:
+          note: Schedule boundary; overlap may leave the current policy unchanged.
+
+  - binary_sensor:
+      - name: EnergyHub HP Night Window
+        unique_id: energyhub_hp_night_window
+        state: >-
+          {% set start = states('input_datetime.energyhub_climate_quiet_start') %}
+          {% set end = states('input_datetime.energyhub_climate_quiet_end') %}
+          {% set clock = now().strftime('%H:%M:%S') %}
+          {{ is_state('input_boolean.energyhub_climate_quiet_enabled', 'on')
+             and start | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+             and end | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+             and start != end and ((start <= clock < end) if start < end else (clock >= start or clock < end)) }}
+      - name: EnergyHub HP Solar Sufficient
+        unique_id: energyhub_hp_solar_sufficient
+        delay_on: '00:02:00'
+        delay_off: '00:02:00'
+        availability: >-
+          {{ is_state('sensor.energyhub_telemetry_freshness', 'fresh')
+             and states('sensor.powmr_10_2m_total_pv_power') | float(none) is not none
+             and states('input_number.energyhub_solar_start_power') | float(none) is not none }}
+        state: >-
+          {% set pv = states('sensor.powmr_10_2m_total_pv_power') | float(none) %}
+          {% set threshold = states('input_number.energyhub_solar_start_power') | float(none) %}
+          {{ is_state('sensor.energyhub_telemetry_freshness', 'fresh')
+             and pv is not none
+             and threshold is not none and 0 < threshold <= 10000 and pv >= threshold }}
+
+automation:
+  - id: energyhub_3_night_temperature
+    alias: EnergyHub - Shared Quiet and night temperature window
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /1
+      - trigger: state
+        entity_id:
+          - input_boolean.energyhub_climate_quiet_enabled
+          - input_datetime.energyhub_climate_quiet_start
+          - input_datetime.energyhub_climate_quiet_end
+          - input_number.energyhub_climate_heat_offset
+          - input_number.energyhub_climate_cool_offset
+          - input_select.energyhub_climate_night_operation
+          - input_select.energyhub_climate_effective_policy
+          - climate.first_floor_heat_pump
+    actions:
+      - variables:
+          hp: climate.first_floor_heat_pump
+          memory: "{{ states('input_text.energyhub_hp1_night_temperature') | from_json({}) }}"
+          in_window: >-
+            {% set start = states('input_datetime.energyhub_climate_quiet_start') %}
+            {% set end = states('input_datetime.energyhub_climate_quiet_end') %}
+            {% set clock = now().strftime('%H:%M:%S') %}
+            {{ is_state('input_boolean.energyhub_climate_quiet_enabled', 'on')
+               and start | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+               and end | regex_match('^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$')
+               and start != end
+               and ((start <= clock < end) if start < end else (clock >= start or clock < end)) }}
+          current: "{{ state_attr(hp, 'temperature') | float(none) }}"
+          minimum: "{{ state_attr(hp, 'min_temp') | float(none) }}"
+          maximum: "{{ state_attr(hp, 'max_temp') | float(none) }}"
+          unit: "{{ state_attr('sensor.energyhub_hp1_connection', 'ha_temperature_unit') }}"
+          offset_c: "{{ states('input_number.energyhub_climate_heat_offset' if states(hp) == 'heat' else 'input_number.energyhub_climate_cool_offset') | float(none) }}"
+          offset: "{{ offset_c * 1.8 if unit == '°F' and offset_c is not none else offset_c }}"
+          step: "{{ state_attr(hp, 'target_temp_step') | float(1) }}"
+          profile_ready: >-
+            {% set requests = states('input_text.energyhub_hp1_profile_requests') | from_json({}) %}
+            {% set wanted = states('input_text.energyhub_hp1_profile_expected') | from_json({}) %}
+            {% set grid = states('sensor.powmr_10_2m_grid_voltage') | float(none) %}
+            {{ wanted.get('quiet') in ['on', 'off'] and wanted.get('eco') in ['on', 'off']
+               and is_state('sensor.energyhub_telemetry_freshness', 'fresh') and grid is not none
+               and wanted.get('eco') == ('on' if grid <= 180 else 'off')
+               and wanted.get('quiet') == ('on' if in_window and grid > 180 else 'off')
+               and not (wanted.get('quiet') == 'on' and wanted.get('eco') == 'on')
+               and is_state('switch.first_floor_heat_pump_quiet', wanted.get('quiet'))
+               and is_state('switch.first_floor_heat_pump_eco', wanted.get('eco'))
+               and now().timestamp() - [requests.get('quiet', {}).get('at', 0), requests.get('eco', {}).get('at', 0)] | max >= 15 }}
+          eligible: >-
+            {{ in_window and is_state('input_select.energyhub_climate_effective_policy', 'Smart')
+               and states(hp) in ['heat', 'cool'] and unit in ['°C', '°F']
+               and offset_c is not none and -5 <= offset_c <= 5 and offset_c != 0
+               and is_state('input_boolean.energyhub_330_initialized', 'on')
+               and is_state('input_select.energyhub_climate_night_operation', 'On')
+               and not is_state('input_boolean.energyhub_hp1_manual_hold', 'on') }}
+      - variables:
+          decision: >-
+            {% set tick = now().timestamp() %}
+            {% set base = memory.get('base') | float(none) %}
+            {% set expected = memory.get('expected') | float(none) %}
+            {% set valid = current is not none and minimum is not none and maximum is not none
+                and minimum <= current <= maximum and minimum < maximum
+                and unit in ['°C', '°F']
+                and step is not none and step > 0
+                and (state_attr(hp, 'supported_features') | int(0)) % 2 == 1 %}
+            {% if states(hp) in ['unknown', 'unavailable'] %}
+              {{ {'memory': memory} }}
+            {% elif states(hp) == 'off' and not is_state('input_boolean.energyhub_hp1_auto_resume', 'on')
+                and not is_state('input_boolean.energyhub_hp1_battery_paused', 'on')
+                and not is_state('input_boolean.energyhub_hp1_night_paused', 'on') %}
+              {{ {'memory': {'blocked': true} if in_window else {}} }}
+            {% elif (memory.get('mode') is not none and states(hp) in ['heat', 'cool'] and memory.get('mode') != states(hp))
+                or (memory.get('unit') is not none and memory.get('unit') != unit) %}
+              {{ {'memory': {'blocked': true} if in_window else {}} }}
+            {% elif states(hp) not in ['heat', 'cool', 'off'] %}
+              {{ {'memory': {'blocked': true} if in_window else {}} }}
+            {% elif eligible and valid and base is none and not memory.get('blocked', false) and not profile_ready %}
+              {{ {'memory': {'base': current, 'expected': current, 'waiting_profile': true, 'mode': states(hp), 'unit': unit}} }}
+            {% elif memory.get('waiting_profile', false) and base is not none %}
+              {% if not in_window and valid and profile_ready and states(hp) in ['heat', 'cool'] %}
+                {{ {'memory': {'base': base, 'expected': base, 'restoring': true, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': base} }}
+              {% elif eligible and valid and profile_ready %}
+                {% set target = [maximum, [minimum, ((base + offset) / step) | round(0) * step] | max] | min %}
+                {{ {'memory': {'base': base, 'expected': target, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': target} }}
+              {% else %} {{ {'memory': memory} }} {% endif %}
+            {% elif base is not none and expected is not none %}
+              {% if not in_window and valid and states(hp) in ['heat', 'cool'] and not profile_ready %}
+                {{ {'memory': memory} }}
+              {% elif not in_window and valid and states(hp) in ['heat', 'cool'] and not memory.get('restoring', false) %}
+                {{ {'memory': {'base': base, 'expected': base, 'restoring': true, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': base} }}
+              {% elif current is none %}
+                {{ {'memory': memory} }}
+              {% elif memory.get('pending_until') is not none %}
+                {% if (current - expected) | abs <= 0.05 %}
+                  {% set since = memory.get('match_since', tick) %}
+                  {% if tick - since >= 120 %}
+                    {{ {'memory': ({'blocked': true} if in_window else {}) if memory.get('restoring', false)
+                        else {'base': base, 'expected': expected, 'confirmed_at': tick, 'mode': states(hp), 'unit': unit},
+                        'event': 'restored' if memory.get('restoring', false) else 'reduced',
+                        'temperature': current} }}
+                  {% else %}
+                    {{ {'memory': dict(memory, match_since=since)} }}
+                  {% endif %}
+                {% elif tick < memory.pending_until %}
+                  {{ {'memory': dict(memory, match_since=tick)} }}
+                {% else %}
+                  {{ {'memory': {'base': base, 'expected': current, 'failed': true, 'mode': states(hp), 'unit': unit} if in_window else {}} }}
+                {% endif %}
+              {% elif (current - expected) | abs > 0.05 %}
+                {% set since = memory.get('override_since', tick) %}
+                {% if tick - since >= 120 and memory.get('override_target') == current %}
+                  {{ {'memory': {'blocked': true} if in_window else {}} }}
+                {% else %}
+                  {{ {'memory': dict(memory, override_since=since if memory.get('override_target') == current else tick,
+                       override_target=current)} }}
+                {% endif %}
+              {% elif not valid or states(hp) == 'off' %}
+                {{ {'memory': memory} }}
+              {% elif memory.get('restoring', false) %}
+                {{ {'memory': {'blocked': true} if in_window else {}} }}
+              {% elif eligible and (memory.get('failed', false) or not profile_ready) %}
+                {{ {'memory': memory} }}
+              {% elif eligible %}
+                {% set target = [maximum, [minimum, ((base + offset) / step) | round(0) * step] | max] | min %}
+                {% if target <= maximum and (current - target) | abs > 0.05 %}
+                  {{ {'memory': {'base': base, 'expected': target, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': target} }}
+                {% else %} {{ {'memory': dict(memory, override_since=tick, override_target=current)} }} {% endif %}
+              {% elif minimum <= base <= maximum %}
+                {{ {'memory': {'base': base, 'expected': base, 'restoring': true, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': base} }}
+              {% else %} {{ {'memory': {}} }} {% endif %}
+            {% elif eligible and valid and profile_ready and not memory.get('blocked', false) %}
+              {% set target = [maximum, [minimum, ((current + offset) / step) | round(0) * step] | max] | min %}
+              {% if (current - target) | abs > 0.05 %}
+                {{ {'memory': {'base': current, 'expected': target, 'pending_until': tick+180, 'mode': states(hp), 'unit': unit}, 'target': target} }}
+              {% else %} {{ {'memory': memory} }} {% endif %}
+            {% else %}
+              {{ {'memory': memory if in_window else {}} }}
+            {% endif %}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_night_temperature
+        data:
+          value: "{{ decision.memory | to_json }}"
+      - if:
+          - condition: template
+            value_template: "{{ decision.get('target') is not none }}"
+        then:
+          - condition: template
+            value_template: >-
+              {{ states('climate.first_floor_heat_pump') in ['heat', 'cool']
+                 and state_attr('climate.first_floor_heat_pump', 'temperature') | float(-999) == current }}
+          - action: climate.set_temperature
+            target:
+              entity_id: climate.first_floor_heat_pump
+            data:
+              temperature: "{{ decision.target }}"
+      - if:
+          - condition: template
+            value_template: "{{ decision.get('event') is not none }}"
+        then:
+          - event: energyhub_night_temperature_confirmed
+            event_data:
+              action: "{{ decision.event }}"
+              temperature: "{{ decision.temperature }}"
+    mode: single
+
+  - id: energyhub_3_night_manual_temperature
+    alias: EnergyHub - Explicit family night temperature releases EH ownership
+    triggers:
+      - trigger: event
+        event_type: call_service
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set data = trigger.event.data %}
+          {% set target = data.get('target', {}).get('entity_id', [])
+               or data.get('service_data', {}).get('entity_id', []) %}
+          {{ trigger.event.context.user_id is not none and data.get('domain') == 'climate'
+             and data.get('service') == 'set_temperature'
+             and 'climate.first_floor_heat_pump' in ([target] if target is string else target) }}
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_night_temperature
+        data:
+          value: '{"blocked":true}'
+    mode: single
+
+  - id: energyhub_3_remember_family_hvac_mode
+    alias: EnergyHub - Remember family Heat or Cool
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: climate.first_floor_heat_pump
+    conditions:
+      - condition: template
+        value_template: "{{ states('climate.first_floor_heat_pump') in ['heat', 'cool'] }}"
+    actions:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.energyhub_hp1_family_mode
+        data:
+          option: "{{ states('climate.first_floor_heat_pump') }}"
+    mode: restart
+
+  - id: energyhub_3_apply_climate_schedule
+    alias: EnergyHub - Apply heating/cooling policy
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /1
+      - trigger: state
+        entity_id: sensor.energyhub_climate_requested_policy
+    actions:
+      - variables:
+          desired: "{{ states('sensor.energyhub_climate_requested_policy') }}"
+          previous: "{{ states('input_select.energyhub_climate_effective_policy') }}"
+      - condition: template
+        value_template: "{{ desired in ['Off', 'Solar-only', 'Smart'] }}"
+      - choose:
+          - conditions: "{{ desired == 'Off' }}"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: "{{ previous in ['Solar-only', 'Smart'] }}"
+                then:
+                  - action: input_number.increment
+                    target:
+                      entity_id: input_number.energyhub_intent_heat_pump_floor_1
+              - action: input_boolean.turn_off
+                target:
+                  entity_id:
+                    - input_boolean.energyhub_smart_heating
+                    - input_boolean.energyhub_hp1_auto_resume
+                    - input_boolean.energyhub_hp1_battery_paused
+              - if:
+                  - condition: template
+                    value_template: >-
+                      {{ previous in ['Solar-only', 'Smart']
+                         and states('climate.first_floor_heat_pump') in ['heat', 'cool'] }}
+                then:
+                  - action: climate.set_hvac_mode
+                    target:
+                      entity_id: climate.first_floor_heat_pump
+                    data:
+                      hvac_mode: 'off'
+                  - wait_template: "{{ is_state('climate.first_floor_heat_pump', 'off') }}"
+                    timeout: '00:00:10'
+                    continue_on_timeout: false
+              - repeat:
+                  for_each: [quiet, eco]
+                  sequence:
+                    - variables:
+                        profile_entity: "{{ 'switch.first_floor_heat_pump_' ~ repeat.item }}"
+                        before: "{{ states('input_text.energyhub_hp1_profile_before') | from_json({}) }}"
+                        expected: "{{ states('input_text.energyhub_hp1_profile_expected') | from_json({}) }}"
+                    - if:
+                        - condition: template
+                          value_template: >-
+                            {{ before.get(repeat.item) in ['on', 'off'] and expected.get(repeat.item) in ['on', 'off']
+                               and states(profile_entity) == expected.get(repeat.item) }}
+                      then:
+                        - action: "{{ 'switch.turn_on' if before.get(repeat.item) == 'on' else 'switch.turn_off' }}"
+                          target:
+                            entity_id: "{{ profile_entity }}"
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.energyhub_hp1_profile_expected
+                data:
+                  value: '{}'
+        default:
+          - if:
+              - condition: template
+                value_template: "{{ previous == 'Off' }}"
+            then:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.energyhub_hp1_profile_before
+                data:
+                  value: >-
+                    {{ {'quiet': states('switch.first_floor_heat_pump_quiet'),
+                        'eco': states('switch.first_floor_heat_pump_eco')} | to_json }}
+          - action: "{{ 'input_boolean.turn_on' if desired == 'Solar-only' else 'input_boolean.turn_off' }}"
+            target:
+              entity_id: input_boolean.energyhub_solar_only_heating
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.energyhub_smart_heating
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.energyhub_climate_effective_policy
+        data:
+          option: "{{ desired }}"
+    mode: single
+
+  - id: energyhub_3_family_off_overrides_schedule
+    alias: EnergyHub - Family OFF cancels automatic starts
+    triggers:
+      - trigger: state
+        entity_id: climate.first_floor_heat_pump
+        to: 'off'
+        id: manual_state
+      - trigger: event
+        event_type: call_service
+        id: manual_request
+    conditions:
+      - condition: template
+        value_template: >-
+          {% if trigger.id == 'manual_state' %}
+            {% set cycle = state_attr('sensor.energyhub_peak_load_guard', 'cycle') or {} %}
+            {% set pending = state_attr('sensor.energyhub_peak_load_guard', 'pending') or {} %}
+            {{ not is_state('input_boolean.energyhub_hp1_auto_resume', 'on')
+               and not is_state('input_boolean.energyhub_hp1_battery_paused', 'on')
+               and not is_state('input_boolean.energyhub_hp1_night_paused', 'on')
+               and (trigger.to_state.context.user_id is not none or
+               (trigger.from_state is not none and trigger.from_state.state in ['heat', 'cool']
+                and trigger.to_state.context.parent_id is none
+                and not is_state('input_boolean.energyhub_hp1_auto_resume', 'on')
+                and not is_state('input_boolean.energyhub_hp1_battery_paused', 'on')
+                and 'heat_pump_floor_1' not in cycle.get('owned', {})
+                and not (pending.get('key') == 'heat_pump_floor_1'))) }}
+          {% else %}
+            {% set data = trigger.event.data %}
+            {% set target = data.get('target', {}).get('entity_id', [])
+                 or data.get('service_data', {}).get('entity_id', []) %}
+            {{ trigger.event.context.user_id is not none and data.get('domain') == 'climate'
+               and data.get('service') in ['turn_off', 'set_hvac_mode']
+               and (data.get('service') == 'turn_off' or data.get('service_data', {}).get('hvac_mode') == 'off')
+               and 'climate.first_floor_heat_pump' in ([target] if target is string else target) }}
+          {% endif %}
+    actions:
+      - choose:
+          - conditions: "{{ is_state('input_select.energyhub_climate_policy', 'Smart') }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.energyhub_hp1_manual_hold
+              - action: input_boolean.turn_off
+                target:
+                  entity_id:
+                    - input_boolean.energyhub_hp1_auto_resume
+                    - input_boolean.energyhub_hp1_battery_paused
+                    - input_boolean.energyhub_hp1_night_paused
+          - conditions: "{{ is_state('input_select.energyhub_climate_policy', 'Solar-only') }}"
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.energyhub_hp1_solar_cancelled
+                data:
+                  value: >-
+                    {% if trigger.id == 'manual_state' %}
+                      {% set manual = trigger.to_state.context.user_id is not none %}
+                    {% else %}
+                      {% set manual = trigger.event.context.user_id is not none %}
+                    {% endif %}
+                    {{ {'at': now().timestamp(), 'manual': manual} | to_json }}
+              - event: energyhub_solar_family_off
+              - action: input_select.select_option
+                target:
+                  entity_id: input_select.energyhub_climate_policy
+                data:
+                  option: 'Off'
+    mode: queued
+
+  - id: energyhub_330_family_on_releases_hold
+    alias: EnergyHub - Family ON resumes selected Smart
+    triggers:
+      - trigger: state
+        entity_id: climate.first_floor_heat_pump
+        from: 'off'
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state in ['heat', 'cool']
+             and is_state('input_select.energyhub_climate_policy', 'Smart')
+             and (is_state('input_boolean.energyhub_hp1_manual_hold', 'on')
+                  or is_state('input_boolean.energyhub_hp1_night_paused', 'on')) }}
+    actions:
+      - if:
+          - condition: state
+            entity_id: binary_sensor.energyhub_hp_night_window
+            state: 'on'
+        then:
+          - variables:
+                  until: "{% set end = today_at(states('input_datetime.energyhub_climate_quiet_end')) %}{{ (end if end > now() else end + timedelta(days=1)).timestamp() }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.energyhub_hp1_night_overrides
+            data:
+              value: "{{ dict(states('input_text.energyhub_hp1_night_overrides') | from_json({}), on_until=until) | to_json }}"
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.energyhub_hp1_manual_hold
+            - input_boolean.energyhub_hp1_night_paused
+    mode: single
+
+  - id: energyhub_330_policy_selection_clears_hold
+    alias: EnergyHub - Explicit dashboard policy selection clears old holds
+    triggers:
+      - trigger: state
+        entity_id: input_select.energyhub_climate_policy
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.from_state.state in ['Smart', 'Off', 'Solar-only'] and trigger.to_state.state in ['Smart', 'Off', 'Solar-only'] and trigger.from_state.state != trigger.to_state.state }}"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id:
+            - input_boolean.energyhub_hp1_manual_hold
+            - input_boolean.energyhub_hp1_night_paused
+    mode: single
+
+  - id: energyhub_360_eco_ownership_feedback
+    alias: EnergyHub - Clear Eco ownership after OFF feedback
+    triggers:
+      - trigger: state
+        entity_id: switch.first_floor_heat_pump_eco
+        to: 'off'
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set request = (states('input_text.energyhub_hp1_profile_requests') | from_json({})).get('eco', {}) %}
+          {{ request.get('owned', request.get('t') == 'on') }}
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_profile_requests
+        data:
+          value: >-
+            {% set requests = states('input_text.energyhub_hp1_profile_requests') | from_json({}) %}
+            {{ dict(requests, eco=dict(requests.get('eco', {}), owned=false)) | to_json }}
+    mode: queued
+
+  - id: energyhub_330_family_profile_override
+    alias: EnergyHub - Honour family Quiet and Eco night changes
+    triggers:
+      - trigger: state
+        entity_id:
+          - switch.first_floor_heat_pump_quiet
+          - switch.first_floor_heat_pump_eco
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set key = 'quiet' if trigger.entity_id.endswith('_quiet') else 'eco' %}
+          {% set request = (states('input_text.energyhub_hp1_profile_requests') | from_json({})).get(key, {}) %}
+          {{ is_state('binary_sensor.energyhub_hp_night_window', 'on')
+             and states('climate.first_floor_heat_pump') in ['heat', 'cool']
+             and trigger.from_state is not none and trigger.from_state.state in ['on', 'off']
+             and trigger.to_state.state in ['on', 'off']
+             and (trigger.to_state.context.user_id is not none
+                  or (request.get('t') is not none and trigger.to_state.state != request.get('t')
+                      and now().timestamp() - request.get('at', now().timestamp()) >= 10)) }}
+    actions:
+      - variables:
+          key: "{{ 'quiet' if trigger.entity_id.endswith('_quiet') else 'eco' }}"
+          until: "{% set end = today_at(states('input_datetime.energyhub_climate_quiet_end')) %}{{ (end if end > now() else end + timedelta(days=1)).timestamp() }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_night_overrides
+        data:
+          value: "{{ dict(states('input_text.energyhub_hp1_night_overrides') | from_json({}), **{key ~ '_until': until}) | to_json }}"
+    mode: queued
+
+  - id: energyhub_330_family_profile_request
+    alias: EnergyHub - Immediate HA family profile override during night
+    triggers:
+      - trigger: event
+        event_type: call_service
+    conditions:
+      - condition: template
+        value_template: >-
+          {% set data = trigger.event.data %}
+          {% set target = data.get('target', {}).get('entity_id', []) or data.get('service_data', {}).get('entity_id', []) %}
+          {% set targets = [target] if target is string else target %}
+          {{ trigger.event.context.user_id is not none
+             and is_state('binary_sensor.energyhub_hp_night_window', 'on')
+             and data.get('domain') == 'switch' and data.get('service') in ['turn_on', 'turn_off', 'toggle']
+             and ('switch.first_floor_heat_pump_quiet' in targets
+                  or 'switch.first_floor_heat_pump_eco' in targets) }}
+    actions:
+      - variables:
+          targets: "{{ trigger.event.data.get('target', {}).get('entity_id', []) or trigger.event.data.get('service_data', {}).get('entity_id', []) }}"
+          overrides: "{{ states('input_text.energyhub_hp1_night_overrides') | from_json({}) }}"
+          until: >-
+            {% set end = today_at(states('input_datetime.energyhub_climate_quiet_end')) %}
+            {{ (end if end > now() else end + timedelta(days=1)).timestamp() }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_night_overrides
+        data:
+          value: >-
+            {% set ns = namespace(data=overrides) %}
+            {% for key in ['quiet', 'eco'] %}
+              {% if ('switch.first_floor_heat_pump_' ~ key) in ([targets] if targets is string else targets) %}
+                {% set ns.data = dict(ns.data, **{key ~ '_until': until}) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.data | to_json }}
+    mode: queued
+
+  - id: energyhub_quiet_acknowledgement_attention
+    alias: EnergyHub - Quiet acknowledgement exhausted for this night
+    triggers:
+      - trigger: time_pattern
+        minutes: /1
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.energyhub_hp_night_window
+        state: 'on'
+      - condition: template
+        value_template: >-
+          {% set request = states('input_text.energyhub_hp1_quiet_budget') | from_json({}) %}
+          {% set overrides = states('input_text.energyhub_hp1_night_overrides') | from_json({}) %}
+          {% set expected = states('input_text.energyhub_hp1_profile_expected') | from_json({}) %}
+          {% set start = states('input_datetime.energyhub_climate_quiet_start') %}
+          {% set end = states('input_datetime.energyhub_climate_quiet_end') %}
+          {% set begins = today_at(start) %}
+          {% if now() < begins %}{% set begins = begins - timedelta(days=1) %}{% endif %}
+          {% set window = begins.strftime('%Y%m%d') ~ '/' ~ start ~ '/' ~ end %}
+          {{ request.get('w') == window and request.get('n', 0) >= 3
+             and now().timestamp() - request.get('at', now().timestamp()) >= 180
+             and expected.get('quiet') == 'on'
+             and states('climate.first_floor_heat_pump') in ['heat', 'cool']
+             and is_state('switch.first_floor_heat_pump_quiet', 'off')
+             and is_state('switch.first_floor_heat_pump_eco', 'off')
+             and now().timestamp() >= overrides.get('quiet_until', 0)
+             and not is_state('input_boolean.energyhub_hp1_manual_hold', 'on')
+             and states('input_text.energyhub_hp1_quiet_failed_window') != window }}
+    actions:
+      - action: persistent_notification.create
+        data:
+          notification_id: energyhub_quiet_acknowledgement
+          title: EnergyHub - Quiet mode not confirmed
+          message: Quiet remains OFF after three attempts for this night. Check the heat pump connection and native app. EH has not confirmed Quiet activation.
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_hp1_quiet_failed_window
+        data:
+          value: "{{ (states('input_text.energyhub_hp1_profile_requests') | from_json({})).get('quiet', {}).get('w', '') }}"
+    mode: single
+
+  - id: energyhub_initialize_installation
+    alias: EnergyHub - Initialize installation settings
+    triggers:
+    - trigger: homeassistant
+      event: start
+    actions:
+    - if:
+      - condition: state
+        entity_id: input_boolean.energyhub_planning_settings_initialized
+        state: 'off'
+      then:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_battery_capacity_kwh
+        data:
+          value: 16
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_house_demand_kw
+        data:
+          value: 3.2
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_forecast_max_age_hours
+        data:
+          value: 24
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_load_off_soc
+        data:
+          value: 40
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_load_restore_soc
+        data:
+          value: 50
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.energyhub_planning_settings_initialized
+    - if:
+      - condition: state
+        entity_id: input_boolean.energyhub_330_initialized
+        state: 'off'
+      then:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_climate_heat_offset
+        data:
+          value: '{{ -(states(''input_number.energyhub_climate_night_reduction'') | float(0)) }}'
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_climate_cool_offset
+        data:
+          value: 0
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.energyhub_climate_night_operation
+        data:
+          option: 'On'
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.energyhub_330_initialized
+    - if:
+      - condition: template
+        value_template: '{{ states(''input_number.energyhub_solar_start_power'') | float(-1) == 0 and states(''input_number.energyhub_solar_pause_power'')
+          | float(-1) == 0 }}'
+      then:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_solar_start_power
+        data:
+          value: 600
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.energyhub_solar_pause_power
+        data:
+          value: 400
+    mode: single

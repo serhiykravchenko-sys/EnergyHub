@@ -618,6 +618,19 @@ def publish_health_discovery(client):
 
 
 def publish_daily_summary(client, daily_summary):
+    snapshot=daily_summary.last_snapshot or {}
+    history = [dict(date=day, forecast_kwh=row.get('solar_forecast_kwh'),
+                    actual_kwh=row.get('solar_actual_kwh'), battery_full=row.get('battery_full'))
+               for day,row in sorted(getattr(daily_summary, 'history', {}).items())[-70:]
+               if isinstance(row, dict)]
+    client.publish(f"{BASE_TOPIC}/daily_summary/attributes",
+                   json.dumps({'date':snapshot.get('date'),
+                               'source_timestamp':snapshot.get('source_timestamp'),
+                               'forecast_kwh':snapshot.get('solar_forecast_kwh'),
+                               'consumption_kwh':snapshot.get('house_consumption_kwh'),
+                               'actual_kwh':snapshot.get('solar_actual_kwh'),
+                               'battery_full':snapshot.get('battery_full'),
+                               'history':history}),retain=True)
     for key, value in daily_summary.mqtt_values().items():
         client.publish(
             f"{BASE_TOPIC}/{key}/state",
@@ -967,11 +980,11 @@ def publish_peak_load_guard_discovery(client):
     device = _energyhub_device()
     entities = {
         "peak_load_guard": (
-            "Peak Load Guard",
+            "First-floor HP Battery Protection",
             "mdi:shield-home-outline",
         ),
         "peak_load_guard_event": (
-            "Peak Load Guard Event",
+            "First-floor HP Protection Event",
             "mdi:shield-alert-outline",
         ),
     }
@@ -991,10 +1004,14 @@ def publish_peak_load_guard_discovery(client):
             json.dumps(payload),
             retain=True,
         )
-    log("Peak Load Guard MQTT discovery published")
+    log("First-floor HP protection discovery published (legacy entity IDs preserved)")
 
 
 def publish_weather_buffer(client, weather_buffer):
+    client.publish(
+        "energyhub/reserve/normal_base/state",
+        str(weather_buffer.policy_base_soc), retain=True,
+    )
     client.publish(
         f"{BASE_TOPIC}/weather_buffer/state",
         weather_buffer.status_state()[:HOME_ASSISTANT_STATE_MAX_LENGTH],
@@ -1008,6 +1025,20 @@ def publish_weather_buffer(client, weather_buffer):
 
 
 def publish_weather_buffer_discovery(client):
+    client.publish(
+        "homeassistant/number/energyhub_normal_reserve/config",
+        json.dumps({
+            "name": "Normal Base Reserve", "unique_id": "energyhub_normal_reserve",
+            "default_entity_id": "number.energyhub_normal_reserve",
+            "state_topic": "energyhub/reserve/normal_base/state",
+            "command_topic": "energyhub/reserve/normal_base/set",
+            "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC,
+            "min": 20, "max": 95, "step": 5, "mode": "box",
+            "unit_of_measurement": "%", "icon": "mdi:battery-lock",
+            "optimistic": False, "retain": False, "entity_category": "config",
+            "device": _energyhub_device(),
+        }), retain=True,
+    )
     payload = {
         "name": "Battery Reserve Recommendation",
         "unique_id": "energyhub_weather_buffer",
@@ -1205,6 +1236,10 @@ def _publish_sensor_discovery(client, device, sensors):
             # The retained source may say "unknown" before its first sample.
             # Numeric HA sensors must render None, not that literal string.
             payload["value_template"] = "{{ value | float(none) }}"
+
+        if key in {'daily_solar_forecast','daily_solar_actual',
+                   'daily_solar_forecast_error_percent','daily_battery_reached_full'}:
+            payload['json_attributes_topic'] = f'{BASE_TOPIC}/daily_summary/attributes'
 
         topic = (
             f"homeassistant/sensor/"

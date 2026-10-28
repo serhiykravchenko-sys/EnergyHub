@@ -1,4 +1,67 @@
 configuration:
+  automation_notifications_enabled:
+    name: Native HA automation notifications
+    description: Discover an EnergyHub Telegram notify target over MQTT. Opt-in; existing automations are not modified. Configure broker credentials below once.
+  notification_mqtt_host:
+    name: Notification MQTT broker host
+    description: Broker reachable from this app; core-mosquitto for the local Mosquitto app. Uses the default homeassistant discovery prefix.
+  notification_mqtt_port:
+    name: Notification MQTT broker port
+    description: Local trusted-network MQTT port. This release does not support external TLS brokers.
+  notification_mqtt_user:
+    name: Notification MQTT username
+    description: Broker account with access to this bridge's notification and discovery topics.
+  notification_mqtt_password:
+    name: Notification MQTT password
+    description: Stored in app options, never in automation messages.
+  solcast_last_success_entity:
+    name: Verified Solcast successful source refresh
+    description: Optional timestamp entity. Commission only after verifying its successful-refresh meaning for the installed integration. HA entity update times are not source freshness.
+  beacon_recovery_enabled:
+    name: Automatic Beacon recovery
+    description: Reload only an isolated Tuya lamp entry after sustained current failure. Three persisted attempts; authentication or shared entries require manual action.
+  apartment_grid_cloud_enabled:
+    name: Fresh Xiaomi cloud availability
+    description: Read the existing Xiaomi Miot cloud session from the read-only HA configuration mount. No login, session renewal or device control. Failed reads are unknown; hub offline is an indirect power indicator.
+  apartment_grid_proxy_entity:
+    name: Apartment grid proxy entity
+    description: Powered hub light entity; availability is an indirect electricity indicator.
+  dtek_dacha_district:
+    name: House emergency-outage district
+    description: Kyiv region district. Supported names are Obukhiv, Fastiv, Brovary, Bucha, Vyshhorod, Boryspil and Bila Tserkva. Empty means district-specific notices cannot be matched.
+  dtek_apartment_district:
+    name: Apartment emergency-outage district
+    description: Kyiv region district, using the same supported names as the house district. District notices affect only the matching location.
+  dtek_solar_forecast_tomorrow_entity:
+    name: Tomorrow hourly solar forecast
+    description: Optional Solcast entity with detailedHourly periods for advance outage preparation. Missing data uses the conservative grid fallback.
+  dtek_schedule_enabled:
+    name: DTEK daily schedule monitoring
+    description: Read Pro Kyiv regional schedules and notices every 30 minutes, with Alerts.energy as schedule backup. Official website and Telegram polling are disabled. Tomorrow checkpoints are 20:00, 20:30 and 21:00. No direct hardware commands.
+  dtek_dacha_group:
+    name: House outage group
+    description: Exact Kyiv-region queue and subqueue, for example 1.1. Match Energy Hub outage_group.
+  dtek_apartment_group:
+    name: Apartment outage group
+    description: Informational Kyiv-region queue and subqueue, for example 2.2.
+  co_alarm_entities:
+    name: CO alarm sensors
+    description: Semicolon-separated label|binary_sensor[|Zigbee_parent] entries. An active alarm is sent immediately, including quiet hours; acknowledged episodes are not repeated.
+  co2_sensor_entities:
+    name: CO2 sensors
+    description: Semicolon-separated label|entity[|Zigbee_parent] entries. Advisory at 1200 ppm for 10 minutes, urgent at 2000 ppm for 3 minutes, recovery below 1000 ppm for 5 minutes. Urgent notices bypass overnight quiet hours.
+  log_monitor_enabled:
+    name: Core log attention monitoring
+    description: Read the bounded HA warning/error buffer every five minutes. Repeated warnings and errors go to the technical chat, with startup grace and duplicate suppression. Does not grant Supervisor access.
+  house_monitor_enabled:
+    name: Household availability monitoring
+    description: Check the selected devices every 30 seconds. Alert after three observed minutes and recover after five stable minutes.
+  monitored_device_entities:
+    name: Additional monitored devices
+    description: Semicolon-separated label|entity[|parent_entity] entries. Smart plugs and environmental sensors are included automatically; off is available.
+  bms_entity_mapping:
+    name: BMS evidence mapping
+    description: Optional semicolon-separated field|entity entries. Requires soc, current, voltage; optional cells, temperature, health, capacity, cycles, problem, charging, energy, power. Saves a bounded diagnostic journal without changing BMS settings.
   bot_token:
     name: Telegram bot token
     description: Secret token issued by BotFather. Never commit or share it.
@@ -22,7 +85,13 @@ configuration:
     description: Optional secret HTTPS address for today's read-only Google Calendar events. It is masked and must never be shared or committed.
   send_time:
     name: Morning delivery time
-    description: Local time for the daily family report.
+    description: Daily family report time in local 24-hour HH:MM format. The scheduled report is allowed during quiet hours.
+  family_quiet_start:
+    name: Family Telegram quiet hours start
+    description: Local 24-hour HH:MM. Routine family messages are collected for the morning report. Independent of heat-pump Quiet/night settings; CO and urgent CO2 alarms still arrive immediately.
+  family_quiet_end:
+    name: Family Telegram quiet hours end
+    description: Local 24-hour HH:MM, exclusive end. Equal start/end disables the quiet window. A brief buffer at the report time keeps the morning report first.
   soc_snapshot_time:
     name: Deprecated SOC snapshot time
     description: Compatibility-only retired option; it is accepted but ignored.
@@ -43,7 +112,7 @@ configuration:
     description: Nominal DC battery voltage used only for morning charging-time estimates.
   battery_grid_charge_current_a:
     name: Grid battery charge current
-    description: Configurable DC charging-current assumption; 30 A now and adjustable later.
+    description: Legacy option retained for compatibility. Planning uses the dashboard grid DC charging reference; this option no longer supplies a fallback.
   battery_charge_efficiency:
     name: Battery charge efficiency
     description: Conservative conversion factor used for estimated battery recharge energy.
@@ -137,9 +206,6 @@ configuration:
   peak_load_guard_event_entity:
     name: Peak Load Guard event entity
     description: EnergyHub protection event consumed for confirmed appliance shedding, restoration, and attention messages.
-  heat_pump_restart_event_entity:
-    name: Heat-pump restart event entity
-    description: Home Assistant event helper used to report safe restoration of remembered heat-pump plugs after a restart.
   weather_buffer_entity:
     name: Battery Reserve entity
     description: EnergyHub Battery Reserve policy used for forecast, grid, official weather, and scheduled morning-report context.
@@ -182,3 +248,15 @@ configuration:
   heat_pump_floor_3_power_entity:
     name: Third-floor heat-pump power entity
     description: Live power entity used to determine whether the third-floor heat pump is running.
+  heat_pump_floor_1_energy_entity:
+    name: First-floor HP energy helper
+    description: Cumulative Wh or kWh sensor for yesterday's measured consumption; first-floor energy trust must be enabled after verification.
+  heat_pump_floor_2_energy_entity:
+    name: Second-floor HP energy helper
+    description: Cumulative Wh or kWh sensor for yesterday's measured consumption.
+  water_boiler_energy_entity:
+    name: Hot-water energy statistic
+    description: Recorder daily energy change (kWh), matching the water-boiler chart.
+  heat_pump_floor_3_energy_entity:
+    name: Third-floor HP energy helper
+    description: Defaults to the HA integral of measured smart-plug power; calculated energy is labelled explicitly.

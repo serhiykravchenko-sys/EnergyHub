@@ -23,6 +23,9 @@ class PresentationTests(TestCase):
             getattr(publisher, f"publish_{name}_discovery")(client)
         stable = []
         for topic, payload, retain in client.messages:
+            # New 3.6.9 configurable number is outside the legacy identity set.
+            if topic == "homeassistant/number/energyhub_normal_reserve/config":
+                continue
             if not payload:
                 continue
             data = json.loads(payload)

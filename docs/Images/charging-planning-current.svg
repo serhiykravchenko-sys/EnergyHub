@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1320" viewBox="0 0 1600 1320">
+<rect width="1600" height="1320" fill="#f5f8fc"/>
+<style>text{font-family:Arial,sans-serif;fill:#17314d}.title{font-size:44px;font-weight:700}.sub{font-size:23px;fill:#48617b}.head{font-size:27px;font-weight:700}.body{font-size:25px}.foot{font-size:22px;fill:#48617b}</style>
+<text x="60" y="70" class="title">EnergyHub — When and Why the Battery Charges</text>
+<text x="60" y="114" class="sub">Current single-night-tariff policy and scheduled preparation; not a general multi-slot optimizer</text>
+<rect x="54" y="155" width="732" height="320" rx="20" fill="white" stroke="#236ab0" stroke-width="3"/>
+<rect x="54" y="180" width="7" height="40" fill="#236ab0"/>
+<text x="82" y="205" class="head">NIGHT WINDOW · 23:50 → 07:00</text>
+<text x="82" y="249" class="body">Assess at 23:50; revise at 05:00</text>
+<text x="82" y="281" class="body">Deficit = max(0, three-day mean use − solar)</text>
+<text x="82" y="313" class="body">Target = BR + deficit / usable capacity × 100</text>
+<text x="82" y="345" class="body">Cap at 95%; initial SOC is not an extra target</text>
+<rect x="814" y="155" width="732" height="320" rx="20" fill="white" stroke="#007f82" stroke-width="3"/>
+<rect x="814" y="180" width="7" height="40" fill="#007f82"/>
+<text x="842" y="205" class="head">MISSING NIGHT EVIDENCE</text>
+<text x="842" y="249" class="body">Require eligible complete consumption days</text>
+<text x="842" y="281" class="body">Use the target-day forecast and source-age guards</text>
+<text x="842" y="313" class="body">Two missing-evidence nights may reuse last deficit</text>
+<text x="842" y="345" class="body">Third missing night skips deficit/tariff charging</text>
+<rect x="54" y="500" width="732" height="320" rx="20" fill="white" stroke="#c27819" stroke-width="3"/>
+<rect x="54" y="525" width="7" height="40" fill="#c27819"/>
+<text x="82" y="550" class="head">SCHEDULED OUTAGE · SIZE TARGET</text>
+<text x="82" y="594" class="body">Use a validated group/day and outage window</text>
+<text x="82" y="626" class="body">Estimate conservative net demand through outage</text>
+<text x="82" y="658" class="body">Include applied BR once, capacity and charge limits</text>
+<text x="82" y="690" class="body">Hourly solar timing matters, not just daily total</text>
+<rect x="814" y="500" width="732" height="320" rx="20" fill="white" stroke="#5174aa" stroke-width="3"/>
+<rect x="814" y="525" width="7" height="40" fill="#5174aa"/>
+<text x="842" y="550" class="head">PREPARATION · WHEN TO START</text>
+<text x="842" y="594" class="body">Assess if waiting can still meet the deadline</text>
+<text x="842" y="626" class="body">Account for losses, available current and margin</text>
+<text x="842" y="658" class="body">Full rolling-hour load when qualified; else fallback</text>
+<text x="842" y="690" class="body">Credit solar surplus only before completion margin</text>
+<rect x="54" y="845" width="732" height="320" rx="20" fill="white" stroke="#805b9f" stroke-width="3"/>
+<rect x="54" y="870" width="7" height="40" fill="#805b9f"/>
+<text x="82" y="895" class="head">OWNERSHIP · HOLD AND RELEASE</text>
+<text x="82" y="939" class="body">Applicable higher night/outage target wins</text>
+<text x="82" y="971" class="body">Persist acquired charging/hold and revalidate</text>
+<text x="82" y="1003" class="body">Release acquired scheduled hold when remaining</text>
+<text x="82" y="1035" class="body">demand + BR + 5 points is covered, with guards</text>
+<rect x="814" y="845" width="732" height="320" rx="20" fill="white" stroke="#a34545" stroke-width="3"/>
+<rect x="814" y="870" width="7" height="40" fill="#a34545"/>
+<text x="842" y="895" class="head">EXECUTION · VERIFIED, NOT ASSUMED</text>
+<text x="842" y="939" class="body">Grid absent: wait, do not claim grid charging</text>
+<text x="842" y="971" class="body">Fresh authority and controller gates still apply</text>
+<text x="842" y="1003" class="body">Partial/uncertain transitions require attention</text>
+<text x="842" y="1035" class="body">Emergency reserve can require non-cheap charging</text>
+<text x="60" y="1230" class="foot">A calculated target is not confirmed charging. Current limits and actual inverter state must be checked separately.</text>
+</svg>

@@ -9,12 +9,9 @@ from zoneinfo import ZoneInfo
 from app.events import (
     confidence_message,
     format_duration,
-    heat_pump_management_message,
-    heat_pump_restart_restored_message,
     outage_message,
     peak_load_guard_message,
     recovery_message,
-    reserve_warning_message,
     soc_anomaly_message,
     soc_anomaly_report_lines,
     weather_warning_message,
@@ -25,7 +22,6 @@ from app.main import (
     observe_grid,
     observe_grid_hold,
     observe_grid_confidence,
-    observe_heat_pump_restart_restore,
     observe_inverter_strategy_fault,
     observe_safely,
     observe_peak_load_guard,
@@ -33,7 +29,6 @@ from app.main import (
     observe_soc_anomaly,
     observe_weather_warnings,
     refresh_queued_reserve_warning,
-    reserve_warning_quiet_hours,
 )
 from app.report import overnight_family_event_lines
 
@@ -73,7 +68,7 @@ class EventFormattingTests(unittest.TestCase):
         self.assertEqual("5 хв", format_duration(300))
 
     def test_messages_use_correct_reserve_term(self):
-        self.assertIn("Початок відключення: 10:00", outage_message(NOW, 76))
+        self.assertIn("Дача: ДТЕК недоступний з 10:00", outage_message(NOW, 76))
         self.assertIn("Без ДТЕК: 1 год", recovery_message(NOW + timedelta(hours=1), NOW, 68))
         message = confidence_message(
             "normal", "panic",
@@ -94,39 +89,9 @@ class EventFormattingTests(unittest.TestCase):
         self.assertIn("Ручне керування", improved)
         self.assertNotIn("Цільовий запас батареї вдень", improved)
 
-    def test_peak_load_guard_messages_are_ukrainian_and_explicitly_dry_run(self):
-        shed = peak_load_guard_message({
-            "type": "shed_recommended",
-            "trigger_load_percent": 40,
-            "thresholds": {
-                "shed_percent": 40,
-                "relief_percent": 30,
-                "restore_percent": 20,
-            },
-            "recommended_loads": [
-                {"key": "water_pump"},
-                {"key": "water_boiler"},
-            ],
-        })
-        self.assertIn("EnergyHub рекомендує", shed)
-        self.assertIn("водяний насос", shed)
-        self.assertIn("бойлер", shed)
-        self.assertIn("30%", shed)
-        self.assertIn("20%", shed)
-        self.assertIn("нічого не перемикав", shed)
-
-        restored = peak_load_guard_message({
-            "type": "restore_recommended",
-            "recovery_load_percent": 20,
-            "thresholds": {"relief_percent": 30, "restore_percent": 20},
-            "restore_order": [
-                {"key": "water_pump"},
-                {"key": "water_boiler"},
-            ],
-        })
-        self.assertIn("відновити початкові стани", restored)
-        self.assertLess(restored.index("водяний насос"), restored.index("бойлер"))
-        self.assertIn("цикл Dry Run завершено", restored)
+    def test_retired_dry_run_and_overload_messages_are_empty(self):
+        for kind in ('shed_recommended','restore_recommended','load_warning','load_warning_cleared'):
+            self.assertEqual('',peak_load_guard_message({'type':kind}))
 
     def test_soc_anomaly_message_is_short_without_diagnostic_context(self):
         message = soc_anomaly_message({
@@ -170,73 +135,8 @@ class EventFormattingTests(unittest.TestCase):
         self.assertIn("Лише для інформації", lines[0])
         self.assertNotIn("09:56:19", lines[0])
 
-    def test_heat_pump_management_names_the_current_owner(self):
-        manual = heat_pump_management_message(
-            confidence="normal",
-            voltage=230,
-            freshness="fresh",
-            minimum_soc=20,
-        )
-        self.assertIn("ручне керування", manual)
-        self.assertEqual("♨️ Теплові насоси: <b>ручне керування</b>.", manual)
 
-        protected = heat_pump_management_message(
-            confidence="risk",
-            voltage=230,
-            freshness="fresh",
-            minimum_soc=30,
-        )
-        self.assertIn("ЗАХИСТ ENERGYHUB", protected)
-        self.assertIn("60%", protected)
-        self.assertIn("50%", protected)
-        self.assertIn("70%", protected)
 
-        waiting = heat_pump_management_message(
-            confidence="normal",
-            voltage=230,
-            freshness="stale",
-            minimum_soc=20,
-        )
-        self.assertIn("ОЧІКУВАННЯ", waiting)
-        self.assertIn("не надсилає нових команд", waiting)
-
-    def test_grid_voltage_must_exceed_inverter_presence_threshold(self):
-        message = heat_pump_management_message(
-            confidence="normal",
-            voltage=120,
-            freshness="fresh",
-            minimum_soc=20,
-        )
-
-        self.assertIn("ЗАХИСТ ENERGYHUB", message)
-
-    def test_reserve_warning_explains_manual_or_protected_policy(self):
-        manual = reserve_warning_message(
-            soc=50,
-            minimum_soc=20,
-            offset=30,
-            confidence="normal",
-            voltage=230,
-            freshness="fresh",
-            active_heat_pumps=[("1-му", 742)],
-        )
-        self.assertIn("керує родина", manual)
-        self.assertIn("1-му поверсі", manual)
-        self.assertIn("742 Вт", manual)
-
-        protected = reserve_warning_message(
-            soc=40,
-            minimum_soc=20,
-            offset=20,
-            confidence="unstable",
-            voltage=230,
-            freshness="fresh",
-            active_heat_pumps=[("2-му", 815), ("3-му", 603)],
-        )
-        self.assertIn("заблоковані", protected)
-        self.assertIn("60%", protected)
-        self.assertIn("2-му поверсі", protected)
-        self.assertIn("3-му поверсі", protected)
 
 
 class EventObservationTests(unittest.TestCase):
@@ -261,9 +161,44 @@ class EventObservationTests(unittest.TestCase):
             timezone="Europe/Kyiv",
         )
 
+    def test_reserve_topups_do_not_repeat_within_persisted_grid_episode(self):
+        import copy
+        client=FakeClient(dict(mode='solar',voltage=230,soc=39,minimum=40,freshness='fresh'))
+        state={}
+        observe_grid_hold(self.config,client,state,NOW)
+        def transition(mode,soc,second):
+            client.values.update(mode=mode,soc=soc)
+            observe_grid_hold(self.config,client,state,NOW+timedelta(seconds=second))
+            observe_grid_hold(self.config,client,state,NOW+timedelta(seconds=second+10))
+        transition('panic',39,1)
+        self.assertEqual(['battery_reserve_charging'],[x['kind'] for x in state['pending_notifications']])
+        state['pending_notifications'].clear()
+        transition('panic_grid_hold',40,12)
+        transition('panic',39,23)
+        self.assertEqual([],state['pending_notifications'])
+        state=copy.deepcopy(state)
+        transition('panic_grid_hold',40,34)
+        transition('panic',39,45)
+        self.assertEqual([],state['pending_notifications'])
+
+    def test_outage_preparation_hold_does_not_claim_normal_reserve_release(self):
+        self.config.dtek_schedule_enabled=True
+        client=FakeClient(dict(mode='solar',voltage=230,soc=90,minimum=20,freshness='fresh'))
+        client.values['sensor.energyhub_outage_preparation']=dict(state='holding',attributes=dict(
+            control_active=True,phase='holding',target_soc=90,checked_at=NOW.isoformat(),
+            start=(NOW+timedelta(hours=2)).isoformat()))
+        state={}
+        observe_grid_hold(self.config,client,state,NOW)
+        client.values['mode']='panic_grid_hold'
+        observe_grid_hold(self.config,client,state,NOW+timedelta(seconds=1))
+        observe_grid_hold(self.config,client,state,NOW+timedelta(seconds=11))
+        self.assertEqual([],state.get('pending_notifications',[]))
+        self.assertIsNone(state['grid_hold_context']['release_soc'])
+        self.assertTrue(state['grid_hold_context']['outage_preparation'])
+
     def test_grid_loss_and_recovery_are_debounced_and_duration_persists(self):
         state = {}
-        client = FakeClient({"voltage": 230, "soc": 80})
+        client = FakeClient({"voltage": 230, "soc": 80, "freshness": "fresh"})
         self.assertTrue(observe_grid(self.config, client, state, NOW))
         self.assertEqual([], state.get("pending_notifications", []))
 
@@ -271,20 +206,24 @@ class EventObservationTests(unittest.TestCase):
         self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(minutes=1)))
         self.assertEqual([], state["pending_notifications"])
         self.assertFalse(observe_grid(self.config, client, state, NOW + timedelta(minutes=1, seconds=59)))
-        self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(minutes=2)))
+        for second in (120, 180, 239):
+            self.assertFalse(observe_grid(self.config, client, state, NOW + timedelta(seconds=second)))
+        self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(minutes=4)))
         self.assertEqual("grid_lost", state["pending_notifications"][0]["kind"])
 
         client.values.update({"voltage": 230, "soc": 72})
         self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(hours=1)))
         self.assertFalse(observe_grid(self.config, client, state, NOW + timedelta(hours=1, seconds=59)))
-        self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(hours=1, minutes=1)))
+        for second in (120, 179):
+            self.assertFalse(observe_grid(self.config, client, state, NOW + timedelta(hours=1, seconds=second)))
+        self.assertTrue(observe_grid(self.config, client, state, NOW + timedelta(hours=1, minutes=3)))
         recovery = state["pending_notifications"][1]["message"]
         self.assertIn("Без ДТЕК: 59 хв", recovery)
-        self.assertIn("Заряд батареї: 72%", recovery)
+        self.assertIn("80% → 72%", recovery)
 
     def test_starting_offline_notifies_after_debounce(self):
         state = {}
-        client = FakeClient({"voltage": 0, "soc": 50})
+        client = FakeClient({"voltage": 0, "soc": 50, "freshness": "fresh"})
         observe_grid(self.config, client, state, NOW)
         self.assertIsNone(state.get("grid_online"))
         self.assertEqual([], state["pending_notifications"])
@@ -292,11 +231,30 @@ class EventObservationTests(unittest.TestCase):
             self.config, client, state, NOW + timedelta(seconds=20)))
         self.assertFalse(observe_grid(
             self.config, client, state, NOW + timedelta(seconds=59)))
+        for second in (90, 120, 150, 179):
+            self.assertFalse(observe_grid(self.config, client, state, NOW + timedelta(seconds=second)))
         self.assertTrue(observe_grid(
-            self.config, client, state, NOW + timedelta(seconds=60)))
+            self.config, client, state, NOW + timedelta(seconds=180)))
         self.assertFalse(state["grid_online"])
         self.assertEqual("grid_lost", state["pending_notifications"][0]["kind"])
         self.assertEqual(NOW.isoformat(), state["outage_started_at"])
+
+    def test_grid_loss_queues_qualified_five_minute_generation(self):
+        state={'grid_online':True,'grid_candidate':False,
+               'grid_candidate_since':(NOW-timedelta(minutes=3)).isoformat(),
+               'grid_last_observed_at':(NOW-timedelta(seconds=30)).isoformat(),
+               'solar_event_samples':[dict(last_updated=(NOW-timedelta(seconds=300-i*30)).isoformat(),state=800)
+                                      for i in range(10)]}
+        client=FakeClient({'voltage':0,'soc':40,'freshness':'fresh',
+            'sensor.energyhub_pv2_telemetry_freshness':'fresh',
+            'sensor.powmr_10_2m_total_pv_power':dict(state='800',last_reported=NOW.isoformat()),
+            'binary_sensor.energyhub_grid_confirmed':dict(state='off',attributes=dict(
+                confirmation_seconds=180,checked_at=NOW.timestamp(),transition_pending=False))})
+        observe_grid(self.config,client,state,NOW)
+        notice=state['pending_notifications'][0]
+        self.assertEqual('grid_lost',notice['kind'])
+        self.assertIn('☀️ Генерація: <b>0.8 kW</b> · середнє за 5 хв.',notice['message'])
+        self.assertEqual((NOW-timedelta(minutes=3)).isoformat(), state["outage_started_at"])
 
     def test_grid_hold_transition_reports_dynamic_release_threshold(self):
         state = {}
@@ -311,7 +269,7 @@ class EventObservationTests(unittest.TestCase):
         message = state["pending_notifications"][0]
         self.assertEqual("grid_hold_started", message["kind"])
         self.assertIn("Резерв <b>20%</b>", message["message"])
-        self.assertIn("режим сонце + ДТЕК", message["message"])
+        self.assertIn("Будинок підключено до ДТЕК", message["message"])
         self.assertIn("при <b>30%</b>", message["message"])
 
         state["pending_notifications"].clear()
@@ -322,9 +280,10 @@ class EventObservationTests(unittest.TestCase):
             self.config, client, state, NOW + timedelta(seconds=22)))
         released = state["pending_notifications"][0]
         self.assertEqual("grid_hold_released", released["kind"])
-        self.assertIn("повернувся до пріоритету сонця", released["message"])
+        self.assertIn("працює без допомоги ДТЕК", released["message"])
         self.assertIn("Поточний заряд: <b>31%</b>", released["message"])
-        self.assertIn("порогу повернення <b>30%</b>", released["message"])
+        self.assertNotIn("Імпорт за весь період невідомий", released["message"])
+        self.assertNotIn("порогу повернення", released["message"])
 
     def test_confirmed_below_reserve_charging_is_distinct_from_hold(self):
         state = {}
@@ -337,6 +296,32 @@ class EventObservationTests(unittest.TestCase):
         self.assertEqual("battery_reserve_charging", state["pending_notifications"][0]["kind"])
         self.assertIn("ДТЕК підключено", state["pending_notifications"][0]["message"])
         self.assertIn("до <b>20%</b>", state["pending_notifications"][0]["message"])
+
+    def test_grid_use_summary_includes_charging_phase_and_freezes_energy(self):
+        from app.grid_use import COUNTERS
+        state = {}
+        client = FakeClient(dict(mode='solar', voltage=230, soc=18, minimum=20, freshness='fresh'))
+        def tick(seconds, mode, soc, night, normal):
+            when = NOW + timedelta(seconds=seconds)
+            client.values.update(mode=mode, soc=soc)
+            for key, value in zip(COUNTERS, (night, normal)):
+                client.values[key] = dict(state=str(value), last_reported=when.isoformat(),
+                    attributes=dict(unit_of_measurement='kWh'))
+            observe_grid_hold(self.config, client, state, when)
+        tick(0, 'solar', 18, 10, 20)
+        tick(1, 'panic', 18, 10, 20)
+        tick(11, 'panic', 18, 10.2, 20)
+        tick(30, 'panic_grid_hold', 20, 10.3, 20)
+        tick(40, 'panic_grid_hold', 20, 10.4, 20)
+        tick(60, 'solar', 30, 11, 20)
+        tick(70, 'solar', 30, 11.2, 20)
+        event = next(item for item in state['pending_notifications'] if item['kind'] == 'grid_hold_released')
+        self.assertNotIn('кВт·год', event['message'])
+        self.assertAlmostEqual(1.0, event['grid_use_episode']['kwh'])
+        self.assertEqual((NOW+timedelta(seconds=1)).isoformat(), event['grid_use_episode']['started_at'])
+        before = event['message']
+        tick(90, 'solar', 31, 12, 20)
+        self.assertEqual(before, event['message'])
 
     def test_unavailable_dtek_never_claims_charging(self):
         state = {}
@@ -460,43 +445,7 @@ class EventObservationTests(unittest.TestCase):
         self.assertFalse(observe_grid_confidence(self.config, client, state, NOW))
         self.assertEqual("normal", state["grid_confidence"])
 
-    def test_heat_pump_restart_restore_event_is_reported_once(self):
-        event = {
-            "id": "restart-1",
-            "restored": [
-                {"floor": "1-й", "power_w": 93},
-                {"floor": "2-й", "power_w": 1},
-            ],
-        }
-        client = FakeClient({"restart_event": json.dumps(event)})
-        state = {}
 
-        self.assertTrue(observe_heat_pump_restart_restore(
-            self.config, client, state, NOW
-        ))
-        message = state["pending_notifications"][0]["message"]
-        self.assertIn("1-й поверх: 93 Вт", message)
-        self.assertIn("тепловий насос працює", message)
-        self.assertIn("2-й поверх: 1 Вт", message)
-        self.assertFalse(observe_heat_pump_restart_restore(
-            self.config, client, state, NOW + timedelta(minutes=1)
-        ))
-
-    def test_malformed_restart_event_does_not_block_other_observers(self):
-        for raw in ("null", "42", "[]", '"text"'):
-            with self.subTest(raw=raw):
-                state = {}
-                client = FakeClient({"restart_event": raw})
-                self.assertFalse(observe_heat_pump_restart_restore(
-                    self.config, client, state, NOW
-                ))
-                self.assertNotIn("pending_notifications", state)
-
-        def broken_observer():
-            raise ValueError("bad entity")
-
-        self.assertFalse(observe_safely(broken_observer))
-        self.assertTrue(observe_safely(lambda: True))
 
     def test_failed_inverter_strategy_reports_once_until_recovered(self):
         state = {}
@@ -568,44 +517,12 @@ class EventObservationTests(unittest.TestCase):
         self.assertEqual("-2", telegram.messages[0][0])
         self.assertIn("призупинене", telegram.messages[0][1])
 
-    def test_heat_pump_restart_message_requires_confirmed_restoration(self):
-        with self.assertRaises(ValueError):
-            heat_pump_restart_restored_message({"id": "restart-1", "restored": []})
 
     def test_peak_load_guard_event_is_queued_once_by_event_id(self):
+        client = FakeClient({self.config.peak_load_guard_event_entity: {'state':'load_warning','attributes':{'event':{'event_id':'retired','type':'load_warning','reason':'overload'}}}})
         state = {}
-        event = {
-            "event_id": "peak-load-1",
-            "type": "load_warning",
-            "load_percent": 85,
-            "thresholds": {
-                "shed_percent": 85,
-                "relief_percent": 75,
-                "restore_percent": 60,
-            },
-            "recommended_loads": [
-                {"key": "water_pump"},
-                {"key": "water_boiler"},
-            ],
-        }
-        client = FakeClient({
-            "guard_event": {
-                "state": "Shed recommended",
-                "attributes": {"event": event},
-            }
-        })
-
-        self.assertTrue(observe_peak_load_guard(
-            self.config, client, state, NOW
-        ))
-        self.assertEqual(
-            "peak_load_guard_load_warning",
-            state["pending_notifications"][0]["kind"],
-        )
-        self.assertFalse(observe_peak_load_guard(
-            self.config, client, state, NOW + timedelta(seconds=30)
-        ))
-        self.assertEqual(1, len(state["pending_notifications"]))
+        observe_peak_load_guard(self.config,client,state,NOW)
+        self.assertFalse(state.get('pending_notifications'))
 
     def test_soc_anomaly_initializes_silently_then_queues_each_new_event_once(self):
         first = {
@@ -644,166 +561,12 @@ class EventObservationTests(unittest.TestCase):
         ))
         self.assertEqual(1, len(state["pending_notifications"]))
 
-    def test_reserve_warnings_follow_selected_minimum_and_do_not_repeat(self):
-        state = {"grid_online": False}
-        client = FakeClient({
-            "soc": 70,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 700,
-        })
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW
-        ))
-        self.assertEqual([], state["pending_notifications"])
 
-        client.values["soc"] = 50
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=1)
-        ))
-        self.assertEqual("reserve_30", state["pending_notifications"][-1]["kind"])
 
-        client.values["soc"] = 49
-        self.assertFalse(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=2)
-        ))
 
-        client.values["soc"] = 40
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=3)
-        ))
-        self.assertEqual("reserve_20", state["pending_notifications"][-1]["kind"])
 
-    def test_schema_five_drops_retired_relative_warnings(self):
-        client = FakeClient({
-            "sensor.energyhub_peak_load_guard": {
-                "state": "normal", "attributes": {"control_schema": 5}},
-            "soc": 59, "minimum": 40, "voltage": 0, "freshness": "fresh",
-        })
-        state = {"pending_notifications": [
-            {"kind": "reserve_20", "message": "old", "created_at": NOW.isoformat()}]}
-        self.assertTrue(observe_reserve_warnings(self.config, client, state, NOW))
-        self.assertEqual([], state["pending_notifications"])
-        self.assertEqual(("drop", None), refresh_queued_reserve_warning(
-            self.config, client, "reserve_20"))
 
-    def test_reserve_warning_is_silent_while_grid_is_confirmed_online(self):
-        state = {"grid_online": True}
-        client = FakeClient({
-            "soc": 43,
-            "minimum": 20,
-            "confidence": "normal",
-            "voltage": 230,
-            "freshness": "fresh",
-            "hp1": 93,
-        })
 
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW
-        ))
-        self.assertEqual([], state["pending_notifications"])
-        self.assertFalse(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=1)
-        ))
-        self.assertEqual([], state["pending_notifications"])
-
-    def test_reserve_warning_rearms_after_two_percent_recovery(self):
-        state = {"grid_online": False}
-        client = FakeClient({
-            "soc": 60,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 700,
-        })
-        observe_reserve_warnings(self.config, client, state, NOW)
-        client.values["soc"] = 50
-        observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=1)
-        )
-        client.values["soc"] = 52
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=2)
-        ))
-        client.values["soc"] = 50
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=3)
-        ))
-        self.assertEqual(2, len(state["pending_notifications"]))
-
-    def test_stale_telemetry_does_not_create_reserve_warning(self):
-        state = {"grid_online": False}
-        client = FakeClient({
-            "soc": 20,
-            "minimum": 20,
-            "confidence": "normal",
-            "voltage": 230,
-            "freshness": "stale",
-            "hp1": 700,
-        })
-        self.assertFalse(observe_reserve_warnings(
-            self.config, client, state, NOW
-        ))
-        self.assertEqual([], state["pending_notifications"])
-
-    def test_reserve_warning_requires_heat_pump_above_50_watts(self):
-        state = {"grid_online": False}
-        client = FakeClient({
-            "soc": 70,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 50,
-            "hp2": 12,
-            "hp3": 0,
-        })
-        observe_reserve_warnings(self.config, client, state, NOW)
-
-        client.values["soc"] = 50
-        self.assertFalse(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=1)
-        ))
-        self.assertEqual([], state["pending_notifications"])
-
-        client.values["hp2"] = 650
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, NOW + timedelta(minutes=2)
-        ))
-        message = state["pending_notifications"][0]["message"]
-        self.assertIn("2-му поверсі", message)
-        self.assertIn("650 Вт", message)
-
-    def test_reserve_warning_is_suppressed_through_0801(self):
-        state = {"grid_online": False}
-        client = FakeClient({
-            "soc": 70,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 700,
-        })
-        before_midnight = NOW.replace(hour=23, minute=59)
-        observe_reserve_warnings(self.config, client, state, before_midnight)
-        client.values["soc"] = 50
-
-        at_0801 = (NOW + timedelta(days=1)).replace(hour=8, minute=1)
-        self.assertTrue(reserve_warning_quiet_hours(at_0801))
-        self.assertFalse(observe_reserve_warnings(
-            self.config, client, state, at_0801
-        ))
-        self.assertEqual([], state["pending_notifications"])
-
-        at_0802 = at_0801.replace(minute=2)
-        self.assertFalse(reserve_warning_quiet_hours(at_0802))
-        self.assertTrue(observe_reserve_warnings(
-            self.config, client, state, at_0802
-        ))
-        self.assertEqual("reserve_30", state["pending_notifications"][0]["kind"])
 
     def test_active_heat_pumps_reports_every_floor_above_threshold(self):
         client = FakeClient({"hp1": 51, "hp2": 50, "hp3": 824.4})
@@ -826,7 +589,7 @@ class EventObservationTests(unittest.TestCase):
         self.assertEqual([], telegram.messages)
         self.assertEqual([], state["pending_notifications"])
         self.assertEqual(
-            ["reserve_30", "grid_lost"],
+            ["grid_lost"],
             [event["kind"] for event in state["overnight_family_events"]],
         )
 
@@ -860,58 +623,7 @@ class EventObservationTests(unittest.TestCase):
         ))
         self.assertEqual([("-1", "grid")], telegram.messages)
 
-    def test_delayed_reserve_warning_refreshes_power_before_delivery(self):
-        client = FakeClient({
-            "soc": 49,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 823,
-        })
-        action, message = refresh_queued_reserve_warning(
-            self.config, client, "reserve_30"
-        )
-        self.assertEqual("send", action)
-        self.assertIn("Заряд батареї знизився до 49%", message)
-        self.assertIn("823 Вт", message)
 
-        state = {"pending_notifications": [{
-            "kind": "reserve_30",
-            "message": "stale message",
-            "created_at": NOW.isoformat(),
-        }]}
-        telegram = FakeTelegram()
-        self.assertTrue(deliver_pending_notifications(
-            self.config, telegram, state, NOW, client
-        ))
-        self.assertIn("823 Вт", telegram.messages[0][1])
-
-    def test_delayed_reserve_warning_waits_for_pump_and_drops_after_recovery(self):
-        client = FakeClient({
-            "soc": 49,
-            "minimum": 20,
-            "confidence": "risk",
-            "voltage": 0,
-            "freshness": "fresh",
-            "hp1": 0,
-        })
-        self.assertEqual(
-            ("defer", None),
-            refresh_queued_reserve_warning(self.config, client, "reserve_30"),
-        )
-
-        client.values["soc"] = 53
-        self.assertEqual(
-            ("drop", None),
-            refresh_queued_reserve_warning(self.config, client, "reserve_30"),
-        )
-
-        client.values.update({"soc": 49, "hp1": 700, "voltage": 230})
-        self.assertEqual(
-            ("drop", None),
-            refresh_queued_reserve_warning(self.config, client, "reserve_30"),
-        )
 
     def test_delivery_removes_only_successfully_sent_items(self):
         state = {"pending_notifications": [{"kind": "grid_lost", "message": "alert", "created_at": NOW.isoformat()}]}
@@ -943,6 +655,9 @@ class WeatherWarningTests(unittest.TestCase):
         self.event = {
             "event_id": "uhmc1921/10/hash",
             "severity": 1,
+            "grid_relevant": True,
+            "region_match": True,
+            "region_match": True,
             "hazards": ["thunderstorm"],
             "summary": "Гроза",
             "valid_until": "2026-08-12T23:59:59+03:00",

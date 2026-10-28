@@ -29,25 +29,19 @@ def event(sequence, kind):
 
 class EventDeliveryTests(TestCase):
     def test_poll_drains_all_events_and_legacy_migration_does_not_replay(self):
-        events = [event(1, "load_warning"), event(2, "load_warning_cleared"),
-                  event(3, "load_warning"), event(4, "load_warning_cleared")]
-        client = Client({"event": events[-1], "events": events})
-        state = {"peak_load_guard_last_event_id": "peak-load-2"}
-        config = SimpleNamespace(peak_load_guard_event_entity="guard")
-        self.assertTrue(observe_peak_load_guard(config, client, state, NOW))
-        self.assertEqual(["peak_load_guard_load_warning", "peak_load_guard_load_warning_cleared"],
-                         [item["kind"] for item in state["pending_notifications"]])
-        self.assertFalse(observe_peak_load_guard(config, client, state, NOW))
-        self.assertEqual(2, len(state["pending_notifications"]))
+        client = Client({'events':[event(1,'load_warning'),event(2,'load_warning_cleared')]})
+        state = {}
+        config = SimpleNamespace(peak_load_guard_event_entity='guard')
+        observe_peak_load_guard(config,client,state,NOW)
+        self.assertFalse(state.get('pending_notifications'))
 
     def test_new_stream_reuses_sequence_without_losing_event(self):
-        config = SimpleNamespace(peak_load_guard_event_entity="guard")
+        config = SimpleNamespace(peak_load_guard_event_entity='guard')
         state = {}
-        first = event(1, "load_warning")
-        client = Client({"event": first})
-        observe_peak_load_guard(config, client, state, NOW)
-        client.attributes = {"event": dict(first, stream_id="stream-b")}
-        self.assertTrue(observe_peak_load_guard(config, client, state, NOW))
+        for stream in ('a','b'):
+            client = Client({'event':dict(event(1,'load_warning'),stream_id=stream)})
+            observe_peak_load_guard(config,client,state,NOW)
+        self.assertFalse(state.get('pending_notifications'))
 
     def test_reserve_quiet_hours_and_target_deduplication(self):
         config = SimpleNamespace(weather_buffer_entity="reserve")

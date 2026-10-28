@@ -16,12 +16,12 @@ class SmartPlugAuthorityTests(unittest.TestCase):
         executor = next(x for x in data if x['id'] == 'energyhub_load_control_executor')
         text = str(executor)
         self.assertNotIn('energyhub_grid_confidence', text)
-        self.assertIn('battery_recovered', text)
+        self.assertNotIn('native_restore_allowed', text)
         self.assertIn('climate.set_hvac_mode', text)
         self.assertNotIn('switch.first_floor_heat_pump_plug', executor['actions'][0]['variables']['mapping'].values())
 
     def test_dashboard_explains_actual_outage_and_owned_restoration(self):
         text = (ROOT/'homeassistant/live/storage/lovelace.dashboard_powmr1').read_text(encoding='utf-8')
         self.assertNotIn('Instantaneous grid-voltage and telemetry transitions cannot', text)
-        self.assertIn('actual grid outages', text)
-        self.assertIn('EH-owned', text)
+        self.assertIn('automation.energyhub_battery_discharge_protection', text)
+        self.assertNotIn("'battery_protection'", text)

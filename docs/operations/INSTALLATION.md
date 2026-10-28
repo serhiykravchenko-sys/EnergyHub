@@ -1,61 +1,38 @@
-# Installation and upgrade
+# Installation and upgrade — 3.6.37
 
-This guide covers EnergyHub 2.4.12 / Family Assistant 2.4.15. The candidate has
-completed routine household monitoring; see [release evidence](../validation/RELEASE_2.4.12.md).
-Publication status is stated in the repository README and GitHub releases.
+This source snapshot is not a new tagged public release. Read [validation](../validation/RELEASE_3.6.37.md)
+and [the reference HA guide](../../homeassistant/README.md) before installation.
 
-## Supported reference installation
+The verified reference is Home Assistant OS on aarch64 with PowMr 10.2M PI30MAX
+serial, MQTT and individually mapped devices. Optional PV2 is a separate verified
+read-only Modbus operation. Do not assume another inverter/firmware is compatible.
 
-The verified reference uses Home Assistant OS, a PowMr 10.2M inverter with
-PI30MAX over USB serial, and MQTT. Optional PV2 telemetry is a separate,
-read-only verified Modbus capability, not generic register-write support.
-Other hardware and firmware require their own capability verification.
+1. Back up HA. Use the public repository URL
+   `https://github.com/serhiykravchenko-sys/EnergyHub` for the App store after the
+   intended version's publication/acceptance is confirmed.
+2. Set local MQTT credentials and a persistent serial path in app options.
+   Never place tokens, addresses or device credentials in Git. Optional control
+   inputs are not supplied merely by installing an app.
+3. Review and merge HA helpers/packages/automations rather than replacing your
+   whole home. Map every generic entity alias, validate device capabilities and
+   required dashboard cards. Keep Autopilot/load/heating control off until
+   commissioning; inspect initialization rules before merging the reference.
+4. Start and check version banners, MQTT, telemetry freshness, inverter settings
+   and reconstruction. Menu 01 has readback; Menu 16 is ACK-confirmed only.
+5. Commission family OFF, missing/stale input, restart, native saved states and
+   interlocks in attended tests. Do not shed essential loads. A configuration
+   check does not prove physical switching. Never inject faults just for wording.
+6. Configure optional Family reporting and validate the intended destination.
+   Public environment/plug/household lists are empty. Xiaomi cloud observation
+   and the bounded Tuya reload aid are disabled; explicitly assess credentials,
+   permissions and compatible integration isolation before any opt-in.
 
-1. Create a Home Assistant backup.
-2. Add `https://github.com/serhiykravchenko-sys/EnergyHub` to the App store's
-   repositories after the release is published.
-3. Install Energy Hub, configure MQTT and the persistent serial device path,
-   and verify the installed hardware/protocol options. Never copy credentials
-   or serial identifiers from another installation.
-4. Start with load control disabled. Check the version banner, MQTT discovery,
-   telemetry freshness, startup reconstruction and inverter settings.
-5. Adapt the [Home Assistant examples](../../homeassistant/README.md). Merge
-   helpers and automations, map device entities and perform attended checks.
-6. Optionally install Telegram Family Assistant. Configure your bot token,
-   destination and local HA access in app options, never in Git. Configure
-   optional sensor/plug lists for your home; the public defaults are empty.
+App-only upgrades do not require Core stop/start. Reload the App store, Update,
+then check build/startup evidence. For YAML, compare/merge, run `ha core check`
+and reload/restart as required. Stop Core before any selected `.storage` copy,
+preserve rollback, check and start. Reference storage is not a portable registry:
+do not copy another home's live entity/device/config-entry registries.
 
-## Safety and commissioning
-
-Do not connect critical loads to shedding roles. Verify manual OFF authority,
-device acknowledgement, missing-device behavior, timer pause/restore and
-one-at-a-time protective switching before unattended operation. Family
-temperature and fan settings remain authoritative in manual Smart Heating.
-Cold-weather commissioning is still needed on each installation.
-
-Menu 16 changes are ACK-confirmed without independent readback. Failed or
-uncertain inverter transitions need attended verification; no automatic retry
-of an undocumented hardware operation is promised. Grid Import is an estimate,
-not a revenue-grade meter. Tariff accounting is not multi-slot optimization.
-
-## Upgrade
-
-Back up first and read the release notes. For app-only changes, reload the App
-store, select Update, then inspect build/startup logs and affected entities.
-Do not stop Home Assistant Core just for an app update.
-
-For YAML changes, compare and merge with your maintained configuration, run
-`ha core check`, and reload YAML or restart Core as the changed integration
-requires. For `.storage` changes, stop Core before copying selected files,
-preserve backups, check the configuration and start Core. Do not overwrite
-your whole dashboard/helper registry with reference storage files.
-
-## Repository checks
-
-Run `python -m unittest discover -s tests -q` inside each of `addon/`,
-`telegram-family-bot/` and `homeassistant/`, with the relevant Python dependencies
-installed. These tests use fixtures; they do not prove live hardware behavior.
-
-See [HA responsibilities](12-HomeAssistant-Configuration.md),
-[verified commands](../hardware/powmr-10-2m-verified-commands.md), and
-[positioning](../project/POSITIONING.md).
+There is no universal plug-and-play installer, AI control, arbitrary tariff-slot
+optimizer or hardware recovery guarantee. Monitor naturally occurring events and
+scheduled reports before unattended operation or public release acceptance.

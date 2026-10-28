@@ -1,0 +1,9 @@
+{
+  "domain": "energyhub_network",
+  "name": "EnergyHub Network Settings",
+  "version": "3.6.27",
+  "documentation": "https://github.com/serhiykravchenko-sys/EnergyHub",
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "requirements": []
+}

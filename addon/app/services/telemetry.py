@@ -69,6 +69,9 @@ class TelemetryService:
 
         if not state.valid:
             log("Telemetry invalid")
+            missing=[key for key in REQUIRED_FIELDS if _to_float(data.get(key)) is None]
+            log('Telemetry rejection reason: '+('missing/non-numeric required fields: '+', '.join(missing)
+                if missing else 'required value outside accepted range'))
             log(
                 "Invalid values | "
                 f"SOC={state.battery_soc} | "

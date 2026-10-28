@@ -168,7 +168,7 @@ class DailySummaryService:
 
         snapshot_inputs["solar_actual_today"] = solar_actual_today
         snapshot_inputs["battery_full_today"] = (
-            battery_full_today is True
+            battery_full_today if type(battery_full_today) is bool else None
         )
 
         return self.snapshot(
@@ -253,7 +253,7 @@ class DailySummaryService:
                 ]
             ),
             "solar_actual_kwh": values.get("solar_actual_today"),
-            "battery_full": bool(values.get("battery_full_today", False)),
+            "battery_full": values.get("battery_full_today") if type(values.get("battery_full_today")) is bool else None,
             "grid_import_estimated_kwh": round(
                 self.grid_import.daily_energy_kwh,
                 3,
@@ -284,7 +284,7 @@ class DailySummaryService:
                 ]
                 and existing.get("solar_actual_kwh")
                 == snapshot["solar_actual_kwh"]
-                and bool(existing.get("battery_full", False))
+                and existing.get("battery_full")
                 == snapshot["battery_full"]
             )
 
@@ -334,7 +334,8 @@ class DailySummaryService:
                 self._forecast_error_percent(self.last_snapshot)
             ),
             "daily_battery_reached_full": (
-                "on" if self.last_snapshot.get("battery_full") else "off"
+                "on" if self.last_snapshot.get("battery_full") is True else
+                "off" if self.last_snapshot.get("battery_full") is False else "unknown"
             ),
             "daily_grid_availability": (
                 self.last_snapshot[
@@ -507,7 +508,7 @@ class DailySummaryService:
 
     @classmethod
     def _forecast_error_percent(cls, snapshot):
-        if snapshot.get("battery_full"):
+        if snapshot.get("battery_full") is not False:
             return "unknown"
         actual = cls._numeric_value(snapshot.get("solar_actual_kwh"))
         forecast = cls._numeric_value(snapshot.get("solar_forecast_kwh"))

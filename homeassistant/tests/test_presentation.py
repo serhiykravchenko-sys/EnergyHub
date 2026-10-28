@@ -49,8 +49,8 @@ class PresentationTests(unittest.TestCase):
             "input_boolean.energyhub_autopilot",
             "binary_sensor.energyhub_battery_reserve_auto",
             "input_boolean.energyhub_load_control_armed",
-            "input_boolean.energyhub_smart_heating",
-            "input_boolean.energyhub_solar_only_heating",
+            "input_select.energyhub_climate_policy",
+            "input_select.energyhub_climate_operation",
         }
         buttons = {
             node.get("entity"): node
@@ -72,13 +72,15 @@ class PresentationTests(unittest.TestCase):
         grids = [node for node in self.walk(self.dashboard())
                  if node.get('type') == 'grid' and node.get('columns') == 2]
         self.assertTrue(any({item.get('entity') for item in grid.get('cards', [])}
-                            == {'binary_sensor.energyhub_battery_reserve_auto',
-                                'input_boolean.energyhub_load_control_armed'}
+                            == {'automation.energyhub_battery_discharge_protection',
+                                'automation.energyhub_fridge_battery_protection_20_30'}
                             for grid in grids))
         conditions = [node.get('conditions', []) for node in self.walk(self.dashboard())
                       if node.get('type') == 'conditional' and
-                      (node.get('card') or {}).get('entity') == 'input_boolean.energyhub_solar_only_heating']
-        self.assertEqual([[{'entity':'input_boolean.energyhub_smart_heating','state':'on'}]], conditions)
+                      (node.get('card') or {}).get('entity') == 'input_select.energyhub_climate_operation']
+        self.assertEqual([[{'entity':'input_select.energyhub_climate_policy','state_not':'Off'}]], conditions)
+        for entity in ('input_select.energyhub_climate_policy', 'input_select.energyhub_climate_operation'):
+            self.assertEqual('more-info', buttons[entity]['tap_action']['action'])
 
     def test_grid_confidence_precedes_detailed_telemetry(self):
         nodes = list(self.walk(self.dashboard()))
@@ -88,8 +90,10 @@ class PresentationTests(unittest.TestCase):
                   and status in node.get('cards', [])]
         self.assertEqual(1, len(stacks))
         cards = stacks[0]['cards']
-        confidence = next(i for i, card in enumerate(cards) if 'Grid Confidence' in card.get('content', ''))
-        telemetry = next(i for i, card in enumerate(cards) if card.get('type') == 'entities')
+        confidence = next(i for i, card in enumerate(cards) if 'Надійність ДТЕК' in card.get('content', ''))
+        telemetry = next(i for i, card in enumerate(cards) if card.get('type') == 'entities'
+                         and any((row if isinstance(row,str) else row.get('entity','')) == 'sensor.energyhub_communication_status'
+                                 for row in card.get('entities',[])))
         self.assertLess(confidence, telemetry)
 
     def test_grid_confidence_card_uses_current_status_and_24_48_hour_evidence(self):
@@ -101,7 +105,7 @@ class PresentationTests(unittest.TestCase):
         self.assertIn("sensor.energyhub_grid_confidence", markdown)
         self.assertIn("sensor.energyhub_grid_availability_24h", markdown)
         self.assertIn("sensor.energyhub_grid_available_48h", markdown)
-        self.assertIn("Grid Confidence", markdown)
+        self.assertIn("Надійність ДТЕК", markdown)
 
     def test_beacon_light_calls_are_cosmetic_and_non_blocking(self):
         automations = yaml.safe_load(
@@ -176,32 +180,28 @@ class PresentationTests(unittest.TestCase):
         self.assertIn('Decrease 5%', text)
         self.assertNotIn('Battery Reserve · Recommendations', text)
         self.assertNotIn('Reserve Evidence', text)
-        self.assertIn('generation:', text)
-        self.assertIn('Smart Heating', text)
-        self.assertIn('Grid Confidence:', text)
+        self.assertNotIn('Forecast deficit', text)
+        self.assertNotIn('Smart Heating (+', text)
+        self.assertIn('Grid Confidence', text)
         self.assertIn('Grid and weather are monitored continuously', text)
 
     def test_strategy_card_gates_supply_claims_and_uses_applied_reserve(self):
-        dashboard = json.loads((ROOT / "homeassistant/live/storage/lovelace.dashboard_powmr1").read_text(encoding="utf-8"))
-        template = Environment().from_string(next(x for x in contents(dashboard) if "**Applied Battery Reserve:**" in x))
-        states = {"sensor.energyhub_operating_mode": "hybrid_grid_hold",
-                  "sensor.energyhub_telemetry_freshness": "fresh",
-                  "sensor.powmr_10_2m_grid_voltage": "230",
-                  "sensor.energyhub_operating_mode_reason": "restart recovery",
-                  "input_number.ahm_minimum_soc": "40"}
-        render = lambda: template.render(states=lambda key: states.get(key, "unavailable"))
-        self.assertIn("**Strategy:** Legacy recovery · grid hold", render())
-        self.assertIn("persisted legacy state", render())
-        self.assertIn("**Applied Battery Reserve:** 40", render())
-        states["sensor.energyhub_telemetry_freshness"] = "stale"
-        self.assertNotIn("persisted legacy state", render())
-        states["sensor.energyhub_telemetry_freshness"] = "fresh"
-        states["sensor.powmr_10_2m_grid_voltage"] = "0"
-        self.assertNotIn("persisted legacy state", render())
+        dashboard = self.dashboard()
+        template = Environment().from_string(next(x for x in contents(dashboard) if '**Резерв батареї:**' in x))
+        values = {'sensor.energyhub_operating_mode':'solar', 'input_number.ahm_minimum_soc':'40',
+                  'binary_sensor.energyhub_grid_confirmed':'on'}
+        def render(fresh=True):
+            return template.render(states=lambda e:values.get(e,'unknown'),
+                is_state=lambda e,v:fresh, state_attr=lambda e,k:None)
+        self.assertIn('Без допомоги ДТЕК',render())
+        self.assertIn('**Резерв батареї:** 40%',render())
+        self.assertIn('не підтверджене',render(False))
 
     def test_reserve_card_separates_automatic_and_manual_presentation(self):
         dashboard = json.loads((ROOT / "homeassistant/live/storage/lovelace.dashboard_powmr1").read_text(encoding="utf-8"))
-        template = Environment().from_string(next(x for x in contents(dashboard) if "severe deficit" in x))
+        environment = Environment()
+        environment.filters['timestamp_custom'] = lambda value, fmt: str(value)
+        template = environment.from_string(next(x for x in contents(dashboard) if "**Base reserve calculation:**" in x))
         attributes = {
             "recommendation_status": "ready", "recommended_soc": 40,
             "forecast_deficit": True, "generation_modifier_percent": 20,
@@ -222,7 +222,7 @@ class PresentationTests(unittest.TestCase):
         automatic = render(True)
         self.assertIn("**Current reserve:** 40%", automatic)
         self.assertNotIn("EH recommendation", automatic)
-        self.assertIn("generation: deficit (+20%)", automatic)
+        self.assertNotIn("| Forecast deficit |", automatic)
         manual = render(False)
         self.assertIn("**Selected reserve:** 40%", manual)
         self.assertIn("**EH recommendation:** 40%", manual)

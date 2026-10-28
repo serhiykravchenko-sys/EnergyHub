@@ -1,0 +1,407 @@
+# Prepared 3.6.33 native HA overload and saved battery state.
+input_select:
+  energyhub_overload_phase:
+    name: Overload recovery phase
+    options:
+    - idle
+    - waiting
+    - restoring
+    - retry
+    - deferred
+input_text:
+  energyhub_overload_saved:
+    name: Overload original ON states
+    max: 255
+  energyhub_overload_pending:
+    name: Overload pending restoration
+    max: 255
+  energyhub_battery_plug_saved:
+    name: Battery protection original ON states
+    max: 255
+  energyhub_battery_plug_pending:
+    name: Battery protection pending restoration
+    max: 255
+input_boolean:
+  energyhub_battery_plugs_blocked:
+    name: Battery protection blocks plug restoration
+  energyhub_fridge_owned_off:
+    name: Fridge protection owns OFF state
+script:
+  energyhub_overload_shutdown:
+    alias: EnergyHub overload — save and switch OFF
+    mode: single
+    variables:
+      plugs: &id001
+        microwave: switch.microwave_plug_switch
+        water_pump: switch.water_pump_plug_switch
+        water_boiler: switch.water_boiler_plug_switch
+        heat_pump_floor_2: switch.second_floor_heat_pump_plug
+        heat_pump_floor_3: switch.third_floor_heat_pump_plug_switch
+    sequence:
+    - if:
+      - condition: template
+        value_template: '{{ is_state(''input_select.energyhub_overload_phase'', ''idle'') }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_overload_saved
+        data:
+          value: '{% set ns = namespace(value={}) %}{% set other = (states(''input_text.energyhub_battery_plug_saved'') |
+            from_json({})) %}{% for key, entity in plugs.items() %}{% set ns.value = dict(ns.value, **{key: is_state(entity,
+            ''on'') or other.get(key, false)}) %}{% endfor %}{{ ns.value | to_json }}'
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.energyhub_overload_phase
+      data:
+        option: '{{ ''retry'' if is_state(''input_select.energyhub_overload_phase'', ''restoring'') or is_state(''input_select.energyhub_overload_phase'',
+          ''retry'') else ''waiting'' }}'
+    - action: script.turn_off
+      target:
+        entity_id: script.energyhub_overload_restore
+    - action: script.turn_off
+      target:
+        entity_id: script.energyhub_battery_restore_saved
+    - action: input_text.set_value
+      target:
+        entity_id: input_text.energyhub_overload_pending
+      data:
+        value: '{{ states(''input_text.energyhub_overload_saved'') }}'
+    - if:
+      - condition: template
+        value_template: '{{ expand(plugs.values() | list) | selectattr(''state'', ''eq'', ''on'') | list | count > 0 }}'
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id:
+          - switch.microwave_plug_switch
+          - switch.water_pump_plug_switch
+          - switch.water_boiler_plug_switch
+          - switch.second_floor_heat_pump_plug
+          - switch.third_floor_heat_pump_plug_switch
+        continue_on_error: true
+      - action: notify.send_message
+        target:
+          entity_id: notify.energyhub_family_telegram
+        data:
+          message: ⚠️ Перевантаження інвертора. Надіслано команду вимкнути вибрані розетки; попередні стани збережено.
+        continue_on_error: true
+    - action: script.turn_on
+      target:
+        entity_id: script.energyhub_overload_restore
+  energyhub_overload_restore:
+    alias: EnergyHub overload — staged restoration
+    mode: single
+    variables:
+      plugs: *id001
+    sequence:
+    - repeat:
+        while:
+        - condition: template
+          value_template: '{{ not is_state(''input_select.energyhub_overload_phase'', ''idle'') and is_state(''input_boolean.energyhub_load_control_armed'',
+            ''on'') }}'
+        sequence:
+        - wait_template: '{{ is_number(states(''sensor.powmr_10_2m_load'')) and states(''sensor.powmr_10_2m_load'') | float
+            < 50 }}'
+        - timeout: '{{ 180 if is_state(''input_select.energyhub_overload_phase'', ''retry'') else 300 }}'
+          continue_on_timeout: true
+          wait_template: '{{ not is_number(states(''sensor.powmr_10_2m_load'')) or states(''sensor.powmr_10_2m_load'') | float
+            >= 50 }}'
+        - if:
+          - condition: template
+            value_template: '{{ not wait.completed }}'
+          then:
+          - action: input_select.select_option
+            target:
+              entity_id: input_select.energyhub_overload_phase
+            data:
+              option: restoring
+          - repeat:
+              for_each:
+              - microwave
+              - water_pump
+              - water_boiler
+              - heat_pump_floor_2
+              - heat_pump_floor_3
+              sequence:
+              - condition: template
+                value_template: '{{ is_state(''input_boolean.energyhub_load_control_armed'', ''on'') and is_state(''input_select.energyhub_overload_phase'',
+                  ''restoring'') }}'
+              - wait_template: '{{ is_number(states(''sensor.powmr_10_2m_load'')) and states(''sensor.powmr_10_2m_load'')
+                  | float < 50 }}'
+              - if:
+                - condition: template
+                  value_template: '{{ not is_number(states(''sensor.powmr_10_2m_load'')) or states(''sensor.powmr_10_2m_load'')
+                    | float >= 80 }}'
+                then:
+                - action: input_select.select_option
+                  target:
+                    entity_id: input_select.energyhub_overload_phase
+                  data:
+                    option: retry
+                - action: switch.turn_off
+                  target:
+                    entity_id:
+                    - switch.microwave_plug_switch
+                    - switch.water_pump_plug_switch
+                    - switch.water_boiler_plug_switch
+                    - switch.second_floor_heat_pump_plug
+                    - switch.third_floor_heat_pump_plug_switch
+                  continue_on_error: true
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.energyhub_overload_pending
+                  data:
+                    value: '{{ states(''input_text.energyhub_overload_saved'') }}'
+                - stop: Restoration interrupted; supervisor will resume after recovery
+              - if:
+                - condition: template
+                  value_template: '{{ (states(''input_text.energyhub_overload_pending'') | from_json({})).get(repeat.item,
+                    false) and (repeat.item == ''microwave'' or (is_state(''automation.energyhub_battery_discharge_protection'',
+                    ''off'') or (is_state(''automation.energyhub_battery_discharge_protection'', ''on'') and is_state(''input_boolean.energyhub_battery_plugs_blocked'',
+                    ''off'') and is_state(''sensor.energyhub_telemetry_freshness'', ''fresh'') and ((is_state(''binary_sensor.energyhub_grid_confirmed'',
+                    ''on'') and states(''sensor.powmr_10_2m_grid_voltage'') | float(-1) > 180) or (is_state(''binary_sensor.energyhub_grid_confirmed'',
+                    ''off'') and 0 <= states(''sensor.powmr_10_2m_grid_voltage'') | float(-1) <= 180 and 50 < states(''sensor.powmr_10_2m_battery_soc'')
+                    | float(-1) <= 100))))) and states(plugs[repeat.item]) in [''on'', ''off''] }}'
+                then:
+                - if:
+                  - condition: template
+                    value_template: '{{ is_state(plugs[repeat.item], ''off'') }}'
+                  then:
+                  - action: switch.turn_on
+                    target:
+                      entity_id: '{{ plugs[repeat.item] }}'
+                    continue_on_error: true
+                  - action: notify.send_message
+                    target:
+                      entity_id: notify.energyhub_family_telegram
+                    data:
+                      message: '🔌 Відновлення після перевантаження: надіслано команду увімкнути {{ state_attr(plugs[repeat.item],
+                        "friendly_name") or repeat.item }}.'
+                    continue_on_error: true
+                - action: input_text.set_value
+                  target:
+                    entity_id: input_text.energyhub_overload_pending
+                  data:
+                    value: '{% set value = (states(''input_text.energyhub_overload_pending'') | from_json({})) %}{{ dict(value,
+                      **{repeat.item: false}) | to_json }}'
+                - delay:
+                    seconds: 60
+          - if:
+            - condition: template
+              value_template: '{{ (states(''input_text.energyhub_overload_pending'') | from_json({})).values() | select(''eq'',
+                true) | list | count == 0 }}'
+            then:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.energyhub_overload_phase
+              data:
+                option: idle
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.energyhub_overload_saved
+              data:
+                value: '{}'
+            - action: input_text.set_value
+              target:
+                entity_id: input_text.energyhub_overload_pending
+              data:
+                value: '{}'
+            - action: script.turn_on
+              target:
+                entity_id: script.energyhub_battery_restore_saved
+            else:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.energyhub_overload_phase
+              data:
+                option: deferred
+            - delay:
+                seconds: 30
+  energyhub_battery_save_and_stop:
+    alias: EnergyHub battery — save and switch OFF
+    mode: single
+    variables: &id002
+      plugs:
+        water_pump: switch.water_pump_plug_switch
+        water_boiler: switch.water_boiler_plug_switch
+        heat_pump_floor_2: switch.second_floor_heat_pump_plug
+        heat_pump_floor_3: switch.third_floor_heat_pump_plug_switch
+    sequence:
+    - if:
+      - condition: template
+        value_template: '{{ is_state(''input_boolean.energyhub_battery_plugs_blocked'', ''off'') }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_battery_plug_saved
+        data:
+          value: '{% set ns = namespace(value={}) %}{% set other = (states(''input_text.energyhub_overload_saved'') | from_json({}))
+            %}{% for key, entity in plugs.items() %}{% set ns.value = dict(ns.value, **{key: is_state(entity, ''on'') or other.get(key,
+            false)}) %}{% endfor %}{{ ns.value | to_json }}'
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_battery_plug_pending
+        data:
+          value: '{{ states(''input_text.energyhub_battery_plug_saved'') }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.energyhub_battery_plugs_blocked
+    - action: script.turn_off
+      target:
+        entity_id: script.energyhub_battery_restore_saved
+    - action: script.turn_off
+      target:
+        entity_id: script.energyhub_overload_restore
+    - if:
+      - condition: template
+        value_template: '{{ expand(plugs.values() | list) | selectattr(''state'', ''eq'', ''on'') | list | count > 0 }}'
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id:
+          - switch.water_pump_plug_switch
+          - switch.water_boiler_plug_switch
+          - switch.second_floor_heat_pump_plug
+          - switch.third_floor_heat_pump_plug_switch
+        continue_on_error: true
+      - action: notify.send_message
+        target:
+          entity_id: notify.energyhub_family_telegram
+        data:
+          message: 🔋 ДТЕК недоступний, батарея нижче 40%. Надіслано команду вимкнути розетки; попередні стани збережено.
+        continue_on_error: true
+  energyhub_battery_restore_saved:
+    alias: EnergyHub battery — restore saved states
+    mode: single
+    variables: *id002
+    sequence:
+    - condition: template
+      value_template: '{{ (is_state(''automation.energyhub_battery_discharge_protection'', ''off'') or (is_state(''automation.energyhub_battery_discharge_protection'',
+        ''on'') and is_state(''input_boolean.energyhub_battery_plugs_blocked'', ''off'') and is_state(''sensor.energyhub_telemetry_freshness'',
+        ''fresh'') and ((is_state(''binary_sensor.energyhub_grid_confirmed'', ''on'') and states(''sensor.powmr_10_2m_grid_voltage'')
+        | float(-1) > 180) or (is_state(''binary_sensor.energyhub_grid_confirmed'', ''off'') and 0 <= states(''sensor.powmr_10_2m_grid_voltage'')
+        | float(-1) <= 180 and 50 < states(''sensor.powmr_10_2m_battery_soc'') | float(-1) <= 100)))) and is_state("automation.energyhub_battery_discharge_protection",
+        "on") and is_state(''input_boolean.energyhub_battery_plugs_blocked'', ''off'') and is_state(''input_select.energyhub_overload_phase'',
+        ''idle'') and is_number(states(''sensor.powmr_10_2m_load'')) and states(''sensor.powmr_10_2m_load'') | float < 50
+        }}'
+    - repeat:
+        for_each:
+        - water_pump
+        - water_boiler
+        - heat_pump_floor_2
+        - heat_pump_floor_3
+        sequence:
+        - condition: template
+          value_template: '{{ (is_state(''automation.energyhub_battery_discharge_protection'', ''off'') or (is_state(''automation.energyhub_battery_discharge_protection'',
+            ''on'') and is_state(''input_boolean.energyhub_battery_plugs_blocked'', ''off'') and is_state(''sensor.energyhub_telemetry_freshness'',
+            ''fresh'') and ((is_state(''binary_sensor.energyhub_grid_confirmed'', ''on'') and states(''sensor.powmr_10_2m_grid_voltage'')
+            | float(-1) > 180) or (is_state(''binary_sensor.energyhub_grid_confirmed'', ''off'') and 0 <= states(''sensor.powmr_10_2m_grid_voltage'')
+            | float(-1) <= 180 and 50 < states(''sensor.powmr_10_2m_battery_soc'') | float(-1) <= 100)))) and is_state(''input_boolean.energyhub_battery_plugs_blocked'',
+            ''off'') and is_state(''input_select.energyhub_overload_phase'', ''idle'') and is_number(states(''sensor.powmr_10_2m_load''))
+            and states(''sensor.powmr_10_2m_load'') | float < 50 }}'
+        - if:
+          - condition: template
+            value_template: '{{ (states(''input_text.energyhub_battery_plug_pending'') | from_json({})).get(repeat.item, false)
+              and states(plugs[repeat.item]) in [''on'', ''off''] }}'
+          then:
+          - if:
+            - condition: template
+              value_template: '{{ is_state(plugs[repeat.item], ''off'') }}'
+            then:
+            - action: switch.turn_on
+              target:
+                entity_id: '{{ plugs[repeat.item] }}'
+              continue_on_error: true
+            - action: notify.send_message
+              target:
+                entity_id: notify.energyhub_family_telegram
+              data:
+                message: '🔋 Відновлення після захисту батареї: надіслано команду увімкнути {{ state_attr(plugs[repeat.item],
+                  "friendly_name") or repeat.item }}.'
+              continue_on_error: true
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.energyhub_battery_plug_pending
+            data:
+              value: '{% set value = (states(''input_text.energyhub_battery_plug_pending'') | from_json({})) %}{{ dict(value,
+                **{repeat.item: false}) | to_json }}'
+    - if:
+      - condition: template
+        value_template: '{{ (states(''input_text.energyhub_battery_plug_pending'') | from_json({})).values() | select(''eq'',
+          true) | list | count == 0 }}'
+      then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_battery_plug_saved
+        data:
+          value: '{}'
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.energyhub_battery_plug_pending
+        data:
+          value: '{}'
+automation:
+- id: energyhub_native_overload_supervisor
+  alias: EnergyHub Inverter Overload Protection
+  mode: restart
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.powmr_10_2m_load
+    above: 85
+    id: overload
+  - trigger: template
+    value_template: '{{ is_state(''input_select.energyhub_overload_phase'', ''restoring'') and is_number(states(''sensor.powmr_10_2m_load''))
+      and states(''sensor.powmr_10_2m_load'') | float >= 80 }}'
+    id: restore_overload
+  - trigger: homeassistant
+    event: start
+    id: start
+  - trigger: event
+    event_type: automation_reloaded
+    id: reload
+  - trigger: state
+    entity_id: input_boolean.energyhub_load_control_armed
+    id: armed
+  - trigger: time_pattern
+    seconds: /15
+    id: recovery
+  actions:
+  - if:
+    - condition: template
+      value_template: '{{ is_state(''input_boolean.energyhub_load_control_armed'', ''off'') }}'
+    then:
+    - action: script.turn_off
+      target:
+        entity_id: script.energyhub_overload_restore
+    - stop: Automatic overload protection disabled
+  - condition: template
+    value_template: '{{ is_state(''input_boolean.energyhub_load_control_armed'', ''on'') }}'
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: '{{ is_number(states(''sensor.powmr_10_2m_load'')) and (states(''sensor.powmr_10_2m_load'') | float
+          > 85 or (is_state(''input_select.energyhub_overload_phase'', ''restoring'') and states(''sensor.powmr_10_2m_load'')
+          | float >= 80)) }}'
+      sequence:
+      - action: script.energyhub_overload_shutdown
+    - conditions:
+      - condition: template
+        value_template: '{{ not is_state(''input_select.energyhub_overload_phase'', ''idle'') and is_state(''script.energyhub_overload_restore'',
+          ''off'') }}'
+      sequence:
+      - action: script.turn_on
+        target:
+          entity_id: script.energyhub_overload_restore
+- id: energyhub_battery_saved_recovery
+  alias: EnergyHub battery — finish deferred restoration
+  mode: single
+  triggers:
+  - trigger: time_pattern
+    seconds: /30
+  conditions:
+  - condition: template
+    value_template: '{{ is_state("automation.energyhub_battery_discharge_protection", "on") and is_state(''input_boolean.energyhub_battery_plugs_blocked'',
+      ''off'') and (states(''input_text.energyhub_battery_plug_pending'') | from_json({})).values() | select(''eq'', true)
+      | list | count > 0 }}'
+  actions:
+  - action: script.energyhub_battery_restore_saved

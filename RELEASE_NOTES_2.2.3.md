@@ -21,4 +21,4 @@ No configuration.yaml or helper-storage copy. Homeowner Core stop/check/start fo
 dashboard; update both apps and verify schema/readiness before attended activation.
 Polling is not instantaneous overload protection or a guarantee against motor surges.
 
-See validation (private development record).
+See validation (historical reference: docs/validation/ENERGYHUB_2.2.3_PRIVATE_CANDIDATE.md).

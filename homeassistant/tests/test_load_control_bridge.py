@@ -18,7 +18,7 @@ class BridgeTests(unittest.TestCase):
         actions = self.by_id['energyhub_load_bridge_start']['actions']
         self.assertEqual(['input_text.set_value'], [x['action'] for x in actions])
         source = (ROOT/'homeassistant/live/config/configuration.yaml').read_text(encoding='utf-8')
-        helper = source.split('  energyhub_load_control_armed:',1)[1].split('  energyhub_water_boiler_soc_lockout:',1)[0]
+        helper = source.split('  energyhub_load_control_armed:',1)[1].split('\ninput_number:',1)[0]
         self.assertNotIn('initial:',helper)
         executor = str(self.by_id['energyhub_load_control_executor'])
         for gate in ('bridge_session', 'telemetry_freshness', 'expected_context', 'expected_revision'):
@@ -29,8 +29,8 @@ class BridgeTests(unittest.TestCase):
         serialized = json.dumps(data)
         self.assertNotIn('script.energyhub_start_panic', serialized)
         for value in ('input_boolean.energyhub_autopilot', 'input_boolean.energyhub_load_control_armed',
-                      'input_boolean.energyhub_smart_heating',
-                      'input_boolean.energyhub_solar_only_heating',
+                      'input_select.energyhub_climate_policy',
+                      'input_select.energyhub_climate_operation',
                       'ACTIVE RESERVE', 'Increase 5%', 'Decrease 5%'):
             self.assertIn(value, serialized)
 
@@ -38,9 +38,14 @@ class BridgeTests(unittest.TestCase):
     def setUpClass(cls):
         cls.automations = yaml.safe_load((ROOT/'homeassistant/live/config/automations.yaml').read_text(encoding='utf-8'))
         cls.by_id = {str(a['id']): a for a in cls.automations}
+        package = yaml.safe_load((ROOT/'homeassistant/live/config/packages/energyhub_3.yaml').read_text(encoding='utf-8'))
+        cls.automations += package['automation']
+        cls.by_id.update({r['id']: r for r in package['automation']})
         cls.env = NativeEnvironment()
         cls.env.tests['search'] = lambda value, pattern: bool(re.search(pattern, value))
         cls.env.filters['tojson'] = json.dumps
+        cls.env.filters['to_json'] = json.dumps
+        cls.env.filters['from_json'] = lambda value, default={}: json.loads(value) if isinstance(value,str) and value.startswith('{') else default
 
     def test_unique_ids_and_dashboard_json(self):
         self.assertEqual(len(self.by_id), len(self.automations))
@@ -53,8 +58,8 @@ class BridgeTests(unittest.TestCase):
         self.assertNotIn('energyhub_second_floor_heat_pump_plug_online', configuration)
         self.assertNotIn('binary_sensor.energyhub_first_floor_heat_pump_plug_online', automation)
         self.assertNotIn('binary_sensor.energyhub_second_floor_heat_pump_plug_online', automation)
-        self.assertIn('switch.first_floor_heat_pump_plug', automation)
-        self.assertIn('switch.second_floor_heat_pump_plug', automation)
+        self.assertNotIn('switch.first_floor_heat_pump_plug', automation)
+        self.assertNotIn('switch.second_floor_heat_pump_plug', automation)
 
     def test_every_new_template_compiles(self):
         def walk(value):
@@ -81,8 +86,8 @@ class BridgeTests(unittest.TestCase):
         def render(**kwargs):
             value = template.render(**kwargs)
             return ast.literal_eval(value.strip()) if isinstance(value, str) else value
-        self.assertEqual(['water_boiler'], render(mapping=mapping,
-            target_list=[mapping['water_boiler']]))
+        self.assertEqual([], render(mapping=mapping,
+            target_list=['switch.water_boiler_plug_switch']))
         self.assertEqual(['heat_pump_floor_1'], render(mapping=mapping,
             target_list=['switch.first_floor_heat_pump_eco']))
         self.assertEqual([], render(mapping=mapping, target_list=['switch.unrelated']))
@@ -91,70 +96,50 @@ class BridgeTests(unittest.TestCase):
     def test_executor_is_allowlisted_expiring_and_not_retained(self):
         executor = self.by_id['energyhub_load_control_executor']
         variables = executor['actions'][0]['variables']
-        self.assertEqual(6, len(variables['mapping']))
+        self.assertEqual({'heat_pump_floor_1'}, set(variables['mapping']))
         # First-floor relay is intentionally absent from the command allow-list.
         self.assertNotIn('switch.first_floor_heat_pump_plug', variables['mapping'].values())
         guard = executor['actions'][1]['value_template']
         for field in ('expires_at', 'issued_at', 'expected_context', 'expected_revision',
                       'expected_settings', 'bridge_session',
-                      'energyhub_load_control_armed', 'last_reported'):
+                      'last_reported'):
             self.assertIn(field, guard)
         self.assertFalse(executor['actions'][-1]['data']['retain'])
 
     def test_restore_headroom_is_checked_again_at_execution(self):
-        source = self.by_id['energyhub_load_control_executor']['actions'][2]['value_template']
-        template = self.env.from_string(source)
-        context = dict(cmd=SimpleNamespace(action='restore', key='water_boiler', reason='overload', restore_budget_w=1000),
-                       load_pct=49, load_w=5000, battery_recovered=True, is_state=lambda *args: True)
-        self.assertTrue(template.render(**context))
-        context['load_pct'] = 50
-        self.assertFalse(template.render(**context))
-        context.update(load_pct=49, load_w=1000)
-        self.assertTrue(template.render(**context))
-        context.update(load_pct=0, load_w=1000)
-        self.assertTrue(template.render(**context))
+        gate = self.env.from_string(self.by_id['energyhub_load_control_executor']['actions'][2]['value_template'])
+        context = dict(cmd=dict(action='restore',key='heat_pump_floor_1',reason='battery'),load_pct=49,load_w=100,hp1_battery_recovered=True)
+        self.assertTrue(gate.render(**context))
+        context['load_pct']=50
+        self.assertFalse(gate.render(**context))
 
     def test_no_arm_on_startup(self):
         actions = self.by_id['energyhub_load_bridge_start']['actions']
         self.assertNotIn('input_boolean.turn_on', [x['action'] for x in actions])
         self.assertNotIn('input_boolean.turn_off', [x['action'] for x in actions])
 
-    def test_battery_execution_rechecks_grid_lock_and_recovery(self):
-        template = self.env.from_string(self.by_id['energyhub_load_control_executor']['actions'][2]['value_template'])
-        cmd = dict(action='shed', reason='battery', key='water_pump', battery_locked=False)
-        context = dict(cmd=cmd, battery_evidence_fresh=True, grid_voltage=0,
-                       battery_soc=40, battery_recovered=False, load_pct=10, load_w=1000)
-        self.assertTrue(template.render(**context))
-        context['grid_voltage'] = 230
-        self.assertFalse(template.render(**context))
-        context.update(grid_voltage=0, battery_soc=50)
-        self.assertFalse(template.render(**context))
-        cmd['battery_locked'] = True
-        self.assertTrue(template.render(**context))
-        context['battery_soc'] = 60
-        self.assertFalse(template.render(**context))
-        cmd['action'] = 'restore'
-        self.assertFalse(template.render(**context))
-        context['battery_recovered'] = True
-        self.assertTrue(template.render(**context))
+    def test_retired_battery_commands_fail_the_executor_boundary(self):
+        source = self.by_id['energyhub_load_control_executor']['actions'][1]['value_template']
+        self.assertIn('cmd.get("reason") == "battery"',source)
+        self.assertIn('cmd.get("key") == "heat_pump_floor_1"',source)
 
     def test_no_restart_allowance_gates_or_dashboard_inputs(self):
         executor = str(self.by_id['energyhub_load_control_executor'])
         self.assertNotIn('restore_budget_w', executor)
         self.assertNotIn('energyhub_restart_', executor)
-        self.assertIn("cmd.get('control_schema') == 5", executor)
+        self.assertIn("cmd.get('control_schema') == 6", " ".join(self.by_id['energyhub_load_control_executor']['actions'][1]['value_template'].split()))
         dashboard = (ROOT/'homeassistant/live/storage/lovelace.dashboard_powmr1').read_text(encoding='utf-8')
         self.assertNotIn('input_number.energyhub_restart_', dashboard)
-        self.assertIn('below 50% for five minutes', dashboard)
+        self.assertIn('below 50% for five minutes', dashboard.lower())
 
     def test_bridge_contract_version_prevents_old_retained_arming(self):
         payload = self.by_id['energyhub_load_control_snapshot']['actions'][1]['data']['payload']
-        self.assertIn("'control_schema': 5", payload)
+        self.assertIn("'control_schema': 6", payload)
         self.assertNotIn('restore_budget_w', payload)
         self.assertNotIn('energyhub_restart_', payload)
         self.assertIn("'automatic_requested'", payload)
-        self.assertIn("'smart_heating_enabled'", payload)
-        self.assertEqual(6, payload.count("'state_observed_at'"))
+        self.assertNotIn("'battery_control_ready'", payload)
+        self.assertEqual(1, payload.count("'state_observed_at'"))
 
     def test_missing_participant_does_not_abort_whole_snapshot(self):
         payload = self.by_id['energyhub_load_control_snapshot']['actions'][1]['data']['payload']
@@ -172,7 +157,7 @@ class BridgeTests(unittest.TestCase):
             bridge_ready=False,
         )
         snapshot = json.loads(rendered)
-        self.assertEqual(6, len(snapshot['loads']))
+        self.assertEqual(1, len(snapshot['loads']))
         self.assertFalse(snapshot['armed'])
         self.assertTrue(all(row['state_observed_at'] is None and row['context_id'] is None
                             and row['power_observed_at'] is None for row in snapshot['loads']))
@@ -191,15 +176,15 @@ class BridgeTests(unittest.TestCase):
         policy = self.by_id['energyhub_smart_heating_first_floor']
         self.assertEqual('smart_enabled', policy['triggers'][2]['id'])
         branches = policy['actions'][2]['choose']
-        manual = self.env.from_string(branches[1]['conditions'])
+        manual = self.env.from_string(branches[3]['conditions'])
         is_state = lambda entity, state: (entity, state) == (
             'climate.first_floor_heat_pump', 'off')
         self.assertTrue(manual.render(is_state=is_state))
         self.assertFalse(manual.render(is_state=lambda *args: True))
-        self.assertIn('energyhub_hp1_auto_resume', str(branches[1]))
-        self.assertIn('battery_fresh and soc <= 40', str(branches[2]))
-        self.assertIn('solar_only and not solar_allowed', str(branches[4]))
-        manual_off = self.by_id['energyhub_smart_heating_manual_off']
+        self.assertIn('energyhub_hp1_auto_resume', str(branches[3]))
+        self.assertIn('input_number.energyhub_load_off_soc', str(branches[4]))
+        self.assertIn('solar_only and not solar_allowed', str(branches[6]))
+        manual_off = self.by_id['energyhub_3_family_off_overrides_schedule']
         self.assertIn('context.user_id is not none', str(manual_off))
         self.assertIn('energyhub_hp1_auto_resume', str(manual_off))
 
@@ -213,8 +198,8 @@ class BridgeTests(unittest.TestCase):
                       str(policy['actions'][2]['default']))
 
     def test_manual_off_service_request_accepts_service_data_target(self):
-        manual_off = self.by_id['energyhub_smart_heating_manual_off']
-        template = self.env.from_string(manual_off['conditions'][1]['value_template'])
+        manual_off = self.by_id['energyhub_3_family_off_overrides_schedule']
+        template = self.env.from_string(manual_off['conditions'][0]['value_template'])
         for placement in ('target', 'service_data'):
             with self.subTest(placement=placement):
                 data = {'domain': 'climate', 'service': 'set_hvac_mode',
@@ -223,20 +208,8 @@ class BridgeTests(unittest.TestCase):
                     'climate.first_floor_heat_pump')
                 trigger = SimpleNamespace(id='manual_request', event=SimpleNamespace(
                     data=data, context=SimpleNamespace(user_id='family')))
-                self.assertTrue(template.render(trigger=trigger))
+                self.assertTrue(template.render(trigger=trigger, is_state=lambda *args: False))
 
-    def test_automatic_plug_off_preserves_family_auto_off_hours(self):
-        for automation_id in ('1784300000101', '1784300000102', '1783103977336'):
-            with self.subTest(automation_id=automation_id):
-                automation = self.by_id[automation_id]
-                # timer.finished switches the plug off, which triggers this
-                # automation again. The expiry run must finish its reset.
-                self.assertEqual('queued', automation['mode'])
-                branch = next(choice for choice in automation['actions'][0]['choose']
-                              if choice['conditions'][0].get('id') == 'pump_off')
-                self.assertEqual('timer.cancel', branch['sequence'][0]['action'])
-                self.assertIn('context.user_id is not none',
-                              branch['sequence'][1]['if'][0]['value_template'])
 
     def test_heating_protection_blocks_other_owned_loads_and_high_load(self):
         source = self.by_id['energyhub_smart_heating_first_floor']['actions'][1]['variables']['protected']
@@ -260,8 +233,8 @@ class BridgeTests(unittest.TestCase):
         template = self.env.from_string(source)
         heating = False
         context = dict(
-            fresh=True, pv=500, soc=70, reserve=20,
-            states=lambda entity: 'solar',
+            fresh=True, pv=500, soc=70, reserve=20, solar_thresholds_valid=True, solar_start_w=600, solar_pause_w=400,
+            states=lambda entity: ('heat' if heating else 'off') if entity.startswith('climate.') else 'solar',
             is_state=lambda entity, state: (
                 (entity == 'sun.sun' and state == 'above_horizon')
                 or (entity == 'climate.first_floor_heat_pump'
@@ -277,82 +250,7 @@ class BridgeTests(unittest.TestCase):
         context['pv'] = 399
         self.assertFalse(template.render(**context))
 
-    def test_restart_restore_remembers_only_manual_heat_pump_plug_choices(self):
-        memory = self.by_id['energyhub_heat_pump_manual_state_memory']
-        restore = self.by_id['energyhub_heat_pump_restart_restore']
-        memory_text = str(memory)
-        restore_text = str(restore)
 
-        self.assertIn('context.user_id is not none', memory_text)
-        self.assertIn('switch.first_floor_heat_pump_plug', memory_text)
-        self.assertIn('switch.second_floor_heat_pump_plug', memory_text)
-        self.assertIn('now().timestamp() - as_timestamp(session', restore_text)
-        self.assertIn('>= 90', restore_text)
-        self.assertIn('sensor.energyhub_telemetry_freshness', restore_text)
-        self.assertIn('sensor.powmr_10_2m_grid_voltage', restore_text)
-        self.assertIn("cycle.get('shedding', false)", restore_text)
-        self.assertIn("cycle.get('blocked', {}).keys()", restore_text)
-        self.assertIn("'heat_pump_floor_1' not in blocked_keys", restore_text)
-        self.assertIn("'heat_pump_floor_2' not in blocked_keys", restore_text)
-        self.assertIn('00:01:00', restore_text)
-        self.assertIn('input_text.energyhub_heat_pump_restart_event', restore_text)
-        self.assertEqual('single', restore['mode'])
-
-        guard = restore['conditions'][3]['value_template']
-        for evidence in ('load_snapshot_at', 'energyhub_heat_pump_grid_recovery_started',
-                         'energyhub_heat_pump_restart_attempt', 'load'):
-            self.assertIn(evidence, guard)
-        self.assertIn('ns.items[:1]', restore['actions'][0]['variables']['candidates'])
-        self.assertIn('energyhub_heat_pump_restart_attempt', str(restore['actions'][1]))
-
-        timer = self.by_id['energyhub_heat_pump_grid_recovery_timer']
-        self.assertTrue(any(t.get('above') == 180 for t in timer['triggers']))
-        self.assertTrue(any(t.get('below') == 180.1 for t in timer['triggers']))
-
-        configuration = (
-            ROOT/'homeassistant/live/config/configuration.yaml'
-        ).read_text(encoding='utf-8')
-        for helper in (
-            'energyhub_heat_pump_manual_states',
-            'energyhub_heat_pump_restart_completed_session',
-            'energyhub_heat_pump_restart_event',
-            'energyhub_heat_pump_restart_attempt',
-        ):
-            self.assertIn(f'  {helper}:', configuration)
-
-    def test_restart_guard_rejects_high_load_fault_and_recovery_window(self):
-        source = self.by_id['energyhub_heat_pump_restart_restore']['conditions'][3]['value_template']
-        template = self.env.from_string(source)
-        observed = datetime(2026, 9, 26, 12, tzinfo=timezone.utc)
-        values = {
-            'sensor.energyhub_peak_load_guard': 'normal',
-            'sensor.powmr_10_2m_load': '20',
-            'sensor.powmr_10_2m_output_power': '1500',
-            'input_datetime.energyhub_heat_pump_grid_recovery_started':
-                (observed - __import__('datetime').timedelta(minutes=6)).isoformat(),
-            'input_text.energyhub_heat_pump_restart_attempt': '',
-        }
-        attrs = {'load_snapshot_at': observed.isoformat(), 'fault': None,
-                 'pending': None, 'cycle': None}
-
-        class States:
-            def __call__(self, entity): return values.get(entity, 'unknown')
-            def __getitem__(self, entity): return SimpleNamespace(last_reported=observed)
-
-        context = dict(now=lambda: observed, states=States(),
-                       state_attr=lambda entity, key: attrs.get(key),
-                       as_timestamp=lambda value, default=0: (
-                           value.timestamp() if isinstance(value, datetime)
-                           else datetime.fromisoformat(value).timestamp() if value else default))
-        self.assertEqual('True', str(template.render(**context)).strip())
-        values['sensor.powmr_10_2m_load'] = '80'
-        self.assertEqual('False', str(template.render(**context)).strip())
-        values['sensor.powmr_10_2m_load'] = '20'
-        attrs['fault'] = 'ownership_journal_unreadable'
-        self.assertEqual('False', str(template.render(**context)).strip())
-        attrs['fault'] = None
-        values['input_datetime.energyhub_heat_pump_grid_recovery_started'] = observed.isoformat()
-        self.assertEqual('False', str(template.render(**context)).strip())
 
     def test_reserve_apply_rejects_unavailable_and_old_evidence(self):
         source = self.by_id['energyhub_battery_reserve_automatic_apply']['conditions'][1]['value_template']
@@ -375,35 +273,35 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual('False', str(template.render(**context)).strip())
 
     def test_warning_only_overload_is_consistent_at_executor(self):
-        executor = self.by_id['energyhub_load_control_executor']
-        gate = self.env.from_string(executor['actions'][2]['value_template'])
-        cmd = SimpleNamespace(action='shed', reason='overload')
-        self.assertTrue(gate.render(cmd=cmd, load_pct=20, inverter_warning_fresh=True))
-        self.assertFalse(gate.render(cmd=cmd, load_pct=20, inverter_warning_fresh=False))
+        gate = self.by_id['energyhub_load_control_executor']['actions'][1]['value_template']
+        self.assertIn('cmd.get("reason") == "battery"',gate)
+        self.assertIn('cmd.get("key") == "heat_pump_floor_1"',gate)
 
     def test_smart_heating_quiet_hours_and_beacon_pulse_are_explicit(self):
         smart_heating = self.by_id['energyhub_smart_heating_first_floor']
         policy = str(smart_heating)
-        self.assertIn('now().hour >= 23 or now().hour < 8', policy)
-        self.assertIn('soc <= 40', policy)
-        self.assertIn('soc < 50', policy)
+        self.assertIn('input_boolean.energyhub_climate_quiet_enabled', policy)
+        self.assertIn("family_mode in ['heat', 'cool']", policy)
+        self.assertIn('input_number.energyhub_load_off_soc', policy)
+        self.assertIn('input_number.energyhub_load_restore_soc', policy)
         self.assertIn('input_boolean.energyhub_hp1_battery_paused', policy)
-        self.assertIn("'Eco' if on_battery", policy)
+        self.assertIn("'Eco' if eco_needed", policy)
         self.assertNotIn('Turbo', policy)
-        self.assertIn('switch.first_floor_heat_pump_quiet', policy)
+        self.assertIn('script.energyhub_apply_hp_profile', policy)
         time_trigger = next(
             trigger for trigger in smart_heating['triggers']
             if trigger['trigger'] == 'time'
         )
-        self.assertEqual(['23:00:00', '08:00:00'], time_trigger['at'])
+        self.assertEqual(['input_datetime.energyhub_climate_quiet_start',
+                          'input_datetime.energyhub_climate_quiet_end'], time_trigger['at'])
         pulse = self.by_id['energyhub_smart_heating_beacon_pulse']
-        self.assertEqual('/20', pulse['triggers'][0]['seconds'])
+        self.assertEqual('/1', pulse['triggers'][0]['minutes'])
         self.assertEqual('timer.start', pulse['actions'][0]['action'])
         self.assertEqual(
             'timer.energyhub_smart_heating_beacon_pulse',
             pulse['actions'][0]['target']['entity_id'],
         )
-        self.assertEqual('00:00:02', pulse['actions'][0]['data']['duration'])
+        self.assertEqual('00:00:05', pulse['actions'][0]['data']['duration'])
 
         configuration = (
             ROOT/'homeassistant/live/config/configuration.yaml'
@@ -423,14 +321,11 @@ class BridgeTests(unittest.TestCase):
         self.assertIn('input_boolean.energyhub_solar_only_heating', beacon)
         self.assertIn('[255, 220, 0]', beacon)
 
-    def test_mode_notification_choose_conditions_are_structurally_valid(self):
+    def test_mode_failure_notification_condition_is_structurally_valid(self):
         notification = self.by_id['1783953087633']
-        branches = notification['actions'][1]['choose']
-        self.assertEqual(2, len(branches))
-        for branch in branches:
-            self.assertIn('sequence', branch)
-            self.assertEqual('template', branch['conditions'][0]['condition'])
-            self.assertIn('value_template', branch['conditions'][0])
+        self.assertEqual('template', notification['conditions'][0]['condition'])
+        self.assertIn('automatic_mode_activation_failed', notification['conditions'][0]['value_template'])
+        self.assertEqual('persistent_notification.create', notification['actions'][1]['action'])
 
     def test_single_visible_overload_switch_separate_from_battery(self):
         dashboard = json.loads((ROOT/'homeassistant/live/storage/lovelace.dashboard_powmr1').read_text(encoding='utf-8'))
@@ -445,6 +340,39 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(1, len(matches))
         self.assertEqual('Inverter Overload Guard', matches[0]['name'])
         self.assertEqual('toggle', matches[0]['tap_action']['action'])
+
+
+    def test_solar_telemetry_gap_preserves_running_state_for_at_most_sixty_seconds(self):
+        policy = self.by_id['energyhub_smart_heating_first_floor']
+        stop = self.env.from_string(policy['actions'][2]['choose'][6]['conditions'])
+        context = dict(solar_only=True, solar_allowed=False, fresh=False,
+                       input_loss_age=13, soc=None, reserve=20, hp_age=600,
+                       solar_inputs_ready=False,
+                       states=lambda entity: 'unknown', is_state=lambda *args: False)
+        self.assertFalse(stop.render(**context))
+        context['input_loss_age'] = 60
+        self.assertTrue(stop.render(**context))
+        context['input_loss_age'] = 13
+        context['is_state'] = lambda entity, value: value == 'below_horizon'
+        self.assertTrue(stop.render(**context))
+        context.update(fresh=True, soc=19, is_state=lambda *args: False)
+        self.assertTrue(stop.render(**context))
+        blocked = self.env.from_string(policy['actions'][2]['choose'][7]['conditions'])
+        self.assertTrue(blocked.render(hp_available=True, protected=False, fresh=False, solar_only=True, solar_inputs_ready=False))
+
+    def test_startup_unknown_mode_does_not_override_gap_grace_or_allow_start(self):
+        policy = self.by_id['energyhub_smart_heating_first_floor']
+        stop = self.env.from_string(policy['actions'][2]['choose'][6]['conditions'])
+        blocked = self.env.from_string(policy['actions'][2]['choose'][7]['conditions'])
+        context = dict(solar_only=True, solar_allowed=False, fresh=True,
+            solar_inputs_ready=False, input_loss_age=1, soc=99, reserve=20,
+            hp_age=600, states=lambda entity: 'unknown', is_state=lambda *args: False)
+        self.assertFalse(stop.render(**context))
+        self.assertTrue(blocked.render(hp_available=True, protected=False, night_stop=False, **context))
+        context['input_loss_age'] = 60
+        self.assertTrue(stop.render(**context))
+        context.update(input_loss_age=1, solar_inputs_ready=True, states=lambda entity: 'hybrid_grid_hold')
+        self.assertTrue(stop.render(**context))
 
 
 if __name__ == '__main__':

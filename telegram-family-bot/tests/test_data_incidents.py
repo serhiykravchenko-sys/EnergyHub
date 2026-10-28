@@ -123,8 +123,8 @@ class IncidentTests(TestCase):
             state={'data_incident_history':[dict(key=key,bad_since=None,
                 intervals=[[now.timestamp()-duration,now.timestamp()]],end=now.timestamp())]}
             return monitor.morning_lines(state,now)
-        self.assertFalse(lines('zigbee',119))
-        self.assertIn('Zigbee2MQTT',lines('zigbee',120)[0])
+        self.assertFalse(lines('zigbee',179))
+        self.assertEqual(180,monitor.alert_after('forecast'))
         self.assertFalse(lines('inverter',299))
         self.assertIn('інвертора',lines('inverter',300)[0])
 
@@ -150,7 +150,7 @@ class IncidentTests(TestCase):
         self.tick(180,{'load_water_pump':False})
         self.assertNotIn('інвертора',self.sent[0])
 
-    def test_collect_distinguishes_one_missing_plug(self):
+    def test_collect_does_not_infer_plug_health_from_legacy_participants(self):
         config=SimpleNamespace(telemetry_freshness_entity='fresh',battery_soc_entity='charge',
             grid_voltage_entity='voltage',solar_forecast_entity='forecast',weather_buffer_entity='reserve')
         rows=[dict(key=k,state='on',availability='not_applicable',power_w=0,
@@ -163,14 +163,15 @@ class IncidentTests(TestCase):
         state={'uhmc_last_snapshot':{'source_status':'fresh','observed_at':self.start.isoformat()}}
         client=SimpleNamespace(state=lambda key:entities.get(key))
         health=monitor.collect(client,config,state,self.start)
-        self.assertEqual(['load_water_pump'],[key for key,value in health.items() if not value])
+        self.assertFalse(any(key.startswith('load_') for key in health))
+        self.assertTrue(all(health.values()))
         self.assertNotIn('pv2',health)
         entities['sensor.energyhub_pv2_telemetry_freshness']={'state':'fresh'}
         monitor.collect(client,config,state,self.start)
         entities.pop('sensor.energyhub_pv2_telemetry_freshness')
         self.assertFalse(monitor.collect(client,config,state,self.start)['pv2'])
 
-    def test_online_unchanged_zigbee_power_is_healthy(self):
+    def test_legacy_power_ages_do_not_create_plug_incidents(self):
         config=SimpleNamespace(telemetry_freshness_entity='fresh',battery_soc_entity='charge',
             grid_voltage_entity='voltage',solar_forecast_entity='forecast',weather_buffer_entity='reserve')
         old=(self.start-timedelta(hours=8)).isoformat()
@@ -182,8 +183,8 @@ class IncidentTests(TestCase):
             'binary_sensor.zigbee2mqtt_bridge_connection_state':{'state':'on'},
             'sensor.energyhub_peak_load_guard':{'attributes':{'load_snapshot_at':self.start.isoformat(),'participants':rows}}}
         health=monitor.collect(SimpleNamespace(state=lambda key:entities.get(key)),config,{},self.start)
-        self.assertTrue(health['zigbee'])
-        self.assertTrue(all(health['load_'+key] for key in monitor.DEVICES))
+        self.assertNotIn('zigbee',health)
+        self.assertFalse(any(key.startswith('load_') for key in health))
 
     def test_parent_bridge_outage_pauses_child_attribution(self):
         self.tick(0,{'load_water_pump':False})
@@ -192,7 +193,7 @@ class IncidentTests(TestCase):
         self.assertIsNone(record['bad_since'])
         self.assertEqual(60,record['intervals'][0][1]-record['intervals'][0][0])
 
-    def test_zigbee_bridge_outage_masks_only_its_two_child_plugs(self):
+    def test_legacy_zigbee_snapshot_is_not_an_active_health_source(self):
         config=SimpleNamespace(telemetry_freshness_entity='fresh',battery_soc_entity='charge',
             grid_voltage_entity='voltage',solar_forecast_entity='forecast',weather_buffer_entity='reserve')
         rows=[dict(key=k,state='on',availability=('unavailable' if 'floor_1' in k or 'floor_2' in k else 'not_applicable'),
@@ -203,10 +204,10 @@ class IncidentTests(TestCase):
             'binary_sensor.zigbee2mqtt_bridge_connection_state':{'state':'off'},
             'sensor.energyhub_peak_load_guard':{'attributes':{'load_snapshot_at':self.start.isoformat(),'participants':rows}}}
         health=monitor.collect(SimpleNamespace(state=lambda key:entities.get(key)),config,{},self.start)
-        self.assertFalse(health['zigbee'])
-        self.assertIsNone(health['load_heat_pump_floor_1'])
-        self.assertIsNone(health['load_heat_pump_floor_2'])
-        self.assertTrue(health['load_water_pump'])
+        self.assertNotIn('zigbee',health)
+        self.assertNotIn('load_heat_pump_floor_1',health)
+        self.assertNotIn('load_heat_pump_floor_2',health)
+        self.assertNotIn('load_water_pump', health)
 
     def test_battery_recurrence_counts_days_not_event_count(self):
         event=dict(timestamp=self.start.isoformat(),previous_soc=90,current_soc=100)

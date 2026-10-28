@@ -10,6 +10,7 @@ from app.adapters.powmr import PowMrLocalAdapter
 from app.config import (
     ENERGYHUB_AVAILABILITY_TOPIC,
     INVERTER_AVAILABILITY_TOPIC,
+    OUTAGE_PREPARATION_FILE,
     load_options,
 )
 from app.mqtt.publisher import (
@@ -66,6 +67,8 @@ from app.services.inverter_controller import InverterController
 from app.services.inverter_health import InverterHealthMonitor
 from app.services.inverter_fault_journal import InverterFaultJournal, valid_qpiws_response
 from app.services.panic_decision import PanicDecisionEngine
+from app.services.outage_preparation import OutagePreparation, TOPIC as OUTAGE_TOPIC, STATUS_TOPIC as OUTAGE_STATUS_TOPIC
+from app.services.night_charge import NightCharge, choose_owner, STATUS_TOPIC as NIGHT_STATUS_TOPIC
 from app.services.peak_load_control import PeakLoadGuardController, COMMAND_TOPIC
 from app.services.pv2_telemetry import PV2TelemetryService
 from app.services.soc_anomaly_journal import SocAnomalyJournal
@@ -158,14 +161,14 @@ def main():
     # One dashboard switch selects automatic control vs warnings-only. The old
     # app flag is accepted for saved-options compatibility, not a second mode.
     peak_load_guard = PeakLoadGuardController(publish_load_intent)
-    log('Overload protection: 85/75/50%; recovery 5 minutes, sequential restore at least 60 seconds; dashboard automatic/warnings-only')
+    log('Overload protection delegated to native HA automation; EH retains first-floor HP battery management only')
     weather_buffer = WeatherBufferDryRun(
         timezone_name=options.get("timezone", "Europe/Kyiv")
     )
     system_health = SystemHealthMonitor()
     autopilot = AutopilotState()
 
-    grid = GridMonitor()
+    grid = GridMonitor('/data/grid-instability.json')
     history = GridHistoryService()
     grid_import = GridImportService(
         timezone_name=options.get("timezone", "Europe/Kyiv")
@@ -185,6 +188,9 @@ def main():
     decision_inputs = {}
 
     panic_decision = PanicDecisionEngine()
+    outage_preparation = OutagePreparation(options, path=OUTAGE_PREPARATION_FILE)
+    night_charge = NightCharge('/data/energyhub_night_charge.json',
+                               enabled=options.get('night_deficit_charge_enabled', True))
 
     mode_requests = queue.Queue(maxsize=1)
     mode_request_lock = threading.Lock()
@@ -266,6 +272,7 @@ def main():
         requested_mode,
         notification_event=None,
         target_soc=None,
+        origin="automatic",
     ):
         # MQTT callbacks run in the Paho network thread while requests are
         # consumed in the main loop. The lock makes the read/replace/write
@@ -275,6 +282,7 @@ def main():
             "mode": requested_mode,
             "notification_event": notification_event,
             "target_soc": target_soc,
+            "origin": origin,
         }
 
         with mode_request_lock:
@@ -288,6 +296,11 @@ def main():
                 if isinstance(pending_request, dict)
                 else pending_request
             )
+
+            if (isinstance(pending_request, dict) and pending_request.get('origin')=='manual'
+                    and origin!='manual' and requested_mode!='safe_solar'):
+                mode_requests.put_nowait(pending_request)
+                return False
 
             if (
                 pending_mode == "safe_solar"
@@ -377,11 +390,13 @@ def main():
 
         if isinstance(request, dict):
             requested_mode = request.get("mode")
+            manual_request = request.get('origin')=='manual'
             requested_target_soc = request.get("target_soc")
             notification_event = request.get(
                 "notification_event"
             )
         else:
+            manual_request = False
             # Backward-compatible handling for any request queued before
             # this process version became active.
             requested_mode = request
@@ -470,6 +485,17 @@ def main():
 
         transition_succeeded = False
 
+        if inverter_controller.manual_panic_active and not manual_request:
+            if requested_mode not in {'panic', 'panic_grid_hold'}:
+                log('Automatic reserve request blocked by manual Panic ownership')
+                return
+            requested_target_soc = 95
+        if manual_request and requested_mode in {'panic','panic_grid_hold'}:
+            if not inverter_controller.set_manual_panic(True):
+                log('Manual Panic activation blocked: ownership could not be persisted')
+                return
+            requested_target_soc = 95
+
         if requested_mode == "hybrid":
             transition_succeeded = (
                 inverter_controller.enter_hybrid()
@@ -484,6 +510,8 @@ def main():
             transition_succeeded = (
                 inverter_controller.restore_solar()
             )
+            if transition_succeeded and manual_request:
+                transition_succeeded = inverter_controller.set_manual_panic(False)
 
         elif requested_mode == "panic":
             panic_target_soc = round(float(
@@ -582,14 +610,92 @@ def main():
 
         grid_confidence = stability.level()
 
+        now_local = datetime.now(weather_buffer.timezone)
+        base_reserve = decision_inputs.get("ahm_minimum_soc")
+        reserve_evidence = weather_buffer.decision or {}
+        evidence_at = reserve_evidence.get("control_evidence_at")
+        try:
+            authority_fresh = 0 <= (now_local-datetime.fromisoformat(evidence_at)).total_seconds() <= 90
+        except (ValueError, TypeError):
+            authority_fresh = False
+        grid_import.set_capacity(outage_preparation.capacity)
+        preparation = outage_preparation.evaluate(
+            now=now_local, soc=state.battery_soc, voltage=state.battery_voltage,
+            charge_a=(state.raw or {}).get("battery_charging_current"),
+            solar_w=pv2_telemetry.last_total_power if pv2_telemetry.total_is_fresh() else None,
+            load_w=state.load_power, grid_online=grid.confirmed if grid.candidate is None else None,
+            mode=inverter_controller.mode,
+            automatic=autopilot.is_enabled() and not inverter_controller.manual_panic_active and authority_fresh and reserve_evidence.get("control_applied") is True,
+            base_reserve=95 if inverter_controller.manual_panic_active else base_reserve, telemetry_valid=state.valid,
+            current_target=inverter_controller.panic_target_soc,
+            ownership_allowed=autopilot.is_enabled() and not inverter_controller.manual_panic_active,
+            weather_modifier=reserve_evidence.get("weather_modifier_percent",0),
+            weather_days=list(weather_buffer.weather_days))
+        preparation["acknowledged"] = (
+            preparation.get("control_active") is True and
+            inverter_controller.mode == ("solar" if preparation["phase"] == "solar" else "panic" if preparation["phase"] == "charging" else "panic_grid_hold") and
+            inverter_controller.panic_target_soc == preparation.get("target_soc"))
+        preparation['acknowledged_target_soc'] = (inverter_controller.panic_target_soc
+            if preparation['acknowledged'] else None)
+        client.publish(OUTAGE_STATUS_TOPIC, json.dumps(preparation), retain=True)
+        from app.services.solar_bridge import assess as assess_solar_bridge
+        bridge_demand=outage_preparation.planning_settings.get('house_demand_kw')
+        bridge = assess_solar_bridge(outage_preparation.forecast_document,
+            now=now_local, soc=state.battery_soc, reserve=base_reserve,
+            load_w=state.load_power,
+            solar_w=pv2_telemetry.last_total_power if pv2_telemetry.total_is_fresh() else None,
+            capacity=outage_preparation.capacity, heating_rate=outage_preparation.heating_rate,
+            demand_kw=bridge_demand,
+            telemetry_valid=state.valid,
+            grid_confirmed=grid.confirmed if grid.candidate is None else None,
+            authority_fresh=authority_fresh and reserve_evidence.get('automatic_control_available') is True)
         decision = panic_decision.evaluate(
+            solar_bridge=bridge,
+            reserve_application_pending=authority_fresh and reserve_evidence.get('automatic_control_available') is True and reserve_evidence.get('control_applied') is not True,
             manual_reserve_soc=decision_inputs.get("ahm_minimum_soc"),
             autopilot_enabled=autopilot.is_enabled(),
             operating_mode=inverter_controller.mode,
             grid_confidence=grid_confidence,
             battery_soc=state.battery_soc,
             grid_available=grid.is_available,
+            manual_panic_active=inverter_controller.manual_panic_active,
         )
+
+        night_charge.update(dict(outage_preparation.forecast_document,
+            **{key: outage_preparation.planning_settings.get(key) for key in ('forecast_max_age_hours',)},
+            planning_checked_at=getattr(outage_preparation, 'planning_checked_at', None)))
+        night = night_charge.evaluate(now=now_local, soc=state.battery_soc,
+            reserve=base_reserve, capacity=outage_preparation.capacity,
+            samples=daily_summary.recent_consumption(now_local.date(), limit=3, require_final=True),
+            grid_online=grid.confirmed if grid.candidate is None else None,
+            automatic=autopilot.is_enabled() and not inverter_controller.manual_panic_active
+                and authority_fresh and reserve_evidence.get('control_applied') is True
+                and outage_preparation.current_from_ha is not None
+                and 0 < outage_preparation.current_from_ha <= 60,
+            telemetry_valid=state.valid, mode=inverter_controller.mode,
+            current_target=inverter_controller.panic_target_soc,
+            ownership_allowed=autopilot.is_enabled() and not inverter_controller.manual_panic_active)
+        night['acknowledged'] = (night.get('control_active') is True
+            and inverter_controller.mode == ('panic' if night['phase'] == 'charging' else 'panic_grid_hold')
+            and inverter_controller.panic_target_soc == night.get('target_soc'))
+        night['observed_charge_a'] = (state.raw or {}).get('battery_charging_current')
+        owner = choose_owner(preparation, night)
+        night['selected_owner'] = owner is night
+        night_charge.record_operation(now=now_local, soc=state.battery_soc, preparation=preparation,
+            night=night, owner=owner, charge_a=night.get('observed_charge_a'),
+            grid_online=grid.confirmed if grid.candidate is None else None)
+        client.publish(NIGHT_STATUS_TOPIC, json.dumps(night), retain=True)
+        if owner is not None:
+            # A validated scheduled/night owner replaces ordinary +10% release.
+            # All writes still use the existing mode queue.
+            is_night = owner is night
+            panic_decision.target_source = "Night tariff deficit charging" if is_night else "Validated DTEK outage preparation"
+            panic_decision.release_soc = None
+            decision = panic_decision._result(
+                status=("night_" if is_night else "outage_")+owner["phase"], phase=owner["phase"],
+                reason=("Night tariff target until "+str(night.get('end') or 'fresh plan recovery')) if is_night else
+                    preparation.get('reason') or "Validated outage preparation until "+str(preparation.get("end" if preparation.get("window_active") else "start") or 'fresh plan recovery'),
+                request=owner.get("request"), target_soc=owner["target_soc"])
 
         if (
             decision.get("target_soc") is not None
@@ -609,11 +715,32 @@ def main():
             panic_decision,
         )
 
-        log(
-            "Automatic Panic evaluation: "
-            f"status={decision['status']}, "
-            f"reason={decision['reason']}"
-        )
+        signature = (decision['status'], decision['reason'], preparation.get('target_soc'),
+                     preparation.get('outage_forecast_complete'), preparation.get('solar_forecast_complete'),
+                     preparation.get('preparation_solar_reason'), preparation.get('preparation_generation_reason'),
+                     preparation.get('forecast_period_count'), preparation.get('forecast_source_at'))
+        if signature != getattr(outage_preparation, 'logged_signature', None):
+            log("Battery reserve evaluation: "
+                f"status={decision['status']}, reason={decision['reason']}")
+            if preparation.get('target_soc') is not None:
+                log('Outage preparation evidence: ' + json.dumps({key: preparation.get(key) for key in (
+                    'start', 'end', 'phase', 'control_active', 'target_soc', 'uncapped_target_soc',
+                    'coverage_required_soc', 'coverage_sufficient', 'coverage_release', 'coverage_reason',
+                    'grid_charge_current_a', 'forecast_source_at', 'forecast_period_count',
+                    'forecast_first_period', 'forecast_last_period',
+                    'preparation_solar_reason', 'preparation_generation_reason',
+                    'demand_source', 'observed_house_demand_kw',
+                    'predicted_minimum_soc', 'solar_covers_house_at', 'solar_bridge_safe',
+                    'house_planning_demand_kw', 'hp_start_permitted',
+                    'outage_forecast_complete',
+                    'outage_credited_solar_kwh', 'outage_required_battery_kwh',
+                    'solar_forecast_complete', 'forecast_net_solar_kwh', 'required_grid_kwh',
+                    'preparation_house_demand_kw', 'preparation_demand_source',
+                    'preparation_house_kwh', 'preparation_gross_solar_kwh', 'preparation_forecast_until',
+                    'planned_grid_start', 'configured_grid_start', 'observed_net_discharge_kw',
+                    'predicted_waiting_discharge_kwh', 'legacy_ownership_released',
+                    'preparation_time_insufficient')}))
+            outage_preparation.logged_signature = signature
 
         requested_mode = decision.get("request")
 
@@ -621,7 +748,7 @@ def main():
             return
 
         log(
-            "Automatic Panic triggered: "
+            "Battery reserve action requested: "
             f"request={requested_mode}, "
             f"target={decision['target_soc']}%"
         )
@@ -652,6 +779,22 @@ def main():
             client.subscribe(
                 "energyhub/input/weather/uhmc"
             )
+            client.subscribe(OUTAGE_TOPIC)
+            client.subscribe("energyhub/reserve/normal_base/set")
+            publish_weather_buffer_discovery(client)
+            publish_weather_buffer(client, weather_buffer)
+            client.publish("homeassistant/sensor/energyhub_outage_preparation/config", json.dumps({
+                "name": "Outage Preparation", "unique_id": "energyhub_outage_preparation",
+                "default_entity_id": "sensor.energyhub_outage_preparation",
+                "state_topic": OUTAGE_STATUS_TOPIC, "value_template": "{{ value_json.phase }}",
+                "json_attributes_topic": OUTAGE_STATUS_TOPIC, "expire_after": 120,
+                "availability_topic": ENERGYHUB_AVAILABILITY_TOPIC}), retain=True)
+            client.publish('homeassistant/sensor/energyhub_night_charge/config', json.dumps({
+                'name': 'Night Charge', 'unique_id': 'energyhub_night_charge',
+                'default_entity_id': 'sensor.energyhub_night_charge',
+                'state_topic': NIGHT_STATUS_TOPIC, 'value_template': '{{ value_json.phase }}',
+                'json_attributes_topic': NIGHT_STATUS_TOPIC, 'expire_after': 120,
+                'availability_topic': ENERGYHUB_AVAILABILITY_TOPIC}), retain=True)
 
             log(
                 "Subscribed to "
@@ -685,6 +828,23 @@ def main():
 
         topic = msg.topic
         payload = msg.payload.decode("utf-8")
+
+        if topic == "energyhub/reserve/normal_base/set":
+            accepted = weather_buffer.set_normal_base(payload, retained=bool(getattr(msg, 'retain', False)))
+            publish_weather_buffer(client, weather_buffer)
+            if accepted:
+                panic_evaluation_requested = True
+                log(f"Normal base reserve accepted: {weather_buffer.policy_base_soc:g}%")
+            else:
+                log("Normal base reserve rejected: invalid, retained, or persistence failed")
+            return
+
+        if topic == OUTAGE_TOPIC:
+            valid_schedule=outage_preparation.update(payload)
+            weather_buffer.update_schedule(outage_preparation.snapshot if valid_schedule else payload)
+            publish_weather_buffer(client, weather_buffer)
+            panic_evaluation_requested = True
+            return
 
         if topic == "energyhub/input/weather/uhmc":
             if weather_buffer.update_weather(payload):
@@ -737,15 +897,14 @@ def main():
 
         if key == "inverter_mode":
             requested_mode = payload.strip().lower()
-            queue_mode_request(requested_mode)
+            queue_mode_request(requested_mode, origin='manual')
             return
 
         if key == "peak_load_control_plugs":
             if peak_load_guard.update_load_snapshot(payload):
                 publish_peak_load_guard(client, peak_load_guard)
-                log("Peak Load Guard participant snapshot updated")
-            else:
-                log("Peak Load Guard ignored an invalid participant snapshot")
+            # Repeated/old snapshots also return False; active HP freshness and
+            # journal diagnostics report control problems without per-packet noise.
             return
 
         if key == 'peak_load_guard_ack' and isinstance(peak_load_guard, PeakLoadGuardController):
@@ -906,6 +1065,14 @@ def main():
     publish_pv2_telemetry(client, pv2_telemetry)
 
     publish_grid_discovery(client)
+    client.publish('homeassistant/binary_sensor/energyhub_grid_confirmed/config', json.dumps({
+        'name': 'Grid Confirmed', 'unique_id': 'energyhub_grid_confirmed',
+        'default_entity_id': 'binary_sensor.energyhub_grid_confirmed',
+        'device_class': 'power', 'state_topic': 'energyhub/grid/confirmed',
+        'availability_topic': 'energyhub/grid/confirmed/availability',
+        'json_attributes_topic': 'energyhub/grid/confirmed/attributes',
+        'expire_after': 90}), retain=True)
+    grid.publish(client, False)
     publish_grid_import_discovery(client)
     publish_health_discovery(client)
     publish_battery_health_discovery(client)
@@ -979,6 +1146,11 @@ def main():
 
             data = inverter.read_telemetry()
             state = telemetry.process(data)
+            outage_preparation.discharge_window.observe(
+                datetime.now(weather_buffer.timezone), voltage=state.battery_voltage,
+                discharge_a=state.battery_current,
+                charge_a=(state.raw or {}).get('battery_charging_current'),
+                valid=state.valid, mode=inverter_controller.mode)
             pv1_sample_time = time.monotonic()
 
             if state.valid and pv2_telemetry.due(pv1_sample_time):
@@ -1123,6 +1295,7 @@ def main():
 
                 last_warning_read = now
 
+            peak_load_guard.battery.configure(outage_preparation.planning_settings)
             peak_load_guard.evaluate(
                 telemetry_valid=state.valid,
                 battery_soc=state.battery_soc,
@@ -1132,14 +1305,7 @@ def main():
                 load_va=(state.raw or {}).get("ac_output_apparent_power"),
                 grid_available=state.grid_available,
                 operating_mode=inverter_controller.mode,
-                overload_warning=(
-                    last_warning_success is not None
-                    and 0 <= time.monotonic() - last_warning_success <= 90
-                    and (
-                        "over_load" in inverter_fault_journal.active_messages
-                        or "overload" in inverter_fault_journal.active_messages
-                    )
-                ),
+
             )
             publish_peak_load_guard(client, peak_load_guard)
 
@@ -1201,6 +1367,8 @@ def main():
                 last_settings_read = now
 
             if not state.valid:
+                grid.handle_inverter_state(state)
+                grid.publish(client, False)
                 watchdog.failure()
                 health.update(watchdog)
 
@@ -1236,9 +1404,9 @@ def main():
                 soc = state.battery_soc
 
                 bus.publish(state)
-                grid_state_changed = history.update(
-                    grid.is_available
-                )
+                grid.publish(client, True)
+                grid_state_changed = (history.update(grid.confirmed)
+                                      if grid.confirmed is not None else False)
 
                 reserve_policy_changed = weather_buffer.update_grid_confidence(
                     stability.level(),
@@ -1284,13 +1452,14 @@ def main():
                     grid_import,
                 )
 
-                if panic_decision.requires_immediate_evaluation(
+                if (not outage_preparation.last.get('control_active')
+                    and panic_decision.requires_immediate_evaluation(
                     manual_reserve_soc=decision_inputs.get("ahm_minimum_soc"),
                     operating_mode=inverter_controller.mode,
                     grid_confidence=stability.level(),
                     battery_soc=soc,
                     grid_available=grid.is_available,
-                ):
+                )):
                     if not panic_evaluation_requested:
                         log(
                             "Immediate Normal-grid reserve evaluation "
@@ -1341,6 +1510,8 @@ def main():
 
                 if (
                     panic_evaluation_requested
+                    or outage_preparation.enabled
+                    or night_charge.enabled
                     or (
                         now - last_panic_evaluation
                         >= PANIC_EVALUATION_INTERVAL_SECONDS

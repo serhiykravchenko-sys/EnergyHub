@@ -1,5 +1,5 @@
 name: Energy Hub
-version: "2.4.12"
+version: "3.6.37"
 slug: energy_hub
 description: Local home energy management for PowMr PI30MAX and Home Assistant
 url: https://github.com/serhiykravchenko-sys/EnergyHub
@@ -19,6 +19,15 @@ uart: true
 udev: true
 
 options:
+  night_deficit_charge_enabled: true
+  outage_preparation_enabled: false
+  outage_group: ""
+  outage_capacity_kwh: 16
+  outage_heating_soc_per_hour: 20
+  outage_idle_soc_per_hour: 10
+  outage_grid_charge_a: 60
+  outage_combined_charge_a: 120
+  outage_preparation_margin_minutes: 30
   powmr_enabled: true
   mqtt_host: core-mosquitto
   mqtt_port: 1883
@@ -34,6 +43,16 @@ options:
   timezone: Europe/Kyiv
 
 schema:
+  night_deficit_charge_enabled: bool
+  outage_preparation_enabled: bool
+  outage_group: str
+  outage_capacity_kwh: float(1,1000)
+  outage_heating_soc_per_hour: float(1,100)
+  outage_idle_soc_per_hour: float(1,100)
+  outage_demand_kw: float(0.1,30)? # Legacy installed option; ignored by 3.5.
+  outage_grid_charge_a: float(1,60)
+  outage_combined_charge_a: float(1,120)
+  outage_preparation_margin_minutes: int(0,120)
   peak_load_control_enabled: bool?
   powmr_enabled: bool
   mqtt_host: str
