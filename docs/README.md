@@ -1,6 +1,6 @@
 # Documentation map
 
-This is the 3.6.37 public source snapshot, not a new tagged release. Read the
+This documentation describes the final 3.x release, 3.6.37. Read the
 [validation boundary](validation/RELEASE_3.6.37.md) before enabling controls.
 
 - [Family pictures](Images/family/README.md)

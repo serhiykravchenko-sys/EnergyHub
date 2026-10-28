@@ -6,13 +6,14 @@ warnings, outage schedules and selected household devices through Home Assistant
 
 ![A battery reserve, plus a plan](docs/Images/family/family-battery-and-charging.png)
 
-## Current public source
+## Current release — 3.6.37
 
-This snapshot contains **EnergyHub and Telegram Family Assistant 3.6.37**.
-Both apps started on the reference installation. The owner reports several days
-of normal observation and has accepted public source promotion. This is not a
-new tagged GitHub release. The last
-[published release is 2.4.12](https://github.com/serhiykravchenko-sys/EnergyHub/releases/tag/v2.4.12).
+**EnergyHub and Telegram Family Assistant 3.6.37** close the 3.x development line.
+Both apps started on the reference installation; the owner reports several days
+of normal observation and accepts this release. See the
+[v3.6.37 release](https://github.com/serhiykravchenko-sys/EnergyHub/releases/tag/v3.6.37)
+and [validation limits](docs/validation/RELEASE_3.6.37.md). New architecture and
+product development continue separately in 4.x.
 
 | What it does | What the household gets |
 | --- | --- |

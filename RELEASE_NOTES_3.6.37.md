@@ -1,9 +1,10 @@
-# EnergyHub and Family Assistant 3.6.37 — public source snapshot
+# EnergyHub and Family Assistant 3.6.37 — final 3.x release
 
-Startup/source synchronization are verified on the reference installation.
-The owner reports several days of normal observation and accepted public source
-promotion on October 28, 2026. This is not a new tagged GitHub release or full
-hardware certification; see the evidence boundary below.
+This release closes the 3.x development line. Startup/source synchronization are
+verified on the reference installation. The owner reports several days of normal
+observation and authorized final publication on October 28, 2026. Repository
+validation passed 1,342 public-scope tests. This is not exhaustive hardware
+certification; see the evidence boundary below. New development moves to 4.x.
 
 The 3.x snapshot includes native HA plug overload/outage preservation, separate
 EH first-floor climate management, reserve/night/outage charging, sensor/BMS

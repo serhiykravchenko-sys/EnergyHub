@@ -1,10 +1,10 @@
 # Public history
 
-## 3.6.37 — public source snapshot
+## 3.6.37 — final 3.x release
 
 Monolithic 3.x closeout: native HA plug policies, EH HP1/inverter charging,
 expanded evidence/reporting and final timing/notification/state corrections.
-See [snapshot notes](RELEASE_NOTES_3.6.37.md) and
+See [release notes](RELEASE_NOTES_3.6.37.md) and
 [validation](docs/validation/RELEASE_3.6.37.md).
 
 ## Published 2.4.12

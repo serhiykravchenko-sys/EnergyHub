@@ -1,8 +1,8 @@
 # Roadmap: from reference installation to reusable product
 
 3.x implementation is closed by its owner. Both 3.6.37 apps started. The owner
-reports several days of normal observation and accepted public source promotion
-on October 28, 2026. This snapshot is not a new tagged GitHub release.
+reports several days of normal observation and authorized final 3.6.37 publication
+on October 28, 2026. New development continues separately in 4.x.
 
 | Direction | Technical work | Household outcome |
 | --- | --- | --- |

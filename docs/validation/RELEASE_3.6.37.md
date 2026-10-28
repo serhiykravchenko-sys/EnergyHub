@@ -1,4 +1,4 @@
-# Public source evidence and limits
+# Release 3.6.37 evidence and limits
 
 ## Public-copy checks — October 28
 
@@ -40,7 +40,9 @@ monitoring-acceptance gate, not installation-specific negative-case limits.
 
 No continuous remote HA monitoring is claimed. Repository tests use fixtures;
 they do not prove physical switching, every failure case or cross-home
-compatibility. This source promotion does not create a tag or GitHub Release.
+compatibility. The owner subsequently authorized tag `v3.6.37` and its GitHub
+Release as the final 3.x publication. Documentation-only release finalization
+does not change the tested runtime, HA examples or reviewed device mappings.
 
 Public transforms use generic example device aliases consistently in source,
 HA examples and tests. Optional monitoring lists are empty; optional Xiaomi

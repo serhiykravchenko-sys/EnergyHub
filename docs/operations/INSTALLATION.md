@@ -1,6 +1,6 @@
 # Installation and upgrade — 3.6.37
 
-This source snapshot is not a new tagged public release. Read [validation](../validation/RELEASE_3.6.37.md)
+3.6.37 is the final 3.x release. Read [validation](../validation/RELEASE_3.6.37.md)
 and [the reference HA guide](../../homeassistant/README.md) before installation.
 
 The verified reference is Home Assistant OS on aarch64 with PowMr 10.2M PI30MAX
